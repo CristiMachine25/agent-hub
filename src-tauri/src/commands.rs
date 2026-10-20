@@ -58,7 +58,7 @@ pub async fn emit_accounts(app: &AppHandle, state: &AppState) {
 /// Apply sharing off the async runtime; surface backups/copies as an in-app notice.
 async fn apply_sharing(app: &AppHandle, state: &AppState, account: &Account, adapter: Adapter) {
     let acct = account.clone();
-    let report = tokio::task::spawn_blocking(move || sharing::apply_for_account(&acct, adapter.as_ref())).await;
+    let report = tokio::task::spawn_blocking(move || sharing::apply_for_account(&acct, adapter.as_ref(), None)).await;
     let Ok(report) = report else { return };
     for n in &report.notes {
         log::info!("sharing {}: {n}", account.label);
@@ -397,7 +397,7 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
             let a2 = adapter.clone();
             let h2 = home.clone();
             tokio::task::spawn_blocking(move || {
-                sharing::apply_for_account(&unshared, a2.as_ref());
+                sharing::apply_for_account(&unshared, a2.as_ref(), None);
                 std::fs::remove_dir_all(&h2)
             })
             .await?
@@ -494,7 +494,7 @@ async fn terminal_command(
     }
     if account.shared_from.is_some() {
         let (a, ad) = (account.clone(), adapter.clone());
-        let _ = tokio::task::spawn_blocking(move || sharing::apply_for_account(&a, ad.as_ref())).await;
+        let _ = tokio::task::spawn_blocking(move || sharing::apply_for_account(&a, ad.as_ref(), None)).await;
     }
     Ok(spec)
 }

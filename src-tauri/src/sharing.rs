@@ -17,39 +17,76 @@ pub struct SharingReport {
     pub notes: Vec<String>,
 }
 
-/// Apply an account's sharing options using its provider's path lists.
-pub fn apply_for_account(account: &Account, adapter: &dyn ProviderAdapter) -> SharingReport {
+/// Where each kind of shared item is linked from.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Sources<'a> {
+    /// Skills, plugins, agents, instructions, settings and MCP.
+    pub knowledge: Option<&'a Path>,
+    /// Chat history: stays where the old chats live so they can still be resumed.
+    pub history: Option<&'a Path>,
+}
+
+impl<'a> Sources<'a> {
+    /// Every kind from one home.
+    pub fn same(home: Option<&'a Path>) -> Self {
+        Self { knowledge: home, history: home }
+    }
+
+    pub fn for_kind(&self, kind: ShareKind) -> Option<&'a Path> {
+        if kind == ShareKind::History {
+            self.history
+        } else {
+            self.knowledge
+        }
+    }
+}
+
+/// Apply an account's sharing options using its provider's path lists. History links from
+/// `shared_from`; everything else from `knowledge` when given, else from `shared_from` too.
+/// The tool's default home is never changed.
+pub fn apply_for_account(account: &Account, adapter: &dyn ProviderAdapter, knowledge: Option<&Path>) -> SharingReport {
+    let home = Path::new(&account.home_dir);
+    if account.is_default_home || util::path_key(home) == util::path_key(&adapter.default_home()) {
+        return SharingReport::default();
+    }
     let shareable = adapter.shareable_paths();
     let creds = adapter.credential_paths();
-    apply(
-        Path::new(&account.home_dir),
-        account.shared_from.as_deref().map(Path::new),
-        &account.sharing,
-        &shareable,
-        &creds,
-    )
+    let history = account.shared_from.as_deref().map(Path::new);
+    let sources = Sources { knowledge: knowledge.or(history), history };
+    apply(home, sources, &account.sharing, &shareable, &creds)
 }
 
 pub fn apply(
     home: &Path,
-    shared_from: Option<&Path>,
+    sources: Sources,
     opts: &SharingOptions,
     shareable: &[(ShareKind, Vec<&'static str>)],
     credentials: &[&str],
 ) -> SharingReport {
     let mut report = SharingReport::default();
     // Sharing a home with itself would create self-referencing links.
-    let source = shared_from.filter(|s| util::path_key(s) != util::path_key(home));
+    let usable = |s: Option<&Path>| s.filter(|s| util::path_key(s) != util::path_key(home)).map(Path::to_path_buf);
+    let history = usable(sources.history);
     for (kind, rels) in shareable {
+        let source = usable(sources.for_kind(*kind));
+        // A kind moved off the history source may still have hard links to that source's files
+        // in the home (Windows without symlinks); those are ours to replace or remove.
+        let previous = history.as_ref().filter(|h| source.as_ref().is_some_and(|s| util::path_key(s) != util::path_key(h)));
         for rel in rels {
             if !is_safe_rel(rel) || touches_credentials(rel, credentials) {
                 report.notes.push(format!("{rel}: skipped (protected path)"));
                 continue;
             }
             let dst = home.join(rel);
-            let result = match source {
-                Some(src_home) if opts.enabled(*kind) => share_one(&src_home.join(rel), &dst, rel, &mut report),
-                _ => unshare_one(source.map(|s| s.join(rel)).as_deref(), &dst, rel, &mut report),
+            let old = previous.map(|p| p.join(rel));
+            let result = match &source {
+                Some(src_home) if opts.enabled(*kind) => {
+                    drop_hard_link(old.as_deref(), &dst).and_then(|_| share_one(&src_home.join(rel), &dst, rel, &mut report))
+                }
+                _ => {
+                    let ours: Vec<PathBuf> = source.iter().map(|s| s.join(rel)).chain(old).collect();
+                    unshare_one(&ours, &dst, rel, &mut report)
+                }
             };
             if let Err(e) = result {
                 report.notes.push(format!("{rel}: {e}"));
@@ -59,13 +96,24 @@ pub fn apply(
     report
 }
 
-fn is_safe_rel(rel: &str) -> bool {
+/// Remove `dst` when it is a hard link to `old` (the data stays in `old`).
+fn drop_hard_link(old: Option<&Path>, dst: &Path) -> io::Result<()> {
+    if let Some(old) = old {
+        let is_file = fs::symlink_metadata(dst).map(|m| m.is_file()).unwrap_or(false);
+        if is_file && same_file::is_same_file(old, dst).unwrap_or(false) {
+            fs::remove_file(dst)?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn is_safe_rel(rel: &str) -> bool {
     let p = Path::new(rel);
     !rel.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
 }
 
 /// True when `rel` is a credential path, lies inside one, or contains one.
-fn touches_credentials(rel: &str, credentials: &[&str]) -> bool {
+pub(crate) fn touches_credentials(rel: &str, credentials: &[&str]) -> bool {
     let r = util::path_key(Path::new(rel));
     credentials.iter().any(|c| {
         let c = util::path_key(Path::new(c));
@@ -113,15 +161,15 @@ fn share_one(src: &Path, dst: &Path, rel: &str, report: &mut SharingReport) -> i
     Ok(())
 }
 
-/// Remove only what we created: links (symlink/junction) and hard links to the source. Real data stays.
-fn unshare_one(src: Option<&Path>, dst: &Path, rel: &str, report: &mut SharingReport) -> io::Result<()> {
+/// Remove only what we created: links (symlink/junction) and hard links to a source. Real data stays.
+fn unshare_one(sources: &[PathBuf], dst: &Path, rel: &str, report: &mut SharingReport) -> io::Result<()> {
     let Ok(meta) = fs::symlink_metadata(dst) else {
         return Ok(());
     };
     if is_link(dst) {
         remove_link(dst)?;
         report.unlinked.push(rel.to_string());
-    } else if meta.is_file() && src.is_some_and(|s| same_file::is_same_file(s, dst).unwrap_or(false)) {
+    } else if meta.is_file() && sources.iter().any(|s| same_file::is_same_file(s, dst).unwrap_or(false)) {
         fs::remove_file(dst)?;
         report.unlinked.push(rel.to_string());
     }
@@ -270,7 +318,7 @@ mod tests {
     #[test]
     fn links_dirs_and_files_and_creates_missing_source_dirs() {
         let (_t, src, home) = setup();
-        let r = apply(&home, Some(&src), &all_on(), &paths(), CREDS);
+        let r = apply(&home, Sources::same(Some(&src)), &all_on(), &paths(), CREDS);
         assert_eq!(fs::read_to_string(home.join("skills").join("a.txt")).unwrap(), "skill");
         assert!(is_link(&home.join("skills")));
         assert_eq!(fs::read_to_string(home.join("CLAUDE.md")).unwrap(), "instructions");
@@ -283,8 +331,8 @@ mod tests {
     #[test]
     fn apply_is_idempotent() {
         let (_t, src, home) = setup();
-        apply(&home, Some(&src), &all_on(), &paths(), CREDS);
-        let r = apply(&home, Some(&src), &all_on(), &paths(), CREDS);
+        apply(&home, Sources::same(Some(&src)), &all_on(), &paths(), CREDS);
+        let r = apply(&home, Sources::same(Some(&src)), &all_on(), &paths(), CREDS);
         assert!(r.linked.is_empty(), "nothing relinked: {r:?}");
         let backups = fs::read_dir(&home).unwrap().filter_map(Result::ok).filter(|e| e.file_name().to_string_lossy().contains("hopper-backup")).count();
         assert_eq!(backups, 0);
@@ -296,7 +344,7 @@ mod tests {
         fs::create_dir_all(home.join("skills")).unwrap();
         fs::write(home.join("skills").join("mine.txt"), "keep me").unwrap();
         fs::create_dir_all(home.join("projects")).unwrap();
-        let r = apply(&home, Some(&src), &all_on(), &paths(), CREDS);
+        let r = apply(&home, Sources::same(Some(&src)), &all_on(), &paths(), CREDS);
         assert!(is_link(&home.join("skills")));
         let backup = fs::read_dir(&home)
             .unwrap()
@@ -310,10 +358,10 @@ mod tests {
     #[test]
     fn disabling_removes_only_links_and_keeps_source_data() {
         let (_t, src, home) = setup();
-        apply(&home, Some(&src), &all_on(), &paths(), CREDS);
+        apply(&home, Sources::same(Some(&src)), &all_on(), &paths(), CREDS);
         fs::write(home.join("private.txt"), "x").unwrap();
         let off = SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false };
-        let r = apply(&home, Some(&src), &off, &paths(), CREDS);
+        let r = apply(&home, Sources::same(Some(&src)), &off, &paths(), CREDS);
         assert!(!home.join("skills").exists());
         assert!(!home.join("CLAUDE.md").exists());
         assert!(home.join("private.txt").exists());
@@ -327,18 +375,54 @@ mod tests {
         let (_t, src, home) = setup();
         fs::write(home.join("CLAUDE.md"), "own").unwrap();
         let off = SharingOptions { instructions: false, ..all_on() };
-        apply(&home, Some(&src), &off, &paths(), CREDS);
+        apply(&home, Sources::same(Some(&src)), &off, &paths(), CREDS);
         assert_eq!(fs::read_to_string(home.join("CLAUDE.md")).unwrap(), "own");
     }
 
     #[test]
     fn self_sharing_and_unsafe_paths_are_ignored() {
         let (_t, src, _home) = setup();
-        let r = apply(&src, Some(&src), &all_on(), &paths(), CREDS);
+        let r = apply(&src, Sources::same(Some(&src)), &all_on(), &paths(), CREDS);
         assert!(r.linked.is_empty());
         assert!(!is_safe_rel("../x"));
         assert!(touches_credentials("auth.json", &["auth.json"]));
         assert!(touches_credentials("dir", &["dir/token"]));
         assert!(!touches_credentials("skills", &["auth.json"]));
+    }
+
+    #[test]
+    fn history_and_knowledge_link_from_their_own_sources() {
+        let (t, main, home) = setup();
+        let shared = t.path().join("shared");
+        fs::create_dir_all(shared.join("skills")).unwrap();
+        fs::write(shared.join("skills").join("b.txt"), "shared skill").unwrap();
+        fs::write(shared.join("CLAUDE.md"), "shared instructions").unwrap();
+        fs::create_dir_all(main.join("projects")).unwrap();
+        fs::write(main.join("projects").join("chat.jsonl"), "old chat").unwrap();
+        let sources = Sources { knowledge: Some(&shared), history: Some(&main) };
+        apply(&home, sources, &all_on(), &paths(), CREDS);
+        assert!(is_link(&home.join("skills")));
+        assert!(points_to(&home.join("skills"), &shared.join("skills")));
+        assert!(!home.join("skills").join("a.txt").exists(), "main's skills are not linked");
+        assert_eq!(fs::read_to_string(home.join("CLAUDE.md")).unwrap(), "shared instructions");
+        assert!(points_to(&home.join("projects"), &main.join("projects")));
+        assert_eq!(fs::read_to_string(home.join("projects").join("chat.jsonl")).unwrap(), "old chat");
+    }
+
+    #[test]
+    fn switching_the_knowledge_source_relinks_without_touching_either_source() {
+        let (t, main, home) = setup();
+        apply(&home, Sources::same(Some(&main)), &all_on(), &paths(), CREDS);
+        assert!(points_to(&home.join("skills"), &main.join("skills")));
+        let shared = t.path().join("shared");
+        fs::create_dir_all(shared.join("skills")).unwrap();
+        fs::write(shared.join("CLAUDE.md"), "shared").unwrap();
+        let r = apply(&home, Sources { knowledge: Some(&shared), history: Some(&main) }, &all_on(), &paths(), CREDS);
+        assert!(points_to(&home.join("skills"), &shared.join("skills")));
+        assert_eq!(fs::read_to_string(home.join("CLAUDE.md")).unwrap(), "shared");
+        assert!(points_to(&home.join("projects"), &main.join("projects")));
+        assert_eq!(fs::read_to_string(main.join("skills").join("a.txt")).unwrap(), "skill");
+        assert_eq!(fs::read_to_string(main.join("CLAUDE.md")).unwrap(), "instructions");
+        assert!(!r.notes.iter().any(|n| n.contains("moved")), "{r:?}");
     }
 }
