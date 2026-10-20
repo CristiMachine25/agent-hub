@@ -232,7 +232,9 @@ pub fn settings_from_value(raw: &serde_json::Value) -> AppSettings {
             }
         }
     }
-    serde_json::from_value(merged).unwrap_or(defaults)
+    let mut settings: AppSettings = serde_json::from_value(merged).unwrap_or(defaults);
+    settings.permission_modes.sanitize();
+    settings
 }
 
 fn append_history_file(path: &Path, points: &[UsageHistoryPoint]) -> anyhow::Result<()> {
@@ -372,6 +374,20 @@ mod tests {
         assert_eq!(s.theme, Theme::Dark);
         assert!(!s.notifications.enabled);
         assert_eq!(s.notifications.nearly_exhausted_percent, 80.0);
+    }
+
+    #[test]
+    fn settings_permission_modes_load_with_and_without_the_field() {
+        let old = serde_json::json!({ "pollIntervalMinutes": 7, "theme": "light" });
+        assert_eq!(settings_from_value(&old).permission_modes, PermissionModes::default());
+        let mut plain = serde_json::to_value(AppSettings::default()).unwrap();
+        plain.as_object_mut().unwrap().remove("permissionModes");
+        let parsed: AppSettings = serde_json::from_value(plain).unwrap();
+        assert_eq!(parsed.permission_modes.claude, "default");
+
+        let raw = serde_json::json!({ "permissionModes": { "claude": "bypassPermissions", "codex": "nope", "gemini": "yolo" } });
+        let m = settings_from_value(&raw).permission_modes;
+        assert_eq!((m.claude.as_str(), m.codex.as_str(), m.gemini.as_str(), m.copilot.as_str()), ("bypassPermissions", "default", "yolo", "default"));
     }
 
     #[test]

@@ -336,6 +336,62 @@ pub struct AppSettings {
     pub launch_at_login: bool,
     pub theme: Theme,
     pub live_usage: bool,
+    #[serde(default)]
+    pub permission_modes: PermissionModes,
+}
+
+/// Permission mode Switchyard starts each CLI in, per tool. Values are the tool's own mode names;
+/// "default" leaves the CLI's own setting alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PermissionModes {
+    pub claude: String,
+    pub codex: String,
+    pub gemini: String,
+    pub copilot: String,
+}
+
+impl Default for PermissionModes {
+    fn default() -> Self {
+        let d = || "default".to_string();
+        Self { claude: d(), codex: d(), gemini: d(), copilot: d() }
+    }
+}
+
+impl PermissionModes {
+    /// Modes each tool accepts; the first is the default.
+    pub fn allowed(provider: ProviderId) -> &'static [&'static str] {
+        match provider {
+            ProviderId::Claude => &["default", "acceptEdits", "plan", "bypassPermissions"],
+            ProviderId::Codex => &["default", "auto", "bypass"],
+            ProviderId::Gemini => &["default", "autoEdit", "yolo"],
+            ProviderId::Copilot => &["default", "allowAll"],
+        }
+    }
+
+    pub fn get(&self, provider: ProviderId) -> &str {
+        match provider {
+            ProviderId::Claude => &self.claude,
+            ProviderId::Codex => &self.codex,
+            ProviderId::Gemini => &self.gemini,
+            ProviderId::Copilot => &self.copilot,
+        }
+    }
+
+    /// Reset any value a tool does not know to "default".
+    pub fn sanitize(&mut self) {
+        for provider in ProviderId::ALL {
+            let mode = match provider {
+                ProviderId::Claude => &mut self.claude,
+                ProviderId::Codex => &mut self.codex,
+                ProviderId::Gemini => &mut self.gemini,
+                ProviderId::Copilot => &mut self.copilot,
+            };
+            if !Self::allowed(provider).contains(&mode.as_str()) {
+                *mode = "default".into();
+            }
+        }
+    }
 }
 
 impl Default for AppSettings {
@@ -357,6 +413,7 @@ impl Default for AppSettings {
             launch_at_login: false,
             theme: Theme::Dark,
             live_usage: true,
+            permission_modes: PermissionModes::default(),
         }
     }
 }
