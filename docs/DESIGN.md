@@ -1,4 +1,4 @@
-# Baton: design plan
+# Switchyard: design plan
 
 ## The one question
 
@@ -48,7 +48,7 @@ Account identity colors come from a validated categorical set (dataviz reference
 
 ## Type
 
-Claude's interface pairs a book serif for headings and answers with a plain sans for controls. Baton does the same:
+Claude's interface pairs a book serif for headings and answers with a plain sans for controls. Switchyard does the same:
 
 - **Source Serif 4** (variable, bundled with @fontsource): screen titles, section headings, the account name and
   the big percentage in "Best account right now", the app name. Semibold, tabular figures for numbers that tick.
@@ -61,8 +61,8 @@ Sizes: 13px base (desktop density), 12px secondary, 17px serif section titles, 2
 
 ## Icon
 
-A relay baton on a diagonal, its body made of four quota segments (amber to green), with two short periwinkle
-strokes behind it for the handoff. Drawn on the charcoal tile; it reads at 16px. Source: `app-icon.svg`
+A rail switch on a gradient charcoal tile: one periwinkle track enters from the left and is switched up onto the
+branch whose signal is green (quota left), while the amber and red branches stay idle. Reads at 16px. Source: `app-icon.svg`
 (`npx tauri icon app-icon.svg` regenerates the platform icons), mirrored in `src/components/Logo.tsx`.
 
 ## Terminal grid
@@ -80,7 +80,7 @@ usable at 900×600, never scrolls horizontally.
 
 ```
 ┌────────────┬──────────────────────────────────────────────────────────────┐
-│ ◆ Baton    │ Overview                                    Refresh  Ctrl K   │
+│ ◆ Switchyard    │ Overview                                    Refresh  Ctrl K   │
 │            │ ┌ Use now ───────────────────────────────────────────────────┐│
 │ Overview   │ │ For: [Coding] Long refactor  Quick question  Research  …    ││
 │ Accounts   │ │                                                              ││
