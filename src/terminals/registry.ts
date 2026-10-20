@@ -1,0 +1,246 @@
+// xterm.js instances for the terminal grid, kept outside React so output never re-renders components.
+// Each terminal draws into its own host <div>; panes adopt that div when they mount and release it when
+// they unmount, so switching screens or layouts keeps the terminal and its scrollback intact.
+import { Terminal, type ITheme } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import '@xterm/xterm/css/xterm.css'
+import { api } from '@/api'
+
+export interface TermEntry {
+  term: Terminal
+  fit: FitAddon
+  host: HTMLDivElement
+  cols: number
+  rows: number
+}
+
+const entries = new Map<string, TermEntry>()
+/** Output that arrived before the pane created its terminal (spawn returns after the process starts). */
+const pending = new Map<string, string[]>()
+const PENDING_LIMIT = 512
+
+let listening = false
+let exitHandler: (id: string, code: number | null) => void = () => {}
+
+export const FONT_SIZE_KEY = 'baton.terminalFontSize'
+export const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18]
+
+export function terminalFontSize(): number {
+  try {
+    const n = Number(localStorage.getItem(FONT_SIZE_KEY))
+    return FONT_SIZES.includes(n) ? n : 13
+  } catch {
+    return 13
+  }
+}
+
+const rgb = (name: string) => {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim()
+  return v ? `rgb(${v.split(/\s+/).join(', ')})` : undefined
+}
+
+/** ANSI palettes tuned for the app's warm charcoal (dark) and paper (light) grounds. */
+const ANSI: Record<'dark' | 'light', ITheme> = {
+  dark: {
+    black: '#2A2826',
+    red: '#F07A7A',
+    green: '#7CC99A',
+    yellow: '#E3C26E',
+    blue: '#8FA8F5',
+    magenta: '#C29CF0',
+    cyan: '#79C4C9',
+    white: '#D8D5CD',
+    brightBlack: '#75726B',
+    brightRed: '#FF9A9A',
+    brightGreen: '#9EDDB6',
+    brightYellow: '#F2D88F',
+    brightBlue: '#AFC1FF',
+    brightMagenta: '#D7B9FA',
+    brightCyan: '#9AD9DD',
+    brightWhite: '#F5F3EE'
+  },
+  light: {
+    black: '#2A2826',
+    red: '#B4232F',
+    green: '#1E7A4A',
+    yellow: '#8A6300',
+    blue: '#3352C2',
+    magenta: '#8236B8',
+    cyan: '#16737A',
+    white: '#E4E1D9',
+    brightBlack: '#6E6A62',
+    brightRed: '#D03440',
+    brightGreen: '#25915A',
+    brightYellow: '#A27700',
+    brightBlue: '#4566DA',
+    brightMagenta: '#9A4BD1',
+    brightCyan: '#1B8A92',
+    brightWhite: '#FFFFFF'
+  }
+}
+
+export function terminalTheme(mode: 'dark' | 'light'): ITheme {
+  return {
+    ...ANSI[mode],
+    background: rgb('ground'),
+    foreground: rgb('ink'),
+    cursor: rgb('hop'),
+    cursorAccent: rgb('ground'),
+    selectionBackground: mode === 'dark' ? 'rgba(154, 165, 255, 0.32)' : 'rgba(69, 86, 214, 0.22)'
+  }
+}
+
+function ensureListeners() {
+  if (listening) return
+  listening = true
+  api.on('terminal-output', ({ id, data }) => {
+    const e = entries.get(id)
+    if (e) {
+      e.term.write(data)
+      return
+    }
+    const buf = pending.get(id) ?? []
+    if (buf.length < PENDING_LIMIT) buf.push(data)
+    pending.set(id, buf)
+  })
+  api.on('terminal-exit', ({ id, code }) => exitHandler(id, code))
+}
+
+/** Called by the grid store so exits update pane status. */
+export function onTerminalExit(fn: (id: string, code: number | null) => void) {
+  exitHandler = fn
+  ensureListeners()
+}
+
+/** Start listening before the first spawn so early output is buffered, not lost. */
+export function prepare() {
+  ensureListeners()
+}
+
+function isMac() {
+  return api.platform === 'darwin'
+}
+
+/**
+ * Keys xterm should leave alone: grid shortcuts (Ctrl/Cmd+Shift+arrows and Enter), the quick launcher,
+ * and copy/paste on Windows and Linux (Ctrl+Shift+C/V, plus Ctrl+C while text is selected).
+ */
+function keyHandler(term: Terminal) {
+  return (ev: KeyboardEvent): boolean => {
+    if (ev.type !== 'keydown') return true
+    const mod = isMac() ? ev.metaKey : ev.ctrlKey
+    const key = ev.key.toLowerCase()
+    if (mod && ev.shiftKey && (key.startsWith('arrow') || key === 'enter')) return false
+    if (mod && !ev.shiftKey && key === 'k') return false
+    if (!isMac() && ev.ctrlKey && (ev.shiftKey || term.hasSelection()) && key === 'c') {
+      const text = term.getSelection()
+      if (text) void navigator.clipboard?.writeText(text).catch(() => {})
+      ev.preventDefault()
+      return false
+    }
+    if (!isMac() && ev.ctrlKey && ev.shiftKey && key === 'v') {
+      ev.preventDefault()
+      void navigator.clipboard
+        ?.readText()
+        .then((t) => t && term.paste(t))
+        .catch(() => {})
+      return false
+    }
+    return true
+  }
+}
+
+/** The xterm for a backend terminal, created on first use. `scrollback` seeds a re-attached terminal. */
+export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string): TermEntry {
+  ensureListeners()
+  const existing = entries.get(id)
+  if (existing) return existing
+  const host = document.createElement('div')
+  host.className = 'h-full w-full'
+  const term = new Terminal({
+    fontFamily: '"IBM Plex Mono", ui-monospace, Consolas, monospace',
+    fontSize: terminalFontSize(),
+    lineHeight: 1.15,
+    cursorBlink: true,
+    scrollback: 5000,
+    allowProposedApi: true,
+    macOptionIsMeta: true,
+    theme: terminalTheme(mode)
+  })
+  const fit = new FitAddon()
+  term.loadAddon(fit)
+  term.loadAddon(
+    new WebLinksAddon((_e, uri) => {
+      void import('@tauri-apps/plugin-opener').then((m) => m.openUrl(uri)).catch(() => window.open(uri, '_blank'))
+    })
+  )
+  term.attachCustomKeyEventHandler(keyHandler(term))
+  term.onData((data) => void api.terminals.write(id, data).catch(() => {}))
+  term.open(host)
+  const entry: TermEntry = { term, fit, host, cols: term.cols, rows: term.rows }
+  entries.set(id, entry)
+  // A re-attached terminal starts from the backend's scrollback, which already includes anything buffered.
+  if (scrollback !== undefined) {
+    pending.delete(id)
+    if (scrollback) term.write(scrollback)
+  } else {
+    for (const chunk of pending.get(id) ?? []) term.write(chunk)
+    pending.delete(id)
+  }
+  return entry
+}
+
+export function hasTerm(id: string): boolean {
+  return entries.has(id)
+}
+
+/** Fit to the host's size and tell the backend when the character grid changed. */
+export function fitTerm(id: string) {
+  const e = entries.get(id)
+  if (!e || !e.host.isConnected || e.host.clientWidth < 20 || e.host.clientHeight < 20) return
+  try {
+    e.fit.fit()
+  } catch {
+    return
+  }
+  if (e.term.cols !== e.cols || e.term.rows !== e.rows) {
+    e.cols = e.term.cols
+    e.rows = e.term.rows
+    void api.terminals.resize(id, e.cols, e.rows).catch(() => {})
+  }
+}
+
+/** Character grid that fits an element, for sizing a terminal before it is spawned. */
+export function estimateSize(el: HTMLElement | null): { cols: number; rows: number } {
+  const size = terminalFontSize()
+  const w = el?.clientWidth ?? 0
+  const h = el?.clientHeight ?? 0
+  if (w < 100 || h < 60) return { cols: 100, rows: 30 }
+  return { cols: Math.max(20, Math.floor((w - 16) / (size * 0.6))), rows: Math.max(5, Math.floor((h - 8) / (size * 1.15 * 1.2))) }
+}
+
+export function disposeTerm(id: string) {
+  const e = entries.get(id)
+  pending.delete(id)
+  if (!e) return
+  entries.delete(id)
+  e.term.dispose()
+  e.host.remove()
+}
+
+/** Re-theme every terminal (theme switch) and apply the font size setting. */
+export function restyleAll(mode: 'dark' | 'light') {
+  const size = terminalFontSize()
+  for (const [id, e] of entries) {
+    e.term.options.theme = terminalTheme(mode)
+    if (e.term.options.fontSize !== size) {
+      e.term.options.fontSize = size
+      fitTerm(id)
+    }
+  }
+}
+
+export function focusTerm(id: string | undefined) {
+  if (id) entries.get(id)?.term.focus()
+}
