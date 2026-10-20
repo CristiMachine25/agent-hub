@@ -355,3 +355,36 @@ impl Default for AppSettings {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TerminalTarget {
+    Cli,
+    Login,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalSpawnRequest {
+    pub account_id: String,
+    pub target: TerminalTarget,
+    pub resume: Option<bool>,
+    pub cwd: Option<String>,
+    pub extra_args: Option<Vec<String>>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalInfo {
+    pub id: String,
+    pub account_id: String,
+    pub title: String,
+    pub command_line: String,
+    pub cwd: String,
+    pub pid: Option<u32>,
+    pub started_at: String,
+    pub exited: bool,
+    pub exit_code: Option<i32>,
+}

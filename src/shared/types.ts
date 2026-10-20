@@ -210,10 +210,36 @@ export interface AppSettings {
   liveUsage: boolean
 }
 
+/** Start a CLI inside an embedded terminal pane (the in-app grid) instead of an external window. */
+export interface TerminalSpawnRequest {
+  accountId: string
+  target: 'cli' | 'login'
+  resume?: boolean
+  cwd?: string
+  extraArgs?: string[]
+  cols: number
+  rows: number
+}
+
+export interface TerminalInfo {
+  id: string
+  accountId: string
+  title: string // e.g. "Claude H2"
+  commandLine: string
+  cwd: string
+  pid?: number
+  startedAt: string
+  exited: boolean
+  exitCode?: number | null
+}
+
 export interface AppEvents {
   'usage-updated': Record<string, UsageSnapshot>
   'accounts-changed': Account[]
   notification: AppNotification
+  /** UTF-8 text from a terminal, already split on character boundaries. Batched (~16 ms). */
+  'terminal-output': { id: string; data: string }
+  'terminal-exit': { id: string; code: number | null }
 }
 
 /** API the UI uses (src/api.ts implements it over Tauri invoke; mock mode in a plain browser). */
@@ -240,6 +266,15 @@ export interface HopperApi {
     setManual(accountId: string, windows: UsageWindow[]): Promise<UsageSnapshot>
   }
   launch(req: LaunchRequest): Promise<LaunchResult>
+  terminals: {
+    spawn(req: TerminalSpawnRequest): Promise<TerminalInfo>
+    write(id: string, data: string): Promise<void>
+    resize(id: string, cols: number, rows: number): Promise<void>
+    kill(id: string): Promise<void>
+    list(): Promise<TerminalInfo[]>
+    /** Recent output kept by the backend (max ~256 KB per terminal), to restore a pane after a UI reload. */
+    scrollback(id: string): Promise<string>
+  }
   recommend(task: TaskType, providerId?: ProviderId): Promise<Recommendation[]>
   notifications: {
     list(): Promise<AppNotification[]>
@@ -281,6 +316,12 @@ export const COMMANDS = {
   notificationsMarkRead: 'notifications_mark_read', // { id }
   settingsGet: 'settings_get',
   settingsSet: 'settings_set', // { patch }
-  systemOpenPath: 'system_open_path' // { path }
+  systemOpenPath: 'system_open_path', // { path }
+  terminalSpawn: 'terminal_spawn', // { req }
+  terminalWrite: 'terminal_write', // { id, data }
+  terminalResize: 'terminal_resize', // { id, cols, rows }
+  terminalKill: 'terminal_kill', // { id }
+  terminalList: 'terminal_list',
+  terminalScrollback: 'terminal_scrollback' // { id }
   // pickDirectory is done in the UI with @tauri-apps/plugin-dialog
 } as const
