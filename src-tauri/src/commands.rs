@@ -1,7 +1,7 @@
 //! Tauri commands: the HopperApi from src/shared/types.ts. Names and argument names must match
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
 use crate::model::*;
-use crate::providers::{Adapter, CommandSpec};
+use crate::providers::{self, Adapter, CommandSpec};
 use crate::store::AppState;
 use crate::{launcher, notify, pty, recommend, sharing, usage, util};
 use anyhow::{anyhow, Context};
@@ -483,9 +483,14 @@ async fn terminal_command(
     } else {
         adapter.cli_command(account, resume, extra_args).await?
     };
-    if spec.cwd.is_none() {
-        let default_cwd = state.settings.read().await.default_cwd.clone();
-        spec.cwd = Some(pick_cwd(req_cwd, default_cwd));
+    {
+        let settings = state.settings.read().await;
+        if !login {
+            providers::apply_permission_mode(account.provider_id, &settings.permission_modes, &mut spec.args);
+        }
+        if spec.cwd.is_none() {
+            spec.cwd = Some(pick_cwd(req_cwd, settings.default_cwd.clone()));
+        }
     }
     if account.shared_from.is_some() {
         let (a, ad) = (account.clone(), adapter.clone());

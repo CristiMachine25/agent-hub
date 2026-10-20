@@ -121,3 +121,110 @@ pub fn all() -> Vec<Adapter> {
 pub fn get(id: ProviderId) -> Adapter {
     all().into_iter().find(|a| a.id() == id).expect("adapter registered")
 }
+
+/// CLI flags that start `provider` in the chosen permission mode. Empty for "default".
+pub fn permission_flags(provider: ProviderId, modes: &PermissionModes) -> Vec<String> {
+    let flags: &[&str] = match (provider, modes.get(provider)) {
+        (ProviderId::Claude, m @ ("acceptEdits" | "plan" | "bypassPermissions")) => return vec!["--permission-mode".into(), m.into()],
+        // What `--full-auto` expanded to; newer Codex releases dropped that alias.
+        (ProviderId::Codex, "auto") => &["--sandbox", "workspace-write", "--ask-for-approval", "on-request"],
+        (ProviderId::Codex, "bypass") => &["--dangerously-bypass-approvals-and-sandbox"],
+        (ProviderId::Gemini, "autoEdit") => &["--approval-mode", "auto_edit"],
+        (ProviderId::Gemini, "yolo") => &["--yolo"],
+        (ProviderId::Copilot, "allowAll") => &["--allow-all-tools"],
+        _ => &[],
+    };
+    flags.iter().map(|f| f.to_string()).collect()
+}
+
+/// Flags that already pick a permission mode; if the user passed one, theirs wins.
+fn permission_overrides(provider: ProviderId) -> &'static [&'static str] {
+    match provider {
+        ProviderId::Claude => &["--permission-mode", "--dangerously-skip-permissions"],
+        ProviderId::Codex => &[
+            "--full-auto",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--yolo",
+            "--approve-for-me",
+            "-s",
+            "--sandbox",
+            "-a",
+            "--ask-for-approval",
+        ],
+        ProviderId::Gemini => &["--approval-mode", "--yolo", "-y"],
+        ProviderId::Copilot => &["--allow-all-tools", "--allow-all", "--yolo"],
+    }
+}
+
+/// Put the permission-mode flags first, unless `args` already choose a mode. First matters for
+/// Codex: they go before `resume`, where Codex reads them as top-level options.
+pub fn apply_permission_mode(provider: ProviderId, modes: &PermissionModes, args: &mut Vec<String>) {
+    let overrides = permission_overrides(provider);
+    let chosen = args.iter().any(|a| {
+        let flag = a.split_once('=').map_or(a.as_str(), |(f, _)| f);
+        overrides.contains(&flag)
+    });
+    if !chosen {
+        args.splice(0..0, permission_flags(provider, modes));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn modes(claude: &str, codex: &str, gemini: &str, copilot: &str) -> PermissionModes {
+        PermissionModes { claude: claude.into(), codex: codex.into(), gemini: gemini.into(), copilot: copilot.into() }
+    }
+
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn permission_flags_per_tool() {
+        let d = PermissionModes::default();
+        for p in ProviderId::ALL {
+            assert!(permission_flags(p, &d).is_empty());
+        }
+        assert_eq!(permission_flags(ProviderId::Claude, &modes("bypassPermissions", "", "", "")), ["--permission-mode", "bypassPermissions"]);
+        assert_eq!(permission_flags(ProviderId::Claude, &modes("acceptEdits", "", "", "")), ["--permission-mode", "acceptEdits"]);
+        assert_eq!(permission_flags(ProviderId::Claude, &modes("plan", "", "", "")), ["--permission-mode", "plan"]);
+        assert!(permission_flags(ProviderId::Claude, &modes("rm -rf", "", "", "")).is_empty());
+        assert_eq!(
+            permission_flags(ProviderId::Codex, &modes("", "auto", "", "")),
+            ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"]
+        );
+        assert_eq!(permission_flags(ProviderId::Codex, &modes("", "bypass", "", "")), ["--dangerously-bypass-approvals-and-sandbox"]);
+        assert_eq!(permission_flags(ProviderId::Gemini, &modes("", "", "autoEdit", "")), ["--approval-mode", "auto_edit"]);
+        assert_eq!(permission_flags(ProviderId::Gemini, &modes("", "", "yolo", "")), ["--yolo"]);
+        assert_eq!(permission_flags(ProviderId::Copilot, &modes("", "", "", "allowAll")), ["--allow-all-tools"]);
+        // One tool's mode never leaks into another's flags.
+        assert!(permission_flags(ProviderId::Codex, &modes("bypassPermissions", "default", "yolo", "allowAll")).is_empty());
+    }
+
+    #[test]
+    fn permission_flags_go_before_codex_resume() {
+        let m = modes("", "bypass", "", "");
+        let mut a = args(&["resume", "--last", "--model", "x"]);
+        apply_permission_mode(ProviderId::Codex, &m, &mut a);
+        assert_eq!(a, ["--dangerously-bypass-approvals-and-sandbox", "resume", "--last", "--model", "x"]);
+    }
+
+    #[test]
+    fn permission_flags_skip_when_user_chose_a_mode() {
+        let m = modes("bypassPermissions", "auto", "yolo", "allowAll");
+        let mut a = args(&["--continue", "--permission-mode=plan"]);
+        apply_permission_mode(ProviderId::Claude, &m, &mut a);
+        assert_eq!(a, ["--continue", "--permission-mode=plan"]);
+        let mut a = args(&["-s", "read-only"]);
+        apply_permission_mode(ProviderId::Codex, &m, &mut a);
+        assert_eq!(a, ["-s", "read-only"]);
+        let mut a = args(&["-y"]);
+        apply_permission_mode(ProviderId::Gemini, &m, &mut a);
+        assert_eq!(a, ["-y"]);
+        let mut a = args(&["--continue"]);
+        apply_permission_mode(ProviderId::Copilot, &m, &mut a);
+        assert_eq!(a, ["--allow-all-tools", "--continue"]);
+    }
+}
