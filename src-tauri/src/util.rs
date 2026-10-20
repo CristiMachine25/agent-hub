@@ -36,7 +36,7 @@ pub fn http() -> reqwest::Client {
     static CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
         reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
-            .user_agent(concat!("ai-hopper/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("baton/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("http client")
     });

@@ -311,7 +311,7 @@ async fn app_server_query(program: &Path, codex_home: Option<&Path>) -> Result<(
     let session = async {
         let version = env!("CARGO_PKG_VERSION");
         let requests = [
-            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "ai-hopper", "version": version}}}),
+            json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"clientInfo": {"name": "baton", "version": version}}}),
             json!({"jsonrpc": "2.0", "method": "initialized"}),
             json!({"jsonrpc": "2.0", "id": 2, "method": "account/read", "params": {}}),
             json!({"jsonrpc": "2.0", "id": 3, "method": "account/rateLimits/read", "params": {"excludeResetCreditDetails": true}}),
