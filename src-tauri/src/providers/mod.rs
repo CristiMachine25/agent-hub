@@ -56,6 +56,34 @@ pub trait ProviderAdapter: Send + Sync {
     /// Relative paths that hold credentials (never shared, never copied).
     fn credential_paths(&self) -> Vec<&'static str>;
 
+    /// The sign-in of a home, as (relative path, bytes), for moving the account to another computer.
+    /// Default: the credential files that exist in the home.
+    async fn export_sign_in(&self, home: &std::path::Path, _is_default: bool) -> Vec<(String, Vec<u8>)> {
+        self.credential_paths()
+            .into_iter()
+            .filter_map(|rel| std::fs::read(home.join(rel)).ok().map(|b| (rel.to_string(), b)))
+            .collect()
+    }
+
+    /// Write a sign-in exported on another computer. Never replaces anything already in the home.
+    /// Returns how many items were written.
+    async fn import_sign_in(&self, home: &std::path::Path, _is_default: bool, files: &[(String, Vec<u8>)]) -> anyhow::Result<usize> {
+        let allowed = self.credential_paths();
+        let mut written = 0;
+        for (rel, bytes) in files.iter().filter(|(rel, _)| allowed.contains(&rel.as_str())) {
+            let path = home.join(rel);
+            if path.exists() {
+                continue;
+            }
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            crate::util::write_atomic(&path, bytes)?;
+            written += 1;
+        }
+        Ok(written)
+    }
+
     /// Prepare a new home (e.g. force file-based credential storage). Idempotent.
     async fn init_home(&self, home: &std::path::Path) -> anyhow::Result<()>;
 

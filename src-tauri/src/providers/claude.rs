@@ -164,6 +164,26 @@ async fn keychain_read(service: &str) -> Option<Value> {
     parse_keychain_secret(&out)
 }
 
+/// Add a Keychain item the way Claude Code does (hex-encoded secret), feeding the command through stdin
+/// so the token never shows up in a process list.
+async fn keychain_write(service: &str, secret: &[u8]) -> anyhow::Result<bool> {
+    use tokio::io::AsyncWriteExt;
+    let user = std::env::var("USER").unwrap_or_else(|_| "claude".into());
+    let line = format!("add-generic-password -a \"{user}\" -s \"{service}\" -X {}\n", hex::encode(secret));
+    let mut child = tokio::process::Command::new("/usr/bin/security")
+        .arg("-i")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .spawn()?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin.write_all(line.as_bytes()).await?;
+    }
+    let status = tokio::time::timeout(Duration::from_secs(15), child.wait()).await??;
+    Ok(status.success() && keychain_exists(service).await)
+}
+
 /// Existence check only (no secret read, so no Keychain prompt).
 async fn keychain_exists(service: &str) -> bool {
     util::run_capture(Path::new("/usr/bin/security"), &["find-generic-password", "-s", service], Duration::from_secs(5))
@@ -708,6 +728,61 @@ impl ProviderAdapter for ClaudeAdapter {
 
     fn credential_paths(&self) -> Vec<&'static str> {
         vec![CREDENTIALS_FILE, ".claude.json"]
+    }
+
+    /// The OAuth credentials (from the Keychain on macOS) plus the account details from `.claude.json`.
+    /// Only `oauthAccount` is taken from `.claude.json`: the rest (projects, MCP servers) stays here.
+    async fn export_sign_in(&self, home: &Path, is_default: bool) -> Vec<(String, Vec<u8>)> {
+        let mut out = Vec::new();
+        let mut creds = None;
+        if cfg!(target_os = "macos") {
+            for service in keychain_services(home, is_default) {
+                if let Some(v) = keychain_read(&service).await.filter(|v| v.get("claudeAiOauth").is_some()) {
+                    creds = Some(v);
+                    break;
+                }
+            }
+        }
+        let creds = creds.or_else(|| util::read_json(&home.join(CREDENTIALS_FILE)).filter(|v| v.get("claudeAiOauth").is_some()));
+        if let Some(c) = creds {
+            out.push((CREDENTIALS_FILE.to_string(), c.to_string().into_bytes()));
+        }
+        if let Some(account) = read_oauth_account(home, is_default) {
+            out.push((".claude.json".to_string(), json!({ "oauthAccount": account }).to_string().into_bytes()));
+        }
+        out
+    }
+
+    async fn import_sign_in(&self, home: &Path, is_default: bool, files: &[(String, Vec<u8>)]) -> anyhow::Result<usize> {
+        let mut written = 0;
+        for (rel, bytes) in files {
+            match rel.as_str() {
+                CREDENTIALS_FILE if cfg!(target_os = "macos") => {
+                    // Claude Code on macOS reads its login from the Keychain, under a name derived from the folder.
+                    let service = keychain_services(home, is_default).remove(0);
+                    if !keychain_exists(&service).await && keychain_write(&service, bytes).await? {
+                        written += 1;
+                    }
+                }
+                CREDENTIALS_FILE => {
+                    let path = home.join(CREDENTIALS_FILE);
+                    if !path.exists() {
+                        util::write_atomic(&path, bytes)?;
+                        written += 1;
+                    }
+                }
+                ".claude.json" => {
+                    // The default home keeps it at ~/.claude.json. Only written when there is none yet.
+                    let path = metadata_paths(home, is_default).remove(0);
+                    if !path.exists() {
+                        util::write_atomic(&path, bytes)?;
+                        written += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(written)
     }
 
     async fn init_home(&self, home: &Path) -> anyhow::Result<()> {
