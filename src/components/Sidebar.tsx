@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Bell, Gauge, RefreshCw, Rocket, Settings2, Users } from 'lucide-react'
+import { Bell, Gauge, RefreshCw, Rocket, Settings2, SquareTerminal, Users } from 'lucide-react'
 import { useStore, type Screen } from '@/store'
 import { IS_MOCK, api } from '@/api'
 import { formatAgo } from '@/lib/format'
@@ -9,8 +9,9 @@ import { Logo } from './Logo'
 const NAV: { id: Screen; label: string; icon: typeof Gauge; key: string }[] = [
   { id: 'overview', label: 'Overview', icon: Gauge, key: '1' },
   { id: 'accounts', label: 'Accounts', icon: Users, key: '2' },
-  { id: 'notifications', label: 'Notifications', icon: Bell, key: '3' },
-  { id: 'settings', label: 'Settings', icon: Settings2, key: '4' }
+  { id: 'terminals', label: 'Terminals', icon: SquareTerminal, key: '3' },
+  { id: 'notifications', label: 'Notifications', icon: Bell, key: '4' },
+  { id: 'settings', label: 'Settings', icon: Settings2, key: '5' }
 ]
 
 export function Sidebar() {
@@ -35,7 +36,7 @@ export function Sidebar() {
     >
       <div className="flex h-14 items-center gap-2.5 px-4 max-[999px]:justify-center max-[999px]:px-0">
         <Logo size={26} />
-        <span className="text-md font-bold tracking-tight max-[999px]:hidden">AI Hopper</span>
+        <span className="text-md font-bold tracking-tight max-[999px]:hidden">Baton</span>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
         {NAV.map((n) => {

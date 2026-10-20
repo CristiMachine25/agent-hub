@@ -9,8 +9,9 @@ import { Overview } from './screens/Overview'
 import { Accounts } from './screens/Accounts'
 import { Notifications } from './screens/Notifications'
 import { Settings } from './screens/Settings'
+import { Terminals } from './terminals/Terminals'
 
-const SCREENS: Screen[] = ['overview', 'accounts', 'notifications', 'settings']
+const SCREENS: Screen[] = ['overview', 'accounts', 'terminals', 'notifications', 'settings']
 
 function useTheme() {
   const pref = useStore((s) => s.settings?.theme ?? 'system')
@@ -95,7 +96,7 @@ export function App() {
   if (phase === 'error')
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-md font-semibold">AI Hopper couldn't load its data</p>
+        <p className="text-md font-semibold">Baton couldn't load its data</p>
         <p className="max-w-md text-muted">{loadError}</p>
         <button className="btn btn-primary" onClick={() => init()}>
           Try again
@@ -106,9 +107,10 @@ export function App() {
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className="min-w-0 flex-1 overflow-y-auto" id="main">
+      <main className={screen === 'terminals' ? 'min-w-0 flex-1 overflow-hidden' : 'min-w-0 flex-1 overflow-y-auto'} id="main">
         {screen === 'overview' && <Overview />}
         {screen === 'accounts' && <Accounts />}
+        {screen === 'terminals' && <Terminals />}
         {screen === 'notifications' && <Notifications />}
         {screen === 'settings' && <Settings />}
       </main>

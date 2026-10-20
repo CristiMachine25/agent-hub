@@ -12,7 +12,7 @@ import type {
 import { api, errorText } from './api'
 import { PROVIDER_META } from './lib/providers'
 
-export type Screen = 'overview' | 'accounts' | 'notifications' | 'settings'
+export type Screen = 'overview' | 'accounts' | 'terminals' | 'notifications' | 'settings'
 
 export interface Toast {
   id: number
@@ -106,6 +106,9 @@ export const useStore = create<State>((set, get) => ({
         api.on('accounts-changed', (a) => {
           set({ accounts: a })
           void get().loadRecs()
+        })
+        api.on('navigate', (screen) => {
+          if (['overview', 'accounts', 'terminals', 'notifications', 'settings'].includes(screen)) get().go(screen as Screen)
         })
         api.on('notification', (n) => {
           set((s) => ({ notifications: [n, ...s.notifications.filter((x) => x.id !== n.id)] }))

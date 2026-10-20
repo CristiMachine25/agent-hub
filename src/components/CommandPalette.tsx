@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { Search } from 'lucide-react'
 import { useStore } from '@/store'
+import { useGrid } from '@/terminals/store'
 import { PROVIDER_META } from '@/lib/providers'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { formatPct } from '@/lib/format'
@@ -84,6 +85,17 @@ export function CommandPalette() {
         run: () => {
           close()
           void launch(a.id, 'cli')
+        }
+      })
+      out.push({
+        id: `grid-${a.id}`,
+        group: 'More actions',
+        title: `Open ${p.short} in the grid as ${a.label}`,
+        keywords: `grid terminal pane embedded split ${kw}`,
+        lead,
+        run: () => {
+          close()
+          void useGrid.getState().openInGrid(a.id)
         }
       })
       out.push({

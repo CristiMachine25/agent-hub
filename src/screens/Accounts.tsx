@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import clsx from 'clsx'
-import { AppWindow, Info, FolderOpen, FolderSearch, LogIn, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react'
+import { AppWindow, Info, FolderOpen, FolderSearch, LogIn, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SquareTerminal, Trash2 } from 'lucide-react'
 import type { Account, DailyActivity, SharingOptions, TaskType, UsageHistoryPoint } from '@shared/types'
 import { api } from '@/api'
 import { useStore } from '@/store'
+import { useGrid } from '@/terminals/store'
 import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { creditsText, formatAgo, formatPct, formatTokens, plural } from '@/lib/format'
@@ -27,7 +28,7 @@ export function Accounts() {
       <Page title="Accounts">
         <EmptyState
           title="No accounts yet"
-          body="Start by letting AI Hopper look for the CLI profiles already on this computer. Nothing is changed until you import."
+          body="Start by letting Baton look for the CLI profiles already on this computer. Nothing is changed until you import."
           action={
             <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
               <Search size={15} /> Find accounts on this computer
@@ -179,6 +180,11 @@ function AccountDetail({ account: a }: { account: Account }) {
             </button>
           )}
           {!signedOut && (
+            <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} title="Run it in a pane of the terminal grid">
+              <SquareTerminal size={14} /> Open in grid
+            </button>
+          )}
+          {!signedOut && (
             <button className="btn" onClick={() => launch(a.id, 'cli', { resume: true })}>
               <RotateCcw size={14} /> Resume last session
             </button>
@@ -235,7 +241,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 ? `${creditsText(snap.credits)}.`
                 : snap?.error
                   ? 'No limits to show for this account.'
-                  : 'No usage data yet. AI Hopper checks every few minutes.'}
+                  : 'No usage data yet. Baton checks every few minutes.'}
           </p>
         )}
       </section>
@@ -290,7 +296,7 @@ function AccountDetail({ account: a }: { account: Account }) {
               Launched with <code className="code">{prov.homeEnvVar}</code> pointing here.{' '}
             </>
           ) : null}
-          {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from AI Hopper yet.'}
+          {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from Baton yet.'}
         </p>
       </section>
 
@@ -478,14 +484,14 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
       }
     >
       <p className="text-muted">
-        AI Hopper stops tracking and launching this account. Its sign-in and chats stay in the profile folder unless you delete it.
+        Baton stops tracking and launching this account. Its sign-in and chats stay in the profile folder unless you delete it.
       </p>
       <label className={clsx('mt-4 flex items-start gap-2.5', a.isDefaultHome && 'opacity-60')}>
         <input type="checkbox" className="mt-0.5" checked={deleteHome} disabled={a.isDefaultHome} onChange={(e) => setDeleteHome(e.target.checked)} />
         <span>
           <span className="block">Also delete the profile folder</span>
           <span className="code block break-all text-muted">{a.homeDir}</span>
-          {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so AI Hopper never deletes it.</span>}
+          {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Baton never deletes it.</span>}
           {deleteHome && <span className="block text-xs text-empty">This can't be undone. Sessions not shared with another account are lost.</span>}
         </span>
       </label>
