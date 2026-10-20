@@ -89,6 +89,61 @@ export interface NewAccountInput {
   plan?: string
 }
 
+// ---------- moving the setup to another computer ----------
+
+export interface ExportOptions {
+  accountIds: string[]
+  /** Skills, agents and instructions from each tool's main folder. */
+  includeFiles: boolean
+  includeSettings: boolean
+  /** Include sign-ins, encrypted with this passphrase. */
+  passphrase?: string
+}
+
+export interface ExportSummary {
+  accounts: number
+  signIns: number
+  files: number
+  skippedFiles: number
+}
+
+export interface ImportPreview {
+  fromOs: string
+  exportedAt: string
+  accounts: {
+    key: string
+    providerId: ProviderId
+    label: string
+    email?: string
+    plan?: string
+    hasSignIn: boolean
+    /** Label of the matching account already here; such accounts are left alone. */
+    alreadyHere?: string
+    targetHome: string
+  }[]
+  kinds: { providerId: ProviderId; kind: 'skills' | 'agents' | 'instructions'; files: number; newFiles: number }[]
+  hasSettings: boolean
+  hasSignIns: boolean
+  signInsUnlocked: boolean
+}
+
+export interface ImportChoice {
+  accountKeys: string[]
+  signIns: boolean
+  files: boolean
+  settings: boolean
+}
+
+export interface ImportReport {
+  added: string[]
+  skipped: string[]
+  signIns: number
+  filesAdded: number
+  filesKept: number
+  settings: boolean
+  problems: string[]
+}
+
 /** An account found on disk that the user may import. */
 export interface DetectedAccount {
   providerId: ProviderId
@@ -293,6 +348,15 @@ export interface HopperApi {
   system: {
     openPath(path: string): Promise<void>
     pickDirectory(): Promise<string | null>
+    /** Ask where to save a file; null when cancelled. */
+    pickSavePath(defaultName: string): Promise<string | null>
+    /** Ask for a setup file to open; null when cancelled. */
+    pickSetupFile(): Promise<string | null>
+  }
+  transfer: {
+    export(path: string, opts: ExportOptions): Promise<ExportSummary>
+    preview(path: string, passphrase?: string): Promise<ImportPreview>
+    import(path: string, passphrase: string | undefined, choice: ImportChoice): Promise<ImportReport>
   }
   on<K extends keyof AppEvents>(event: K, cb: (payload: AppEvents[K]) => void): () => void
 }
@@ -328,6 +392,9 @@ export const COMMANDS = {
   terminalResize: 'terminal_resize', // { id, cols, rows }
   terminalKill: 'terminal_kill', // { id }
   terminalList: 'terminal_list',
-  terminalScrollback: 'terminal_scrollback' // { id }
+  terminalScrollback: 'terminal_scrollback', // { id }
+  transferExport: 'transfer_export', // { path, opts }
+  transferPreview: 'transfer_preview', // { path, passphrase? }
+  transferImport: 'transfer_import' // { path, passphrase?, choice }
   // pickDirectory is done in the UI with @tauri-apps/plugin-dialog
 } as const

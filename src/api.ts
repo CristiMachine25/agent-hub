@@ -53,7 +53,21 @@ function createTauriApi(): HopperApi {
         const { open } = await import('@tauri-apps/plugin-dialog')
         const picked = await open({ directory: true, multiple: false })
         return typeof picked === 'string' ? picked : null
+      },
+      async pickSavePath(defaultName) {
+        const { save } = await import('@tauri-apps/plugin-dialog')
+        return (await save({ defaultPath: defaultName, filters: [{ name: 'Switchyard setup', extensions: ['switchyard'] }] })) ?? null
+      },
+      async pickSetupFile() {
+        const { open } = await import('@tauri-apps/plugin-dialog')
+        const picked = await open({ multiple: false, filters: [{ name: 'Switchyard setup', extensions: ['switchyard', 'json'] }] })
+        return typeof picked === 'string' ? picked : null
       }
+    },
+    transfer: {
+      export: (path, opts) => call(COMMANDS.transferExport, { path, opts }),
+      preview: (path, passphrase) => call(COMMANDS.transferPreview, { path, passphrase: passphrase ?? null }),
+      import: (path, passphrase, choice) => call(COMMANDS.transferImport, { path, passphrase: passphrase ?? null, choice })
     },
     on<K extends keyof AppEvents>(event: K, cb: (payload: AppEvents[K]) => void) {
       let unlisten: (() => void) | undefined

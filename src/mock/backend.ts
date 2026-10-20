@@ -337,6 +337,47 @@ export function createMockApi(platform: Platform): HopperApi {
       async pickDirectory() {
         await wait(200)
         return `${home}${sep}code${sep}northwind-api`
+      },
+      async pickSavePath(name) {
+        await wait(150)
+        return `${home}${sep}Desktop${sep}${name}`
+      },
+      async pickSetupFile() {
+        await wait(150)
+        return `${home}${sep}Downloads${sep}switchyard-setup.switchyard`
+      }
+    },
+    transfer: {
+      async export(_path, opts) {
+        await wait(400)
+        return { accounts: opts.accountIds.length, signIns: opts.passphrase ? opts.accountIds.length : 0, files: opts.includeFiles ? 23 : 0, skippedFiles: 0 }
+      },
+      async preview(_path, passphrase) {
+        await wait(300)
+        const here = db.accounts.slice(0, 2).map((a) => a.label)
+        return {
+          fromOs: 'windows',
+          exportedAt: new Date(Date.now() - 3600e3).toISOString(),
+          accounts: [
+            { key: 'x1', providerId: 'claude', label: here[0] ?? 'Work Max 20x', email: 'sam@northwind.dev', plan: 'Max 20x', hasSignIn: true, alreadyHere: here[0], targetHome: `${home}${sep}.claude` },
+            { key: 'x2', providerId: 'claude', label: 'Laptop Pro', email: 'sam.side@northwind.dev', plan: 'Pro', hasSignIn: true, targetHome: `${home}${sep}.claude-laptop` },
+            { key: 'x3', providerId: 'codex', label: 'Codex Plus', email: 'sam@northwind.dev', plan: 'Plus', hasSignIn: true, targetHome: `${home}${sep}.codex-plus` },
+            { key: 'x4', providerId: 'gemini', label: 'Gemini spare', plan: 'Google AI Pro', hasSignIn: false, targetHome: `${home}${sep}gemini-spare` }
+          ],
+          kinds: [
+            { providerId: 'claude', kind: 'skills', files: 18, newFiles: 6 },
+            { providerId: 'claude', kind: 'agents', files: 4, newFiles: 0 },
+            { providerId: 'claude', kind: 'instructions', files: 1, newFiles: 0 }
+          ],
+          hasSettings: true,
+          hasSignIns: true,
+          signInsUnlocked: passphrase === 'correct horse'
+        }
+      },
+      async import(_path, passphrase, choice) {
+        await wait(500)
+        if (choice.signIns && passphrase !== 'correct horse') throw new Error("That passphrase doesn't open the sign-ins in this file")
+        return { added: choice.accountKeys.map((k) => `Account ${k}`), skipped: [], signIns: choice.signIns ? choice.accountKeys.length : 0, filesAdded: choice.files ? 6 : 0, filesKept: choice.files ? 17 : 0, settings: choice.settings, problems: [] }
       }
     },
     on(event, cb) {
