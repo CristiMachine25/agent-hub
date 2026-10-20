@@ -128,7 +128,11 @@ pub fn windows_terminal_argv(use_wt: bool, script: &Path, title: &str, cwd: Opti
         raw.push_str(&format!(" cmd.exe /k \"{script}\""));
         ("wt.exe".into(), raw)
     } else {
-        ("cmd.exe".into(), format!("/k \"{script}\""))
+        // `start` opens a fresh, fully interactive console window. Spawning cmd.exe directly with
+        // CREATE_NEW_CONSOLE from a GUI app gave the CLI no usable stdin, so it exited at once.
+        // /s strips only the outer quotes, leaving `start "title" cmd.exe /k "script"`.
+        let title = sanitize_title(title).replace(['%', '^', '&', '|', '<', '>'], "");
+        ("cmd.exe".into(), format!("/d /s /c \"start \"{title}\" cmd.exe /k \"{script}\"\""))
     }
 }
 
@@ -283,7 +287,6 @@ pub fn launch_desktop(spec: &CommandSpec) -> LaunchResult {
 #[cfg(windows)]
 fn launch_terminal_inner(spec: &CommandSpec, title: &str, terminal: &str) -> anyhow::Result<()> {
     use std::os::windows::process::CommandExt;
-    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
     let script = write_script("cmd", &windows_script(spec, title))?;
@@ -297,8 +300,8 @@ fn launch_terminal_inner(spec: &CommandSpec, title: &str, terminal: &str) -> any
         cmd.current_dir(cwd);
     }
     apply_env(&mut cmd, spec);
-    // wt.exe needs no console of its own; cmd.exe gets a fresh visible one.
-    cmd.creation_flags(if use_wt { CREATE_NO_WINDOW } else { CREATE_NEW_CONSOLE });
+    // Neither wt.exe nor the helper cmd.exe that runs `start` needs a window of its own.
+    cmd.creation_flags(CREATE_NO_WINDOW);
     spawn_detached(cmd).with_context(|| format!("starting {program}"))
 }
 
@@ -382,7 +385,7 @@ mod tests {
         assert_eq!(raw, r#"-w new --title "Work Max" -d "C:\src\my app" cmd.exe /k "C:\Temp\ai-hopper\launch-1.cmd""#);
         let (p, raw) = windows_terminal_argv(false, script, "x", None);
         assert_eq!(p, "cmd.exe");
-        assert_eq!(raw, r#"/k "C:\Temp\ai-hopper\launch-1.cmd""#);
+        assert_eq!(raw, r#"/d /s /c "start "x" cmd.exe /k "C:\Temp\ai-hopper\launch-1.cmd"""#);
     }
 
     #[test]
