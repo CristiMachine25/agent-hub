@@ -440,7 +440,7 @@ export function buildMockDb(p: Platform, now: number = Date.now()): MockDb {
     defaultSharing: { ...DEFAULT_SHARING },
     minimizeToTray: true,
     launchAtLogin: false,
-    theme: 'system',
+    theme: 'dark',
     liveUsage: true
   }
 

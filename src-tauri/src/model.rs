@@ -350,7 +350,7 @@ impl Default for AppSettings {
             profiles_dir: None,
             minimize_to_tray: true,
             launch_at_login: false,
-            theme: Theme::System,
+            theme: Theme::Dark,
             live_usage: true,
         }
     }

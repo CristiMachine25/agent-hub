@@ -14,7 +14,7 @@ import { Terminals } from './terminals/Terminals'
 const SCREENS: Screen[] = ['overview', 'accounts', 'terminals', 'notifications', 'settings']
 
 function useTheme() {
-  const pref = useStore((s) => s.settings?.theme ?? 'system')
+  const pref = useStore((s) => s.settings?.theme ?? 'dark')
   const setResolved = useStore((s) => s.setResolvedTheme)
   useEffect(() => {
     const forced = new URLSearchParams(location.search).get('theme')

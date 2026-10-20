@@ -366,7 +366,7 @@ mod tests {
         });
         let s = settings_from_value(&raw);
         assert_eq!(s.poll_interval_minutes, 7);
-        assert_eq!(s.theme, Theme::System);
+        assert_eq!(s.theme, Theme::Dark);
         assert!(!s.notifications.enabled);
         assert_eq!(s.notifications.nearly_exhausted_percent, 80.0);
     }
