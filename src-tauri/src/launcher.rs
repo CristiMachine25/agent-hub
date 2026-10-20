@@ -201,7 +201,7 @@ pub fn linux_terminal_argv(terminal: &str, script: &Path) -> Vec<String> {
 // ---------- process spawning ----------
 
 fn scripts_dir() -> anyhow::Result<PathBuf> {
-    let dir = std::env::temp_dir().join("ai-hopper");
+    let dir = std::env::temp_dir().join("baton");
     std::fs::create_dir_all(&dir)?;
     cleanup_old_scripts(&dir);
     Ok(dir)
