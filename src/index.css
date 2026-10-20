@@ -1,0 +1,168 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palette: see docs/DESIGN.md. Channels only, so Tailwind can apply alpha. Dark is the default look. */
+:root,
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --ground: 14 20 30; /* Night shift */
+  --deck: 22 30 43; /* Deck */
+  --raised: 29 39 56;
+  --rivet: 38 50 69; /* Rivet */
+  --ink: 231 235 242; /* Paper */
+  --muted: 147 160 181;
+  --faint: 107 120 140;
+  --hop: 161 147 255; /* Hop violet */
+  --hop-ink: 20 15 51;
+  --full: 61 211 155;
+  --half: 230 190 69;
+  --low: 242 138 60;
+  --empty: 242 92 110;
+  --cell-off: 35 46 64;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --ground: 238 241 246;
+  --deck: 255 255 255;
+  --raised: 246 248 251;
+  --rivet: 213 220 230;
+  --ink: 18 25 38;
+  --muted: 85 98 117;
+  --faint: 128 140 158;
+  --hop: 90 68 219;
+  --hop-ink: 255 255 255;
+  --full: 13 143 98;
+  --half: 169 124 8;
+  --low: 194 90 18;
+  --empty: 204 47 73;
+  --cell-off: 223 228 236;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ground text-ink font-sans text-sm antialiased;
+    font-feature-settings: 'tnum' 1, 'ss01' 1;
+    overflow: hidden;
+  }
+  ::selection {
+    background: rgb(var(--hop) / 0.35);
+  }
+  :focus-visible {
+    outline: 2px solid rgb(var(--hop));
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  button,
+  [role='button'] {
+    cursor: default;
+  }
+  input,
+  select,
+  textarea {
+    @apply bg-ground text-ink border border-rivet rounded px-2.5 py-1.5 text-sm;
+  }
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline-offset: 0;
+    border-color: rgb(var(--hop));
+  }
+  input[type='checkbox'] {
+    @apply p-0 w-4 h-4;
+    accent-color: rgb(var(--hop));
+  }
+  input[type='range'] {
+    @apply p-0 border-0 bg-transparent;
+    accent-color: rgb(var(--hop));
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--rivet));
+    border-radius: 6px;
+    border: 2px solid rgb(var(--ground));
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded text-sm font-medium whitespace-nowrap
+      border border-rivet bg-deck text-ink transition-colors select-none;
+  }
+  .btn:hover:not(:disabled) {
+    @apply bg-raised border-faint/60;
+  }
+  .btn:disabled {
+    @apply opacity-50;
+  }
+  .btn-primary {
+    @apply bg-hop text-hop-ink border-hop font-semibold;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-hop border-hop;
+    filter: brightness(1.08);
+  }
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-muted;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    @apply bg-raised text-ink border-transparent;
+  }
+  .btn-danger {
+    @apply text-empty;
+  }
+  .btn-sm {
+    @apply h-7 px-2.5 text-xs;
+  }
+  .btn-lg {
+    @apply h-10 px-4 text-base;
+  }
+  .label {
+    @apply text-xs text-muted;
+  }
+  .kbd {
+    @apply inline-flex items-center h-5 px-1.5 rounded border border-rivet text-[11px] text-muted bg-ground font-sans;
+  }
+  .code {
+    @apply font-mono text-[12px] leading-[18px];
+  }
+}
+
+/* Meter cells animate only when their state changes. */
+.cell {
+  transition: background-color 450ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.toast-in {
+  animation: toast-in 160ms ease-out;
+}
