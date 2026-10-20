@@ -122,19 +122,60 @@ pub async fn accounts_detect(state: St<'_>) -> Res<Vec<DetectedAccount>> {
     Ok(found)
 }
 
+/// Short, readable name for an imported home: "Claude main" for the stock home,
+/// "Claude H2" for ~/.claude-h2. The email stays visible next to it in the UI.
 fn import_label(d: &DetectedAccount) -> String {
-    if let Some(email) = non_empty(d.email.clone()) {
-        return email;
-    }
-    let provider = notify::provider_name(d.provider_id);
+    let short = match d.provider_id {
+        ProviderId::Claude => "Claude",
+        ProviderId::Codex => "Codex",
+        ProviderId::Gemini => "Gemini",
+        ProviderId::Copilot => "Copilot",
+    };
     if d.is_default_home {
-        return format!("{provider} (main)");
+        return format!("{short} main");
     }
-    let dir = Path::new(&d.home_dir).file_name().map(|n| n.to_string_lossy().trim_start_matches('.').to_string()).unwrap_or_default();
-    if dir.is_empty() {
-        provider.to_string()
-    } else {
-        dir
+    let dir = Path::new(&d.home_dir).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let suffix = dir
+        .trim_start_matches('.')
+        .trim_start_matches(d.provider_id.as_str())
+        .trim_matches(|c: char| c == '-' || c == '_' || c == '.');
+    if suffix.is_empty() {
+        return non_empty(d.email.clone()).unwrap_or_else(|| short.to_string());
+    }
+    let pretty: Vec<String> = suffix
+        .split(['-', '_', '.'])
+        .filter(|w| !w.is_empty())
+        .map(|w| {
+            let mut c = w.chars();
+            c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or_default()
+        })
+        .collect();
+    format!("{short} {}", pretty.join(" "))
+}
+
+#[cfg(test)]
+mod import_label_tests {
+    use super::*;
+
+    fn found(provider: ProviderId, home: &str, default: bool) -> DetectedAccount {
+        DetectedAccount {
+            provider_id: provider,
+            home_dir: home.into(),
+            is_default_home: default,
+            email: Some("me@example.com".into()),
+            plan: None,
+            logged_in: true,
+            already_managed: false,
+            hint: None,
+        }
+    }
+
+    #[test]
+    fn names_side_by_side_homes_after_their_folder() {
+        assert_eq!(import_label(&found(ProviderId::Claude, "C:\\Users\\x\\.claude-h2", false)), "Claude H2");
+        assert_eq!(import_label(&found(ProviderId::Codex, "/home/x/.codex-work_pro", false)), "Codex Work Pro");
+        assert_eq!(import_label(&found(ProviderId::Claude, "/home/x/.claude", true)), "Claude main");
+        assert_eq!(import_label(&found(ProviderId::Gemini, "/home/x/.gemini-", false)), "me@example.com");
     }
 }
 
