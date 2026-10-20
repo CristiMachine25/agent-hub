@@ -47,6 +47,10 @@ function createTauriApi(): HopperApi {
       get: () => call(COMMANDS.settingsGet),
       set: (patch) => call(COMMANDS.settingsSet, { patch })
     },
+    knowledge: {
+      get: () => call(COMMANDS.knowledgeGet),
+      reseed: (providerId) => call(COMMANDS.knowledgeReseed, { providerId })
+    },
     system: {
       openPath: (path) => call(COMMANDS.systemOpenPath, { path }),
       async pickDirectory() {

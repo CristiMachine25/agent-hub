@@ -267,6 +267,53 @@ export interface AppSettings {
   theme: 'system' | 'dark' | 'light'
   /** Opt-in: call provider usage APIs with the account's own token. Off = local logs only. */
   liveUsage: boolean
+  /** Passed as CLI flags on every launch, for every account of that tool. */
+  permissionModes: PermissionModes
+}
+
+/** How much each CLI may do without asking. "default" adds no flag. */
+export interface PermissionModes {
+  claude: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions'
+  codex: 'default' | 'auto' | 'bypass'
+  gemini: 'default' | 'autoEdit' | 'yolo'
+  copilot: 'default' | 'allowAll'
+}
+
+export const DEFAULT_PERMISSION_MODES: PermissionModes = {
+  claude: 'default',
+  codex: 'default',
+  gemini: 'default',
+  copilot: 'default'
+}
+
+export type KnowledgeKind = 'skills' | 'plugins' | 'agents' | 'commands' | 'instructions' | 'settings'
+
+/** One thing in a tool's shared profile: a skill folder, an agent file, CLAUDE.md, settings.json... */
+export interface KnowledgeItem {
+  kind: KnowledgeKind
+  name: string
+  path: string
+}
+
+/** An account of the tool and which parts of the shared profile it links in. */
+export interface KnowledgeAccount {
+  accountId: string
+  label: string
+  /** Runs from the tool's main folder (~/.claude ...) instead of the shared profile. */
+  isDefaultHome: boolean
+  /** 'skills' | 'plugins' | 'agents' | 'instructions' | 'settings' | 'mcp' */
+  kinds: string[]
+}
+
+/** The Switchyard-owned shared profile for one tool: what is in it and who uses it. */
+export interface ProviderKnowledge {
+  providerId: ProviderId
+  /** The shared folder every account links to. */
+  folder: string
+  /** The tool's own folder, e.g. ~/.claude, that the shared folder was seeded from. */
+  mainFolder: string
+  items: KnowledgeItem[]
+  accounts: KnowledgeAccount[]
 }
 
 /** Start a CLI inside an embedded terminal pane (the in-app grid) instead of an external window. */
@@ -345,6 +392,11 @@ export interface HopperApi {
     get(): Promise<AppSettings>
     set(patch: Partial<AppSettings>): Promise<AppSettings>
   }
+  knowledge: {
+    get(): Promise<ProviderKnowledge[]>
+    /** Copy anything new from the tool's main folder into its shared folder. Never overwrites. */
+    reseed(providerId: ProviderId): Promise<{ added: number; kept: number }>
+  }
   system: {
     openPath(path: string): Promise<void>
     pickDirectory(): Promise<string | null>
@@ -386,6 +438,8 @@ export const COMMANDS = {
   notificationsMarkRead: 'notifications_mark_read', // { id }
   settingsGet: 'settings_get',
   settingsSet: 'settings_set', // { patch }
+  knowledgeGet: 'knowledge_get',
+  knowledgeReseed: 'knowledge_reseed', // { providerId }
   systemOpenPath: 'system_open_path', // { path }
   terminalSpawn: 'terminal_spawn', // { req }
   terminalWrite: 'terminal_write', // { id, data }

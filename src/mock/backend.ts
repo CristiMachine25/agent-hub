@@ -4,15 +4,18 @@ import type {
   AppEvents,
   AppSettings,
   HopperApi,
+  KnowledgeItem,
   LaunchRequest,
   LaunchResult,
   NewAccountInput,
+  ProviderId,
+  ProviderKnowledge,
   UsageSnapshot,
   UsageWindow
 } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
 import { scoreAccounts } from '@/lib/recommend'
-import { ACCOUNT_COLORS } from '@/lib/providers'
+import { ACCOUNT_COLORS, PROVIDER_ORDER } from '@/lib/providers'
 import type { Platform } from '@/lib/platform'
 import { buildMockDb, homeRoot } from './data'
 import { createMockTerminals } from './terminals'
@@ -116,6 +119,35 @@ export function createMockApi(platform: Platform): HopperApi {
     if (t === 'kitty' || t === 'alacritty') return `${t} -e bash -lc '${script}; exec bash'`
     if (t === 'konsole') return `konsole -e bash -lc '${script}; exec bash'`
     return `${t} -- bash -lc '${script}; exec bash'`
+  }
+
+  // Shared profiles live under the app data folder; the main folders are the tools' stock homes.
+  const appData =
+    platform === 'win32'
+      ? `${home}\\AppData\\Roaming\\Switchyard`
+      : platform === 'darwin'
+        ? `${home}/Library/Application Support/Switchyard`
+        : `${home}/.local/share/switchyard`
+  const knowledge = mockKnowledge()
+  const sharedKinds = ['skills', 'plugins', 'agents', 'instructions', 'settings', 'mcp'] as const
+
+  function knowledgeFor(providerId: ProviderId): ProviderKnowledge {
+    const folder = `${appData}${sep}shared${sep}${providerId}`
+    const item = ([kind, name, sub]: MockItem): KnowledgeItem => ({ kind, name, path: sub ? `${folder}${sep}${sub}${sep}${name}` : `${folder}${sep}${name}` })
+    return {
+      providerId,
+      folder,
+      mainFolder: `${home}${sep}.${providerId}`,
+      items: knowledge[providerId].items.map(item),
+      accounts: db.accounts
+        .filter((a) => a.providerId === providerId)
+        .map((a) => ({
+          accountId: a.id,
+          label: a.label,
+          isDefaultHome: a.isDefaultHome,
+          kinds: a.isDefaultHome ? [] : sharedKinds.filter((k) => a.sharing[k])
+        }))
+    }
   }
 
   const api: HopperApi = {
@@ -330,6 +362,21 @@ export function createMockApi(platform: Platform): HopperApi {
         return clone(db.settings)
       }
     },
+    knowledge: {
+      async get() {
+        await wait(220)
+        return PROVIDER_ORDER.map(knowledgeFor)
+      },
+      async reseed(providerId) {
+        await wait(600)
+        const k = knowledge[providerId]
+        const kept = k.items.length
+        const added = k.pending.length
+        k.items.push(...k.pending)
+        k.pending = []
+        return { added, kept }
+      }
+    },
     system: {
       async openPath(path) {
         console.info('[mock] open folder', path)
@@ -404,6 +451,52 @@ export function createMockApi(platform: Platform): HopperApi {
   }, 45_000)
 
   return api
+}
+
+/** [kind, name, subfolder]: items at the top of the shared folder have no subfolder. */
+type MockItem = [KnowledgeItem['kind'], string, string?]
+
+/** What each shared profile holds, plus what "Copy new" finds in the main folder the first time. */
+function mockKnowledge(): Record<ProviderId, { items: MockItem[]; pending: MockItem[] }> {
+  const skills = (...names: string[]): MockItem[] => names.map((n) => ['skills', n, 'skills'])
+  return {
+    claude: {
+      items: [
+        ['instructions', 'CLAUDE.md'],
+        ['settings', 'settings.json'],
+        ...skills('review-pr', 'write-tests', 'release-notes', 'sql-explain', 'tailwind-audit', 'pdf', 'changelog', 'deploy-preview', 'migrate-db'),
+        ['agents', 'code-reviewer.md', 'agents'],
+        ['agents', 'test-runner.md', 'agents'],
+        ['agents', 'docs-writer.md', 'agents'],
+        ['commands', 'ship.md', 'commands'],
+        ['commands', 'standup.md', 'commands'],
+        ['plugins', 'typescript-lsp', 'plugins'],
+        ['plugins', 'github', 'plugins']
+      ],
+      pending: [...skills('incident-review', 'figma-to-react'), ['commands', 'triage.md', 'commands']]
+    },
+    codex: {
+      items: [
+        ['instructions', 'AGENTS.md'],
+        ['settings', 'config.toml'],
+        ...skills('review-pr', 'write-tests'),
+        ['commands', 'fix-ci.md', 'prompts']
+      ],
+      pending: [['commands', 'bump-deps.md', 'prompts']]
+    },
+    gemini: {
+      items: [
+        ['instructions', 'GEMINI.md'],
+        ['settings', 'settings.json'],
+        ['commands', 'plan.toml', 'commands']
+      ],
+      pending: []
+    },
+    copilot: {
+      items: [['settings', 'config.json']],
+      pending: [['instructions', 'copilot-instructions.md']]
+    }
+  }
 }
 
 function defaultWindows(p: Account['providerId'], session: number, week: number): UsageWindow[] {

@@ -10,7 +10,7 @@ import type {
   UsageSnapshot,
   UsageWindow
 } from '@shared/types'
-import { DEFAULT_SHARING } from '@shared/types'
+import { DEFAULT_PERMISSION_MODES, DEFAULT_SHARING } from '@shared/types'
 import type { Platform } from '@/lib/platform'
 
 const MIN = 60_000
@@ -441,7 +441,8 @@ export function buildMockDb(p: Platform, now: number = Date.now()): MockDb {
     minimizeToTray: true,
     launchAtLogin: false,
     theme: 'dark',
-    liveUsage: true
+    liveUsage: true,
+    permissionModes: { ...DEFAULT_PERMISSION_MODES, claude: 'acceptEdits' }
   }
 
   const detected: DetectedAccount[] = [
