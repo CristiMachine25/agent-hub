@@ -8,6 +8,7 @@ import { modKey } from '@/lib/platform'
 import { restyleAll } from './registry'
 import { useGrid } from './store'
 import { Pane } from './Pane'
+import { SessionsPanel } from './Sessions'
 
 /** Tiny picture of a layout preset, drawn from the same rects the grid uses. */
 function LayoutIcon({ id }: { id: LayoutId }) {
@@ -65,63 +66,66 @@ export function Terminals() {
   }, [mode])
 
   return (
-    <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-4 border-b border-rivet px-5">
-        <h1 className="font-serif text-lg font-semibold">Terminals</h1>
-        <p className="hidden text-xs text-muted min-[1100px]:block">
-          Each pane runs on its own account. {mod}+Shift+arrows move between panes, {mod}+Shift+Enter maximizes.
-        </p>
-        <div className="ml-auto inline-flex rounded border border-rivet bg-deck p-0.5" role="radiogroup" aria-label="Layout">
-          {LAYOUT_IDS.map((id) => (
-            <button
-              key={id}
-              role="radio"
-              aria-checked={ws.layout === id}
-              title={LAYOUTS[id].label}
-              aria-label={LAYOUTS[id].label}
-              onClick={() => setLayout(id)}
-              className={clsx(
-                'flex h-7 w-9 items-center justify-center rounded-[4px] transition-colors',
-                ws.layout === id ? 'bg-raised text-hop' : 'text-faint hover:text-ink'
-              )}
-            >
-              <LayoutIcon id={id} />
-            </button>
-          ))}
-        </div>
-      </header>
-      {!restored ? (
-        <div className="flex flex-1 items-center justify-center gap-2 text-muted" role="status">
-          <Loader2 size={16} className="animate-spin" /> Reconnecting to running terminals…
-        </div>
-      ) : (
-        <div
-          className="grid min-h-0 flex-1 gap-2 p-2"
-          style={
-            ws.maximized !== null
-              ? { gridTemplateColumns: '1fr', gridTemplateRows: '1fr' }
-              : { gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))` }
-          }
-        >
-          {ws.panes.map((p, i) => {
-            const r = layout.rects[i]
-            const hidden = ws.maximized !== null && ws.maximized !== i
-            return (
-              <div
-                key={p.uid}
-                className={clsx('flex min-h-0 min-w-0 [&>section]:flex-1', hidden && 'hidden')}
-                style={
-                  ws.maximized === i || !r
-                    ? undefined
-                    : { gridColumn: `${r.col + 1} / span ${r.colSpan}`, gridRow: `${r.row + 1} / span ${r.rowSpan}` }
-                }
+    <div className="flex h-full">
+      <SessionsPanel />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <header className="flex h-14 shrink-0 items-center gap-4 border-b border-rivet px-5">
+          <h1 className="font-serif text-lg font-semibold">Terminals</h1>
+          <p className="hidden text-xs text-muted min-[1100px]:block">
+            Each pane runs on its own account. {mod}+Shift+arrows move between panes, {mod}+Shift+Enter maximizes.
+          </p>
+          <div className="ml-auto inline-flex rounded border border-rivet bg-deck p-0.5" role="radiogroup" aria-label="Layout">
+            {LAYOUT_IDS.map((id) => (
+              <button
+                key={id}
+                role="radio"
+                aria-checked={ws.layout === id}
+                title={LAYOUTS[id].label}
+                aria-label={LAYOUTS[id].label}
+                onClick={() => setLayout(id)}
+                className={clsx(
+                  'flex h-7 w-9 items-center justify-center rounded-[4px] transition-colors',
+                  ws.layout === id ? 'bg-raised text-hop' : 'text-faint hover:text-ink'
+                )}
               >
-                <Pane index={i} pane={p} />
-              </div>
-            )
-          })}
-        </div>
-      )}
+                <LayoutIcon id={id} />
+              </button>
+            ))}
+          </div>
+        </header>
+        {!restored ? (
+          <div className="flex flex-1 items-center justify-center gap-2 text-muted" role="status">
+            <Loader2 size={16} className="animate-spin" /> Reconnecting to running terminals…
+          </div>
+        ) : (
+          <div
+            className="grid min-h-0 flex-1 gap-2 p-2"
+            style={
+              ws.maximized !== null
+                ? { gridTemplateColumns: '1fr', gridTemplateRows: '1fr' }
+                : { gridTemplateColumns: `repeat(${layout.cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${layout.rows}, minmax(0, 1fr))` }
+            }
+          >
+            {ws.panes.map((p, i) => {
+              const r = layout.rects[i]
+              const hidden = ws.maximized !== null && ws.maximized !== i
+              return (
+                <div
+                  key={p.uid}
+                  className={clsx('flex min-h-0 min-w-0 [&>section]:flex-1', hidden && 'hidden')}
+                  style={
+                    ws.maximized === i || !r
+                      ? undefined
+                      : { gridColumn: `${r.col + 1} / span ${r.colSpan}`, gridRow: `${r.row + 1} / span ${r.rowSpan}` }
+                  }
+                >
+                  <Pane index={i} pane={p} />
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
