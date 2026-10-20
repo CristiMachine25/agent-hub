@@ -134,7 +134,11 @@ function UseNow() {
   const launching = useStore((s) => s.launching)
   const { launch, go } = useStore.getState()
 
-  const usable = recs.filter((r) => r.score > 0 && accounts.some((a) => a.id === r.accountId))
+  // Signed-out accounts can't be launched usefully, so they never appear as a pick here.
+  const usable = recs.filter((r) => {
+    const a = accounts.find((x) => x.id === r.accountId)
+    return r.score > 0 && !!a && a.status !== 'needs-login' && a.status !== 'expired'
+  })
   const top = usable[0]
   const acc = top && accounts.find((a) => a.id === top.accountId)
   const snap = acc && usage[acc.id]
