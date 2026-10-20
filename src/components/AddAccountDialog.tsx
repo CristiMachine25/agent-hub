@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { CheckCircle2, FolderOpen, Loader2 } from 'lucide-react'
 import type { Account, DetectedAccount, ProviderId, SharingOptions } from '@shared/types'
@@ -8,6 +8,7 @@ import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER, ACCOUNT_COLORS, SHARING_ITEMS } from '@/lib/providers'
 import { plural } from '@/lib/format'
 import { DEFAULT_PLAN, PLANS, findPlan, planLabel } from '@/lib/plans'
+import { isWorthKeeping, useDrafts, type DraftFields, type ProfileDraft } from '@/lib/drafts'
 import { Dialog, ProviderMark, Segmented } from './ui'
 import { CopyButton } from './Toasts'
 
@@ -24,13 +25,53 @@ export function AddAccountDialog() {
   const open = useStore((s) => s.addOpen)
   const setAddOpen = useStore((s) => s.setAddOpen)
   const accounts = useStore((s) => s.accounts)
+  const drafts = useDrafts((s) => s.drafts)
+  const resumeId = useDrafts((s) => s.resumeId)
+  const draft = drafts.find((d) => d.id === resumeId)
   const [mode, setMode] = useState<Mode>('find')
+  // What the create form holds right now (null once the profile is created), and whether we're asking about it.
+  const fields = useRef<DraftFields | null>(null)
+  const [asking, setAsking] = useState(false)
   useEffect(() => {
-    if (open) setMode('find')
+    if (open) setMode(useDrafts.getState().resumeId ? 'create' : 'find')
+    setAsking(false)
+    fields.current = null
   }, [open])
-  const close = () => setAddOpen(false)
+  const close = () => {
+    setAddOpen(false)
+    useDrafts.getState().resume(null)
+  }
+  // A click on the backdrop (or Escape) shouldn't throw away a half-filled form.
+  const dismiss = () => {
+    if (asking) setAsking(false)
+    else if (mode === 'create' && fields.current && isWorthKeeping(fields.current)) setAsking(true)
+    else close()
+  }
+  const saveDraft = () => {
+    if (fields.current) useDrafts.getState().save(fields.current, draft?.id)
+    close()
+  }
   return (
-    <Dialog open={open} onClose={close} title="Add an account" width={620}>
+    <Dialog open={open} onClose={close} onDismiss={dismiss} title={draft ? 'Finish your draft' : 'Add an account'} width={620}>
+      {asking && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-deck/95 px-8" role="alertdialog" aria-label="Keep this profile as a draft?">
+          <div className="max-w-sm text-center">
+            <p className="font-serif text-[17px] font-semibold">Keep this profile as a draft?</p>
+            <p className="mt-1 text-muted">It waits in your accounts list, so you can finish it later without filling everything in again.</p>
+            <div className="mt-5 flex justify-center gap-2">
+              <button className="btn" onClick={close}>
+                Discard
+              </button>
+              <button className="btn" onClick={() => setAsking(false)}>
+                Keep editing
+              </button>
+              <button className="btn btn-primary" data-autofocus onClick={saveDraft}>
+                Save draft
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="mb-4">
         <Segmented
           label="How to add"
@@ -42,7 +83,11 @@ export function AddAccountDialog() {
           ]}
         />
       </div>
-      {mode === 'find' ? <FindStep onDone={close} onCreate={() => setMode('create')} /> : <CreateStep onDone={close} count={accounts.length} />}
+      {mode === 'find' ? (
+        <FindStep onDone={close} onCreate={() => setMode('create')} />
+      ) : (
+        <CreateStep key={draft?.id ?? 'new'} onDone={close} count={accounts.length} draft={draft} onFields={(f) => (fields.current = f)} />
+      )}
     </Dialog>
   )
 }
@@ -167,20 +212,36 @@ function FindStep({ onDone, onCreate }: { onDone: () => void; onCreate: () => vo
   )
 }
 
-function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
+function CreateStep({
+  onDone,
+  count,
+  draft,
+  onFields
+}: {
+  onDone: () => void
+  count: number
+  /** Start from a saved draft instead of an empty form. */
+  draft?: ProfileDraft
+  /** Told about every change, and null once the profile exists. */
+  onFields: (f: DraftFields | null) => void
+}) {
   const providers = useStore((s) => s.providers)
   const defaultSharing = useStore((s) => s.settings?.defaultSharing ?? DEFAULT_SHARING)
   const { toast, launch, go } = useStore.getState()
-  const [providerId, setProviderId] = useState<ProviderId>('claude')
-  const [label, setLabel] = useState('')
-  const [preset, setPreset] = useState<Preset>('recommended')
-  const [folder, setFolder] = useState<string | null>(null)
-  const [plan, setPlan] = useState(DEFAULT_PLAN.claude)
-  const [cost, setCost] = useState(String(findPlan('claude', DEFAULT_PLAN.claude)?.price ?? ''))
-  const [costEdited, setCostEdited] = useState(false)
+  const [providerId, setProviderId] = useState<ProviderId>(draft?.providerId ?? 'claude')
+  const [label, setLabel] = useState(draft?.label ?? '')
+  const [preset, setPreset] = useState<Preset>(draft?.preset ?? 'recommended')
+  const [folder, setFolder] = useState<string | null>(draft?.folder ?? null)
+  const [plan, setPlan] = useState(draft?.plan ?? DEFAULT_PLAN.claude)
+  const [cost, setCost] = useState(draft?.cost ?? String(findPlan('claude', DEFAULT_PLAN.claude)?.price ?? ''))
+  const [costEdited, setCostEdited] = useState(draft?.costEdited ?? false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<Account | null>(null)
+
+  useEffect(() => {
+    onFields(created ? null : { providerId, label, plan, cost, costEdited, preset, folder })
+  }, [onFields, created, providerId, label, plan, cost, costEdited, preset, folder])
 
   const prov = providers.find((p) => p.id === providerId)
   const sharing = preset === 'recommended' ? defaultSharing : PRESETS[preset]
@@ -253,6 +314,7 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
             monthlyCost: cost ? Number(cost) : undefined,
             plan: plan || undefined
           })
+          if (draft) useDrafts.getState().remove(draft.id)
           setCreated(a)
         } catch (err) {
           setError(errorText(err))
