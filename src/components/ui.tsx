@@ -186,14 +186,14 @@ export function Dialog({
   }, [open, onClose])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 px-4 pt-[10vh]" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 px-4 pb-6 pt-[max(24px,8vh)]" onMouseDown={onClose}>
       <div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className="toast-in flex max-h-[80vh] w-full flex-col rounded-lg border border-rivet bg-deck shadow-2xl shadow-black/40"
+        className="toast-in flex max-h-full w-full flex-col rounded-lg border border-rivet bg-deck shadow-2xl shadow-black/40"
         style={{ maxWidth: width }}
       >
         <div className="flex items-center justify-between border-b border-rivet px-5 py-3">

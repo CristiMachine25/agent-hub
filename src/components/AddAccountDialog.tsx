@@ -234,7 +234,7 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
 
   return (
     <form
-      className="space-y-5"
+      className="space-y-4"
       onSubmit={async (e) => {
         e.preventDefault()
         if (!label.trim()) {
@@ -262,8 +262,8 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
       }}
     >
       <fieldset>
-        <legend className="mb-2 font-medium">Tool</legend>
-        <div className="grid grid-cols-2 gap-2">
+        <legend className="mb-1.5 font-medium">Tool</legend>
+        <div className="grid grid-cols-4 gap-2">
           {PROVIDER_ORDER.map((id) => {
             const p = providers.find((x) => x.id === id)
             const on = id === providerId
@@ -271,16 +271,16 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
               <label
                 key={id}
                 className={clsx(
-                  'flex cursor-default items-center gap-2.5 rounded border px-3 py-2',
+                  'flex min-w-0 cursor-default items-center gap-2 rounded border px-2.5 py-1.5',
                   on ? 'border-hop bg-hop/10' : 'border-rivet hover:bg-raised'
                 )}
               >
                 <input type="radio" name="provider" className="sr-only" checked={on} onChange={() => pickProvider(id)} />
                 <ProviderMark id={id} />
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium">{p?.name ?? PROVIDER_META[id].product}</span>
-                  <span className={clsx('block text-xs', p?.cliInstalled ? 'text-muted' : 'text-low')}>
-                    {p?.cliInstalled ? `Installed${p.cliVersion ? `, version ${p.cliVersion}` : ''}` : 'Not installed'}
+                <span className="min-w-0 flex-1" title={p?.cliInstalled && p.cliVersion ? `Version ${p.cliVersion}` : undefined}>
+                  <span className="block truncate font-medium">{PROVIDER_META[id].short}</span>
+                  <span className={clsx('block truncate text-xs', p?.cliInstalled ? 'text-muted' : 'text-low')}>
+                    {p?.cliInstalled ? (p.cliVersion ? `v${p.cliVersion}` : 'Installed') : 'Not installed'}
                   </span>
                 </span>
               </label>
@@ -329,32 +329,33 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
       </div>
 
       <fieldset>
-        <legend className="mb-1 font-medium">What to share with your main setup</legend>
-        <div className="space-y-1.5">
+        <legend className="mb-1.5 font-medium">What to share with your main setup</legend>
+        <div className="grid grid-cols-3 gap-2">
           {(
             [
-              ['recommended', 'Your usual setup', 'Skills, plugins, agents, instructions, MCP and chat history are shared. Settings stay separate.'],
-              ['separate', 'Fully separate', 'A clean profile with nothing shared. Good for client work.'],
-              ['everything', 'Everything, including settings', 'Behaves exactly like your main setup, just signed in as a different account.']
+              ['recommended', 'Your usual setup', 'Skills, plugins, agents, MCP and history shared. Settings separate.'],
+              ['separate', 'Fully separate', 'Nothing shared. Good for client work.'],
+              ['everything', 'Everything', 'Like your main setup, settings included.']
             ] as const
           ).map(([id, title, body]) => (
-            <label key={id} className="flex items-start gap-2.5 rounded px-1 py-1">
-              <input type="radio" name="preset" className="mt-1" checked={preset === id} onChange={() => setPreset(id)} style={{ accentColor: 'rgb(var(--hop))' }} />
-              <span>
-                <span className="block">{title}</span>
-                <span className="block text-xs text-muted">{body}</span>
-              </span>
+            <label
+              key={id}
+              className={clsx('block cursor-default rounded border px-2.5 py-2', preset === id ? 'border-hop bg-hop/10' : 'border-rivet hover:bg-raised')}
+            >
+              <input type="radio" name="preset" className="sr-only" checked={preset === id} onChange={() => setPreset(id)} />
+              <span className="block font-medium">{title}</span>
+              <span className="block text-xs leading-4 text-muted">{body}</span>
             </label>
           ))}
         </div>
-        <p className="mt-1 text-xs text-faint">
-          Sign-in tokens are never shared. Change any of these later: {SHARING_ITEMS.map((s) => s.label.toLowerCase()).join(', ')}.
+        <p className="mt-1.5 text-xs text-faint" title={`You can change ${SHARING_ITEMS.map((s) => s.label.toLowerCase()).join(', ')} later.`}>
+          Sign-in tokens are never shared. Change any of this later in the account's settings.
         </p>
       </fieldset>
 
       <div>
-        <span className="mb-1 block font-medium">Profile folder</span>
         <div className="flex items-center gap-2">
+          <span className="shrink-0 font-medium">Folder</span>
           <span className={clsx('min-w-0 flex-1 truncate', folder ? 'code' : 'text-muted')}>
             {folder ?? 'Switchyard creates a new folder for this account'}
           </span>
@@ -378,7 +379,8 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
 
       {error && <p className="text-empty" role="alert">{error}</p>}
 
-      <div className="flex justify-end gap-2 border-t border-rivet pt-4">
+      {/* Pinned to the bottom of the dialog so the buttons stay visible on short windows. */}
+      <div className="sticky bottom-0 -mx-5 -mb-4 flex justify-end gap-2 border-t border-rivet bg-deck px-5 py-3">
         <button type="button" className="btn" onClick={onDone}>
           Cancel
         </button>
