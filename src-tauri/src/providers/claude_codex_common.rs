@@ -55,7 +55,7 @@ pub fn parse_script_assignments(content: &str, var: &str) -> Vec<String> {
             let start = search_from + rel;
             search_from = start + var.len();
             // Must be a whole identifier.
-            let before_ok = line[..start].chars().last().map_or(true, |c| !(c.is_ascii_alphanumeric() || c == '_'));
+            let before_ok = line[..start].chars().last().is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
             if !before_ok {
                 continue;
             }
@@ -130,7 +130,7 @@ pub fn jsonl_files_since(roots: &[PathBuf], since: SystemTime) -> Vec<(PathBuf, 
     let mut files = Vec::new();
     for root in roots {
         for entry in walkdir::WalkDir::new(root).follow_links(true).into_iter().flatten() {
-            if !entry.file_type().is_file() || entry.path().extension().map_or(true, |e| e != "jsonl") {
+            if !entry.file_type().is_file() || entry.path().extension().is_none_or(|e| e != "jsonl") {
                 continue;
             }
             if let Some(modified) = entry.metadata().ok().and_then(|m| m.modified().ok()) {
