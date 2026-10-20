@@ -29,14 +29,14 @@ pub fn is_short_window(w: &UsageWindow) -> bool {
     }
 }
 
-/// 0 = unknown/free, 1 = Plus, 2 = Pro/Team/Business, 3 = Max/Pro+/Ultra/Enterprise.
+/// 0 = unknown/free, 1 = Plus, 2 = Pro/Team/Business, 3 = Max/Pro+/Ultra/Enterprise and ChatGPT Pro 100/200/500.
 pub fn tier(account: &Account) -> u8 {
     let mut text = account.plan.clone().unwrap_or_default().to_ascii_lowercase();
     for t in &account.tags {
         text.push(' ');
         text.push_str(&t.to_ascii_lowercase());
     }
-    if ["max", "pro+", "pro plus", "ultra", "enterprise"].iter().any(|k| text.contains(k)) {
+    if ["max", "pro+", "pro plus", "ultra", "enterprise", "pro 100", "pro 200", "pro 500", "premium"].iter().any(|k| text.contains(k)) {
         3
     } else if ["pro", "team", "business"].iter().any(|k| text.contains(k)) {
         2
@@ -265,5 +265,9 @@ pub(crate) mod tests {
         assert_eq!(r[0].account_id, "t");
         assert_eq!(tier(&account("x", "Copilot Pro+")), 3);
         assert_eq!(tier(&account("x", "Plus")), 1);
+        assert_eq!(tier(&account("x", "Pro 200")), 3);
+        assert_eq!(tier(&account("x", "Team Premium")), 3);
+        assert_eq!(tier(&account("x", "Google AI Pro")), 2);
+        assert_eq!(tier(&account("x", "Google AI Plus")), 1);
     }
 }
