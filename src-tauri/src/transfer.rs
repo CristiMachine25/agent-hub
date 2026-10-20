@@ -77,14 +77,14 @@ struct ExportedAccount {
     has_sign_in: bool,
 }
 
-/// A skill, agent or instructions file from a tool's main folder.
+/// A skill, agent or instructions file from a tool's shared folder.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BundleFile {
     provider_id: ProviderId,
     /// "skills", "agents" or "instructions".
     kind: String,
-    /// Relative to the tool's main folder, `/` separators.
+    /// Relative to the tool's shared folder, `/` separators.
     path: String,
     data: String,
 }
@@ -280,7 +280,7 @@ fn portable_settings(s: &AppSettings) -> serde_json::Value {
     })
 }
 
-/// Skills, agents and instructions from the main folder of every tool the exported accounts use.
+/// Skills, agents and instructions from the shared folder of every tool the exported accounts use.
 fn collect_files(state: &AppState, accounts: &[Account]) -> anyhow::Result<(Vec<BundleFile>, usize)> {
     let mut providers: Vec<ProviderId> = accounts.iter().map(|a| a.provider_id).collect();
     providers.sort_by_key(|p| p.as_str());
@@ -288,7 +288,7 @@ fn collect_files(state: &AppState, accounts: &[Account]) -> anyhow::Result<(Vec<
     let (mut out, mut skipped, mut total) = (Vec::new(), 0, 0u64);
     for provider in providers {
         let adapter = state.adapter(provider)?;
-        let root = adapter.default_home();
+        let root = knowledge_root(state, &adapter);
         for (kind, rels) in adapter.shareable_paths().into_iter().filter(|(k, _)| PORTABLE_KINDS.contains(k)) {
             for rel in rels {
                 for file in walk(&root.join(rel)) {
@@ -308,6 +308,16 @@ fn collect_files(state: &AppState, accounts: &[Account]) -> anyhow::Result<(Vec<
         }
     }
     Ok((out, skipped))
+}
+
+/// The shared knowledge folder all accounts link to, or the tool's main folder before one exists.
+fn knowledge_root(state: &AppState, adapter: &Adapter) -> PathBuf {
+    let shared = state.shared_dir(adapter.id());
+    if shared.is_dir() {
+        shared
+    } else {
+        adapter.default_home()
+    }
 }
 
 /// Every regular file under `p` (or `p` itself), skipping VCS folders and dependency caches.
@@ -441,7 +451,7 @@ pub async fn preview(state: &Arc<AppState>, path: &Path, passphrase: Option<Stri
     }
     let mut kinds: BTreeMap<(String, String), PreviewKind> = BTreeMap::new();
     for f in &file.files {
-        let root = state.adapter(f.provider_id)?.default_home();
+        let root = state.shared_dir(f.provider_id);
         let new = from_portable(&root, &f.path).is_some_and(|p| !p.exists());
         let k = kinds.entry((f.provider_id.as_str().into(), f.kind.clone())).or_insert(PreviewKind {
             provider_id: f.provider_id,
@@ -518,7 +528,12 @@ pub async fn apply(app: &AppHandle, state: &Arc<AppState>, path: &Path, passphra
             let root = match roots.get(&f.provider_id) {
                 Some(r) => r.clone(),
                 None => {
-                    let r = state.adapter(f.provider_id)?.default_home();
+                    let adapter = state.adapter(f.provider_id)?;
+                    let r = state.shared_dir(f.provider_id);
+                    // Start from this computer's own main folder before adding what came in the file.
+                    if let Err(e) = crate::knowledge::ensure_seeded(&r, adapter.as_ref()) {
+                        report.problems.push(format!("Preparing the shared {} folder: {e}", f.provider_id.as_str()));
+                    }
                     roots.insert(f.provider_id, r.clone());
                     r
                 }

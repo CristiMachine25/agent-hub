@@ -119,7 +119,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       </fieldset>
       <Check checked={files} onChange={setFiles}>
         <span className="block">Skills, agents and instructions</span>
-        <span className="block text-xs text-muted">From each tool's main folder. Files the other computer already has stay as they are.</span>
+        <span className="block text-xs text-muted">From each tool's shared knowledge (see Knowledge). Files the other computer already has stay as they are.</span>
       </Check>
       <Check checked={settings} onChange={setSettings}>
         <span className="block">Preferences</span>
