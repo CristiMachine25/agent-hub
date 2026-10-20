@@ -203,6 +203,11 @@ pub async fn export(state: &AppState, path: &Path, opts: ExportOptions) -> anyho
         let adapter = state.adapter(a.provider_id)?;
         let home = PathBuf::from(&a.home_dir);
         let is_default = a.is_default_home || util::path_key(&adapter.default_home()) == util::path_key(&home);
+        // The stored email can lag behind a fresh sign-in; the profile itself knows for sure.
+        let email = match a.email.clone() {
+            Some(e) => Some(e),
+            None => adapter.read_identity(&home).await.email,
+        };
         let mut has_sign_in = false;
         if passphrase.is_some() {
             let files = adapter.export_sign_in(&home, is_default).await;
@@ -215,7 +220,7 @@ pub async fn export(state: &AppState, path: &Path, opts: ExportOptions) -> anyho
             key: a.id.clone(),
             provider_id: a.provider_id,
             label: a.label.clone(),
-            email: a.email.clone(),
+            email,
             plan: a.plan.clone(),
             color: a.color.clone(),
             tags: a.tags.clone(),
@@ -409,7 +414,9 @@ async fn plan_account(state: &Arc<AppState>, a: &ExportedAccount) -> anyhow::Res
             && a.email.as_deref().is_some_and(|e| x.email.as_deref().is_some_and(|y| y.eq_ignore_ascii_case(e)))
     };
     let same_folder = |x: &&Account| !home.as_os_str().is_empty() && util::path_key(Path::new(&x.home_dir)) == util::path_key(&home);
-    let already_here = accounts.iter().find(|x| same_login(x) || same_folder(x)).map(|x| x.label.clone());
+    // Without an email to compare, the same name for the same tool counts as the same account.
+    let same_name = |x: &&Account| x.provider_id == a.provider_id && x.label.trim().eq_ignore_ascii_case(a.label.trim());
+    let already_here = accounts.iter().find(|x| same_login(x) || same_folder(x) || same_name(x)).map(|x| x.label.clone());
     drop(accounts);
     let home = if home.as_os_str().is_empty() { commands::new_home_dir(state, a.provider_id, &a.label).await } else { home };
     Ok(Plan { adapter, home, is_default, already_here })
