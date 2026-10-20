@@ -1,5 +1,6 @@
 //! App setup: plugins, state, commands, background poller and the system tray.
 pub mod commands;
+pub mod knowledge;
 pub mod launcher;
 pub mod model;
 pub mod notify;
