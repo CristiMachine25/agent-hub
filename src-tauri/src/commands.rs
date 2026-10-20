@@ -172,7 +172,7 @@ mod import_label_tests {
 
     #[test]
     fn names_side_by_side_homes_after_their_folder() {
-        assert_eq!(import_label(&found(ProviderId::Claude, "C:\\Users\\x\\.claude-h2", false)), "Claude H2");
+        assert_eq!(import_label(&found(ProviderId::Claude, "/home/x/.claude-h2", false)), "Claude H2");
         assert_eq!(import_label(&found(ProviderId::Codex, "/home/x/.codex-work_pro", false)), "Codex Work Pro");
         assert_eq!(import_label(&found(ProviderId::Claude, "/home/x/.claude", true)), "Claude main");
         assert_eq!(import_label(&found(ProviderId::Gemini, "/home/x/.gemini-", false)), "me@example.com");
