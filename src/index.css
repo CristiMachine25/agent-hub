@@ -97,6 +97,14 @@
 }
 
 @layer components {
+  /* Window buttons in the custom title bar (Windows and Linux). */
+  .titlebar-btn {
+    @apply flex h-8 w-11 items-center justify-center text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
+  .titlebar-close:hover {
+    background: #c42b1c;
+    color: #fff;
+  }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded text-sm font-medium whitespace-nowrap
       border border-rivet bg-deck text-ink transition-colors select-none;

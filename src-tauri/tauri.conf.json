@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Baton", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600 }
+      { "label": "main", "title": "Baton", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }
     ],
     "security": { "csp": null }
   },

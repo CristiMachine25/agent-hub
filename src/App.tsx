@@ -3,6 +3,7 @@ import { Loader2 } from 'lucide-react'
 import { useStore, type Screen } from './store'
 import { Sidebar } from './components/Sidebar'
 import { Toasts } from './components/Toasts'
+import { TitleBar } from './components/TitleBar'
 import { CommandPalette } from './components/CommandPalette'
 import { AddAccountDialog } from './components/AddAccountDialog'
 import { Overview } from './screens/Overview'
@@ -89,31 +90,40 @@ export function App() {
 
   if (phase === 'loading')
     return (
-      <div className="flex h-full items-center justify-center gap-2 text-muted" role="status">
-        <Loader2 size={16} className="animate-spin" /> Loading your accounts…
+      <div className="flex h-full flex-col">
+        <TitleBar />
+        <div className="flex flex-1 items-center justify-center gap-2 text-muted" role="status">
+          <Loader2 size={16} className="animate-spin" /> Loading your accounts…
+        </div>
       </div>
     )
   if (phase === 'error')
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-md font-semibold">Baton couldn't load its data</p>
-        <p className="max-w-md text-muted">{loadError}</p>
-        <button className="btn btn-primary" onClick={() => init()}>
-          Try again
-        </button>
+      <div className="flex h-full flex-col">
+        <TitleBar />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <p className="text-md font-semibold">Baton couldn't load its data</p>
+          <p className="max-w-md text-muted">{loadError}</p>
+          <button className="btn btn-primary" onClick={() => init()}>
+            Try again
+          </button>
+        </div>
       </div>
     )
 
   return (
     <div className="flex h-full">
       <Sidebar />
-      <main className={screen === 'terminals' ? 'min-w-0 flex-1 overflow-hidden' : 'min-w-0 flex-1 overflow-y-auto'} id="main">
-        {screen === 'overview' && <Overview />}
-        {screen === 'accounts' && <Accounts />}
-        {screen === 'terminals' && <Terminals />}
-        {screen === 'notifications' && <Notifications />}
-        {screen === 'settings' && <Settings />}
-      </main>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <TitleBar />
+        <main className={screen === 'terminals' ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-y-auto'} id="main">
+          {screen === 'overview' && <Overview />}
+          {screen === 'accounts' && <Accounts />}
+          {screen === 'terminals' && <Terminals />}
+          {screen === 'notifications' && <Notifications />}
+          {screen === 'settings' && <Settings />}
+        </main>
+      </div>
       <CommandPalette />
       <AddAccountDialog />
       <Toasts />

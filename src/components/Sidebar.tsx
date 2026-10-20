@@ -3,7 +3,7 @@ import { Bell, Gauge, RefreshCw, Rocket, Settings2, SquareTerminal, Users } from
 import { useStore, type Screen } from '@/store'
 import { IS_MOCK, api } from '@/api'
 import { formatAgo } from '@/lib/format'
-import { modKey } from '@/lib/platform'
+import { detectPlatform, isTauri, modKey } from '@/lib/platform'
 import { Logo } from './Logo'
 
 const NAV: { id: Screen; label: string; icon: typeof Gauge; key: string }[] = [
@@ -13,6 +13,9 @@ const NAV: { id: Screen; label: string; icon: typeof Gauge; key: string }[] = [
   { id: 'notifications', label: 'Notifications', icon: Bell, key: '4' },
   { id: 'settings', label: 'Settings', icon: Settings2, key: '5' }
 ]
+
+/** On macOS the native window buttons float over the top of the sidebar. */
+const MAC_TRAFFIC_LIGHTS = isTauri() && detectPlatform() === 'darwin'
 
 export function Sidebar() {
   const screen = useStore((s) => s.screen)
@@ -34,7 +37,8 @@ export function Sidebar() {
       aria-label="Main"
       className="flex w-[208px] shrink-0 flex-col border-r border-rivet bg-deck max-[999px]:w-[60px]"
     >
-      <div className="flex h-14 items-center gap-2.5 px-4 max-[999px]:justify-center max-[999px]:px-0">
+      {MAC_TRAFFIC_LIGHTS && <div data-tauri-drag-region className="h-7 shrink-0" />}
+      <div data-tauri-drag-region className="flex h-14 items-center gap-2.5 px-4 max-[999px]:justify-center max-[999px]:px-0">
         <Logo size={26} />
         <span className="font-serif text-[19px] font-semibold max-[999px]:hidden">Baton</span>
       </div>

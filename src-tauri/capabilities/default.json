@@ -3,5 +3,16 @@
   "identifier": "default",
   "description": "Main window permissions",
   "windows": ["main"],
-  "permissions": ["core:default", "notification:default", "dialog:default", "opener:default"]
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
+    "notification:default",
+    "dialog:default",
+    "opener:default"
+  ]
 }
