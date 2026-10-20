@@ -7,6 +7,7 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
   --ground: 26 25 24; /* Charcoal #1A1918 */
+  --well: 20 19 18; /* Darker side panels #141312 */
   --deck: 34 33 32; /* Panel #222120 */
   --raised: 42 40 38; /* #2A2826 */
   --rivet: 53 50 47; /* Line #35322F */
@@ -25,6 +26,7 @@
 :root[data-theme='light'] {
   color-scheme: light;
   --ground: 245 243 238; /* Paper #F5F3EE */
+  --well: 236 233 226;
   --deck: 251 250 247;
   --raised: 238 235 228;
   --rivet: 220 215 205;
@@ -97,6 +99,10 @@
 }
 
 @layer components {
+  /* Small square icon buttons in side panels. */
+  .side-icon-btn {
+    @apply flex h-7 w-7 items-center justify-center rounded text-muted transition-colors hover:bg-raised hover:text-ink;
+  }
   /* Window buttons in the custom title bar (Windows and Linux). */
   .titlebar-btn {
     @apply flex h-8 w-11 items-center justify-center text-muted transition-colors hover:bg-raised hover:text-ink;

@@ -7,6 +7,7 @@ module.exports = {
     extend: {
       colors: {
         ground: v('ground'),
+        well: v('well'),
         deck: v('deck'),
         raised: v('raised'),
         rivet: v('rivet'),
