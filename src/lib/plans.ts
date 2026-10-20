@@ -63,6 +63,6 @@ export function findPlan(providerId: ProviderId, name: string | undefined): Plan
 }
 
 export function planLabel(p: PlanOption): string {
-  const price = p.price === undefined ? '' : p.price === 0 ? ', free' : `, $${p.price}/mo`
+  const price = p.price ? `, $${p.price}/mo` : ''
   return `${p.name}${price}`
 }
