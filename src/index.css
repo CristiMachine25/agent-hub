@@ -166,3 +166,34 @@
 .toast-in {
   animation: toast-in 160ms ease-out;
 }
+
+/* Terminal grid panes adapt to their own size, not the window's. */
+.pane-head {
+  container-type: inline-size;
+}
+.pane-body {
+  container-type: size;
+}
+@container (max-width: 520px) {
+  .pane-provider {
+    display: none;
+  }
+}
+@container (max-width: 420px) {
+  .pane-meter,
+  .pane-status {
+    display: none;
+  }
+}
+@container (max-height: 470px) {
+  .picker {
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+  .picker-title {
+    display: none;
+  }
+  .picker-list {
+    max-height: 150px;
+  }
+}

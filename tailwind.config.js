@@ -22,6 +22,7 @@ module.exports = {
       },
       fontFamily: {
         sans: ['"Hanken Grotesk Variable"', '"Hanken Grotesk"', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        serif: ['"Source Serif 4 Variable"', '"Source Serif 4"', 'Georgia', 'serif'],
         mono: ['"IBM Plex Mono"', 'ui-monospace', 'Consolas', 'monospace']
       },
       fontSize: {
