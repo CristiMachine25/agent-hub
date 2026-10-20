@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { AppWindow, Info, FolderOpen, FolderSearch, LogIn, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SquareTerminal, Trash2 } from 'lucide-react'
-import type { Account, DailyActivity, SharingOptions, TaskType, UsageHistoryPoint } from '@shared/types'
-import { api } from '@/api'
+import type { Account, DailyActivity, UsageWindow, SharingOptions, TaskType, UsageHistoryPoint } from '@shared/types'
+import { api, errorText } from '@/api'
 import { useStore } from '@/store'
 import { useGrid } from '@/terminals/store'
 import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
@@ -42,7 +42,7 @@ export function Accounts() {
     <div className="flex h-full min-h-0">
       <aside aria-label="Accounts" className="flex w-[272px] shrink-0 flex-col border-r border-rivet max-[999px]:w-[230px]">
         <div className="flex h-14 items-center justify-between px-4">
-          <h1 className="text-lg font-bold tracking-tight">Accounts</h1>
+          <h1 className="font-serif text-[24px] font-semibold leading-8">Accounts</h1>
           <button className="btn btn-sm" onClick={() => setAddOpen(true)}>
             <Plus size={14} /> Add
           </button>
@@ -140,7 +140,7 @@ function AccountDetail({ account: a }: { account: Account }) {
         <div className="flex items-start gap-3">
           <AccountDot account={a} size={14} />
           <div className="-mt-1.5 min-w-0 flex-1">
-            <h2 className="truncate text-[22px] font-bold leading-8 tracking-tight">{a.label}</h2>
+            <h2 className="truncate font-serif text-[26px] font-semibold leading-8">{a.label}</h2>
             <p className="text-muted">
               {meta.product}
               {a.plan ? `, ${a.plan} plan` : ''}
@@ -244,6 +244,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                   : 'No usage data yet. Baton checks every few minutes.'}
           </p>
         )}
+        {!signedOut && (!snap || snap.source === 'none' || snap.source === 'manual' || !snap.windows.length) && <ManualLimits account={a} />}
       </section>
 
       <section>
@@ -496,5 +497,106 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
         </span>
       </label>
     </Dialog>
+  )
+}
+
+interface ManualRow {
+  label: string
+  used: string
+  resetHours: string
+}
+
+/** For accounts without live limits (API keys, unsupported plans): type in what the provider's site shows. */
+function ManualLimits({ account }: { account: Account }) {
+  const snap = useStore((s) => s.usage[account.id])
+  const [open, setOpen] = useState(false)
+  const [rows, setRows] = useState<ManualRow[]>([])
+  const [saving, setSaving] = useState(false)
+  const manual = snap?.source === 'manual' && snap.windows.length > 0
+
+  const begin = () => {
+    const now = Date.now()
+    setRows(
+      manual
+        ? snap.windows.map((w) => ({
+            label: w.label,
+            used: String(Math.round(w.usedPercent)),
+            resetHours: w.resetsAt ? String(Math.max(0, Math.round((Date.parse(w.resetsAt) - now) / 3_600_000))) : ''
+          }))
+        : [{ label: 'Weekly', used: '0', resetHours: '' }]
+    )
+    setOpen(true)
+  }
+  const set = (i: number, patch: Partial<ManualRow>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)))
+  const valid = rows.length > 0 && rows.every((r) => r.label.trim() && r.used !== '' && Number(r.used) >= 0 && Number(r.used) <= 100)
+
+  const save = async () => {
+    const now = Date.now()
+    const windows: UsageWindow[] = rows.map((r, i) => {
+      const hours = Number(r.resetHours)
+      return {
+        id: `manual_${i}`,
+        label: r.label.trim(),
+        usedPercent: Math.min(100, Math.max(0, Number(r.used))),
+        resetsAt: r.resetHours !== '' && hours > 0 ? new Date(now + hours * 3_600_000).toISOString() : undefined
+      }
+    })
+    setSaving(true)
+    try {
+      const updated = await api.usage.setManual(account.id, windows)
+      useStore.setState((s) => ({ usage: { ...s.usage, [account.id]: updated } }))
+      void useStore.getState().loadRecs()
+      setOpen(false)
+    } catch (e) {
+      useStore.getState().toast({ kind: 'error', title: "Couldn't save the limits", body: errorText(e) })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <>
+      <button className="btn btn-sm mt-3" onClick={begin}>
+        <Pencil size={13} /> {manual ? 'Edit limits' : 'Enter limits by hand'}
+      </button>
+      <Dialog
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`Limits for ${account.label}`}
+        footer={
+          <>
+            <button className="btn" onClick={() => setOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" disabled={!valid || saving} onClick={save}>
+              Save limits
+            </button>
+          </>
+        }
+      >
+        <p className="mb-3 text-muted">
+          Copy what the provider's usage page shows. Baton uses these for recommendations and warnings until live limits are available.
+        </p>
+        <div className="grid grid-cols-[1fr_88px_104px_28px] items-center gap-2 text-xs text-muted">
+          <span>Window</span>
+          <span>% used</span>
+          <span>Resets in (hours)</span>
+          <span />
+          {rows.map((r, i) => (
+            <Fragment key={i}>
+              <input aria-label="Window name" value={r.label} onChange={(e) => set(i, { label: e.target.value })} placeholder="Weekly" />
+              <input aria-label="Percent used" type="number" min={0} max={100} value={r.used} onChange={(e) => set(i, { used: e.target.value })} />
+              <input aria-label="Hours until reset" type="number" min={0} value={r.resetHours} onChange={(e) => set(i, { resetHours: e.target.value })} placeholder="Unknown" />
+              <button className="btn btn-ghost btn-sm px-1" aria-label="Remove window" onClick={() => setRows((x) => x.filter((_, j) => j !== i))}>
+                <Trash2 size={13} />
+              </button>
+            </Fragment>
+          ))}
+        </div>
+        <button className="btn btn-ghost btn-sm mt-2" onClick={() => setRows((x) => [...x, { label: '', used: '0', resetHours: '' }])}>
+          <Plus size={13} /> Add a window
+        </button>
+      </Dialog>
+    </>
   )
 }
