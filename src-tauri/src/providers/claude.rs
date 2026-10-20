@@ -503,6 +503,54 @@ fn parse_version(out: &str) -> Option<String> {
     out.split_whitespace().next().map(str::to_string)
 }
 
+/// Microsoft Store builds run from `WindowsApps`. Windows redirects their writes under AppData into
+/// the package, so a data folder there doesn't keep the sign-in.
+fn is_store_build(app: &Path) -> bool {
+    app.components().any(|c| c.as_os_str().eq_ignore_ascii_case("WindowsApps"))
+}
+
+/// The main Claude Desktop install's own config.json (its default profile).
+fn desktop_config_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if cfg!(windows) {
+        if let Some(packages) = dirs::data_local_dir().map(|d| d.join("Packages")) {
+            if let Ok(entries) = std::fs::read_dir(&packages) {
+                for e in entries.flatten() {
+                    if e.file_name().to_string_lossy().starts_with("Claude_") {
+                        paths.push(e.path().join("LocalCache").join("Roaming").join("Claude").join("config.json"));
+                    }
+                }
+            }
+        }
+    }
+    if let Some(config) = dirs::config_dir() {
+        // %APPDATA%\Claude, ~/Library/Application Support/Claude, ~/.config/Claude
+        paths.push(config.join("Claude").join("config.json"));
+    }
+    paths
+}
+
+/// Account the main Claude Desktop profile was last signed in to.
+fn desktop_main_account() -> Option<String> {
+    desktop_config_paths()
+        .iter()
+        .filter_map(|p| util::read_json(p))
+        .find_map(|v| str_field(&v, "lastKnownAccountUuid").map(str::to_string))
+}
+
+/// Where a profile's own Claude Desktop data lives. Kept in the profile folder, except for Store builds
+/// whose profile folder is under AppData: those go to ~/.switchyard so Windows doesn't redirect them.
+fn desktop_data_dir(account: &Account, home: &Path, app: &Path) -> PathBuf {
+    let in_profile = home.join("desktop-data");
+    let used = std::fs::read_dir(&in_profile).is_ok_and(|mut d| d.next().is_some());
+    let under_appdata = [dirs::data_dir(), dirs::data_local_dir()].into_iter().flatten().any(|d| home.starts_with(d));
+    if used || !(is_store_build(app) && under_appdata) {
+        in_profile
+    } else {
+        util::home().join(".switchyard").join("claude-desktop").join(&account.id)
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------------------------
@@ -673,7 +721,7 @@ impl ProviderAdapter for ClaudeAdapter {
             args.push("--continue".to_string());
         }
         args.extend(extra_args.iter().cloned());
-        Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None })
+        Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None, note: None })
     }
 
     async fn login_command(&self, account: &Account) -> anyhow::Result<CommandSpec> {
@@ -682,19 +730,31 @@ impl ProviderAdapter for ClaudeAdapter {
             args.push("--email".into());
             args.push(email.to_string());
         }
-        Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None })
+        Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None, note: None })
     }
 
     async fn desktop_command(&self, account: &Account) -> anyhow::Result<Option<CommandSpec>> {
         let Some(app) = find_desktop() else { return Ok(None) };
         let home = Path::new(&account.home_dir);
-        let per_account = !(account.is_default_home || self.is_default(home));
+        let is_default = account.is_default_home || self.is_default(home);
+        // The account the normal Claude Desktop is signed in to opens there, already signed in.
+        let uuid = read_oauth_account(home, is_default).and_then(|o| str_field(&o, "accountUuid").map(str::to_string));
+        let signed_in_main = uuid.is_some() && uuid == desktop_main_account();
+        let per_account = !is_default && !signed_in_main;
         let mut app_args = Vec::new();
+        let mut note = None;
         if per_account {
-            // Electron moves all app data (login, config, MCP) into this dir.
-            let data_dir = home.join("desktop-data");
+            // Electron moves all app data (login, config, MCP) into this dir, so the sign-in stays with the profile.
+            let data_dir = desktop_data_dir(account, home, &app);
+            let first_time = std::fs::read_dir(&data_dir).map_or(true, |mut d| d.next().is_none());
             std::fs::create_dir_all(&data_dir)?;
             app_args.push(format!("--user-data-dir={}", data_dir.display()));
+            if first_time {
+                let who = account.email.as_deref().map(|e| format!(" as {e}")).unwrap_or_default();
+                note = Some(format!(
+                    "First time for this profile: sign in to Claude Desktop{who} in the new window. It stays signed in from then on."
+                ));
+            }
         }
         let app = app.to_string_lossy().to_string();
         let spec = if cfg!(target_os = "macos") {
@@ -704,9 +764,9 @@ impl ProviderAdapter for ClaudeAdapter {
                 args.push("--args".into());
                 args.extend(app_args);
             }
-            CommandSpec { program: "open".into(), args, ..Default::default() }
+            CommandSpec { program: "open".into(), args, note, ..Default::default() }
         } else {
-            CommandSpec { program: app, args: app_args, ..Default::default() }
+            CommandSpec { program: app, args: app_args, note, ..Default::default() }
         };
         Ok(Some(spec))
     }
@@ -1020,5 +1080,30 @@ mod tests {
         let env = adapter.cli_env(&acc);
         std::env::remove_var("CLAUDE_CODE_CHILD_SESSION");
         assert!(env.contains_key("CLAUDE_CODE_CHILD_SESSION") && env["CLAUDE_CODE_CHILD_SESSION"].is_none());
+    }
+
+    #[test]
+    fn desktop_data_stays_out_of_redirected_appdata_for_store_builds() {
+        let store = Path::new(r"C:\Program Files\WindowsApps\Claude_3.1_x64__abc\app\Claude.exe");
+        let plain = Path::new(r"C:\Users\me\AppData\Local\AnthropicClaude\claude.exe");
+        assert!(is_store_build(store) && !is_store_build(plain));
+
+        let acc: Account = serde_json::from_value(json!({
+            "id": "acc-1", "providerId": "claude", "label": "Work", "homeDir": "x", "isDefaultHome": false,
+            "sharing": {"skills": true, "plugins": true, "agents": true, "instructions": true, "settings": false, "mcp": true, "history": true},
+            "color": "#fff", "status": "ok", "createdAt": "2026-10-20T00:00:00Z"}))
+        .unwrap();
+        let Some(local) = dirs::data_local_dir() else { return };
+        std::fs::create_dir_all(&local).unwrap();
+        let root = tempfile::tempdir_in(&local).unwrap();
+        let home = root.path().join("profile");
+        std::fs::create_dir_all(&home).unwrap();
+
+        let moved = util::home().join(".switchyard").join("claude-desktop").join("acc-1");
+        assert_eq!(desktop_data_dir(&acc, &home, store), moved);
+        assert_eq!(desktop_data_dir(&acc, &home, plain), home.join("desktop-data"));
+        // A profile that already has desktop data keeps using it.
+        std::fs::create_dir_all(home.join("desktop-data").join("Local Storage")).unwrap();
+        assert_eq!(desktop_data_dir(&acc, &home, store), home.join("desktop-data"));
     }
 }
