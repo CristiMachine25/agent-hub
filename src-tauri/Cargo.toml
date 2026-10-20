@@ -1,14 +1,14 @@
 [package]
-name = "ai-hopper"
-version = "0.1.0"
+name = "baton"
+version = "0.2.0"
 description = "Manage all your AI subscriptions and launch any CLI with the right account"
-authors = ["AI Hopper contributors"]
+authors = ["Baton contributors"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.82"
 
 [lib]
-name = "ai_hopper_lib"
+name = "baton_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

@@ -1,10 +1,10 @@
 {
-  "name": "ai-hopper",
-  "productName": "AI Hopper",
-  "version": "0.1.0",
+  "name": "baton",
+  "productName": "Baton",
+  "version": "0.2.0",
   "description": "Manage all your AI subscriptions (Claude, ChatGPT/Codex, Gemini, Copilot) in one place: see usage limits, get reset alerts, and launch any CLI or desktop app with the right account.",
   "license": "MIT",
-  "author": "AI Hopper contributors",
+  "author": "Baton contributors",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
