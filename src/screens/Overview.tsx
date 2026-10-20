@@ -115,7 +115,7 @@ export function Page({ title, actions, children }: { title: string; actions?: Re
   return (
     <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6 px-7 pb-10 pt-5 max-[999px]:px-5">
       <header className="flex min-h-9 items-center justify-between gap-4">
-        <h1 className="text-lg font-bold tracking-tight">{title}</h1>
+        <h1 className="font-serif text-[24px] font-semibold leading-8">{title}</h1>
         <div className="flex items-center gap-2">{actions}</div>
       </header>
       {children}
@@ -149,7 +149,7 @@ function UseNow() {
   return (
     <section aria-labelledby="usenow-title" className="rounded-lg border border-rivet bg-deck">
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rivet px-5 py-3">
-        <h2 id="usenow-title" className="text-md font-semibold">
+        <h2 id="usenow-title" className="font-serif text-[17px] font-semibold">
           Best account right now
         </h2>
         <Segmented
@@ -167,7 +167,7 @@ function UseNow() {
           <div className="min-w-0 px-5 pb-5 pt-4">
             <div className="flex items-center gap-2.5">
               <AccountDot account={acc} size={12} />
-              <button className="truncate text-[22px] font-bold leading-7 tracking-tight hover:underline" onClick={() => go('accounts', acc.id)}>
+              <button className="truncate font-serif text-[26px] font-semibold leading-8 hover:underline" onClick={() => go('accounts', acc.id)}>
                 {acc.label}
               </button>
               <span className="flex items-center gap-1.5 text-muted">
@@ -180,7 +180,7 @@ function UseNow() {
             {bind && left !== undefined && (
               <div className="mt-4 flex items-end gap-5">
                 <div className="shrink-0">
-                  <div className={clsx('text-hero font-bold tabular-nums tracking-tight', LEVEL_TEXT[levelFor(left)])}>
+                  <div className={clsx('font-serif text-hero font-semibold tabular-nums', LEVEL_TEXT[levelFor(left)])}>
                     {formatPct(left)}
                   </div>
                   <div className="mt-1 text-xs text-muted">left of {windowName(bind.label)}</div>

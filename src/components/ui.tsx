@@ -178,7 +178,7 @@ export function Dialog({
         style={{ maxWidth: width }}
       >
         <div className="flex items-center justify-between border-b border-rivet px-5 py-3">
-          <h2 className="text-md font-semibold">{title}</h2>
+          <h2 className="font-serif text-[17px] font-semibold">{title}</h2>
           <button data-close className="btn btn-ghost btn-sm -mr-2 px-1.5" onClick={onClose} aria-label="Close">
             <X size={16} />
           </button>
@@ -203,7 +203,7 @@ export function EmptyState({ title, body, action }: { title: string; body: strin
 export function SectionTitle({ children, aside }: { children: ReactNode; aside?: ReactNode }) {
   return (
     <div className="mb-3 flex items-center justify-between gap-3">
-      <h2 className="text-md font-semibold">{children}</h2>
+      <h2 className="font-serif text-[17px] font-semibold">{children}</h2>
       {aside}
     </div>
   )

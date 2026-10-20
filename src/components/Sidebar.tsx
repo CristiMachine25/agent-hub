@@ -36,7 +36,7 @@ export function Sidebar() {
     >
       <div className="flex h-14 items-center gap-2.5 px-4 max-[999px]:justify-center max-[999px]:px-0">
         <Logo size={26} />
-        <span className="text-md font-bold tracking-tight max-[999px]:hidden">Baton</span>
+        <span className="font-serif text-[19px] font-semibold max-[999px]:hidden">Baton</span>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
         {NAV.map((n) => {
