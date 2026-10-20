@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { FolderOpen, ShieldCheck } from 'lucide-react'
 import type { AppSettings } from '@shared/types'
 import { api } from '@/api'
@@ -6,6 +6,7 @@ import { useStore } from '@/store'
 import { SHARING_ITEMS } from '@/lib/providers'
 import { Segmented, Switch } from '@/components/ui'
 import { Page } from './Overview'
+import { FONT_SIZE_KEY, FONT_SIZES, restyleAll, terminalFontSize } from '@/terminals/registry'
 
 const TERMINALS: Record<string, { id: string; label: string }[]> = {
   win32: [
@@ -142,17 +143,20 @@ export function Settings() {
               value={s.theme}
               onChange={(v) => save({ theme: v })}
               options={[
-                { id: 'system', label: 'System' },
                 { id: 'dark', label: 'Dark' },
-                { id: 'light', label: 'Light' }
+                { id: 'light', label: 'Light' },
+                { id: 'system', label: 'System' }
               ]}
             />
           </Row>
           <Row label="Keep running in the tray" help="Closing the window keeps Baton in the tray so it can warn you about limits.">
             <Switch checked={s.minimizeToTray} onChange={(v) => save({ minimizeToTray: v })} label="Keep running in the tray" />
           </Row>
-          <Row label="Start when you sign in to your computer">
+          <Row label="Start when you sign in to your computer" help="Baton starts hidden in the tray, ready to warn you about limits.">
             <Switch checked={s.launchAtLogin} onChange={(v) => save({ launchAtLogin: v })} label="Start at login" />
+          </Row>
+          <Row label="Terminal font size" help="Text size in the terminal grid. Stored on this computer only.">
+            <FontSize />
           </Row>
         </Group>
       </div>
@@ -163,7 +167,7 @@ export function Settings() {
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h2 className="mb-1 text-md font-semibold">{title}</h2>
+      <h2 className="mb-1 font-serif text-[17px] font-semibold">{title}</h2>
       <div className="divide-y divide-rivet border-y border-rivet">{children}</div>
     </section>
   )
@@ -200,13 +204,60 @@ function Slider({
   disabled?: boolean
   label: string
 }) {
+  // Show the value while dragging; save once the slider has been still for 400 ms.
+  const [local, setLocal] = useState(value)
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => setLocal(value), [value])
+  useEffect(() => () => clearTimeout(timer.current), [])
   return (
     <label className="flex items-center gap-3">
-      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} aria-label={label} onChange={(e) => onChange(Number(e.target.value))} className="w-36" />
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={local}
+        disabled={disabled}
+        aria-label={label}
+        onChange={(e) => {
+          const v = Number(e.target.value)
+          setLocal(v)
+          clearTimeout(timer.current)
+          timer.current = setTimeout(() => onChange(v), 400)
+        }}
+        className="w-36"
+      />
       <span className="w-28 text-right text-xs tabular-nums text-muted">
-        {value}
+        {local}
         {unit}
       </span>
     </label>
+  )
+}
+
+function FontSize() {
+  const [size, setSize] = useState(terminalFontSize)
+  const theme = useStore((st) => st.resolvedTheme)
+  return (
+    <select
+      aria-label="Terminal font size"
+      value={size}
+      onChange={(e) => {
+        const v = Number(e.target.value)
+        setSize(v)
+        try {
+          localStorage.setItem(FONT_SIZE_KEY, String(v))
+        } catch {
+          /* not persisted; still applies for this session */
+        }
+        restyleAll(theme)
+      }}
+    >
+      {FONT_SIZES.map((n) => (
+        <option key={n} value={n}>
+          {n} px
+        </option>
+      ))}
+    </select>
   )
 }
