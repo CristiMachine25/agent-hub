@@ -133,6 +133,8 @@ pub struct NewAccountInput {
     pub color: Option<String>,
     pub tags: Option<Vec<String>>,
     pub monthly_cost: Option<f64>,
+    /// Plan picked in the form; the plan read from the signed-in profile wins.
+    pub plan: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

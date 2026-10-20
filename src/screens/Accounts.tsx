@@ -7,6 +7,7 @@ import { useStore } from '@/store'
 import { useGrid } from '@/terminals/store'
 import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
 import { bindingWindow, leftOf } from '@/lib/quota'
+import { PLANS, findPlan, planLabel } from '@/lib/plans'
 import { creditsText, formatAgo, formatPct, formatTokens, plural } from '@/lib/format'
 import { Meter, WindowGauge } from '@/components/Meter'
 import { AccountDot, Dialog, EmptyState, ProviderMark, Segmented, SectionTitle, Switch } from '@/components/ui'
@@ -358,6 +359,7 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
   const [color, setColor] = useState(a.color)
   const [tags, setTags] = useState<string[]>(a.tags)
   const [cost, setCost] = useState(a.monthlyCost?.toString() ?? '')
+  const [plan, setPlan] = useState(a.plan ?? '')
   const [notes, setNotes] = useState(a.notes ?? '')
   useEffect(() => {
     if (open) {
@@ -365,6 +367,7 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       setColor(a.color)
       setTags(a.tags)
       setCost(a.monthlyCost?.toString() ?? '')
+      setPlan(a.plan ?? '')
       setNotes(a.notes ?? '')
     }
   }, [open, a])
@@ -375,6 +378,7 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       color,
       tags,
       monthlyCost: cost ? Number(cost) : undefined,
+      plan: plan || undefined,
       notes: notes.trim() || undefined
     })
     if (ok) onClose()
@@ -384,6 +388,7 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       open={open}
       onClose={onClose}
       title={`Edit ${a.label}`}
+      width={600}
       footer={
         <>
           <button className="btn" onClick={onClose}>
@@ -396,10 +401,30 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       }
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-[1fr_130px] gap-3">
+        <div className="grid grid-cols-[1fr_180px_120px] gap-3">
           <label>
             <span className="mb-1 block font-medium">Name</span>
             <input className="w-full" value={label} onChange={(e) => setLabel(e.target.value)} />
+          </label>
+          <label>
+            <span className="mb-1 block font-medium">Plan</span>
+            <select
+              className="w-full"
+              value={plan}
+              onChange={(e) => {
+                setPlan(e.target.value)
+                const price = findPlan(a.providerId, e.target.value)?.price
+                if (price !== undefined) setCost(String(price))
+              }}
+            >
+              {plan && !findPlan(a.providerId, plan) && <option value={plan}>{plan}</option>}
+              {PLANS[a.providerId].map((p) => (
+                <option key={p.name} value={p.name}>
+                  {planLabel(p)}
+                </option>
+              ))}
+              <option value="">Not set</option>
+            </select>
           </label>
           <label>
             <span className="mb-1 block font-medium">Monthly cost ($)</span>

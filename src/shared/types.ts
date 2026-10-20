@@ -85,6 +85,8 @@ export interface NewAccountInput {
   color?: string
   tags?: string[]
   monthlyCost?: number
+  /** Plan picked when creating the profile; the live value from the provider wins once signed in. */
+  plan?: string
 }
 
 /** An account found on disk that the user may import. */

@@ -7,6 +7,7 @@ import { api, errorText } from '@/api'
 import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER, ACCOUNT_COLORS, SHARING_ITEMS } from '@/lib/providers'
 import { plural } from '@/lib/format'
+import { DEFAULT_PLAN, PLANS, findPlan, planLabel } from '@/lib/plans'
 import { Dialog, ProviderMark, Segmented } from './ui'
 import { CopyButton } from './Toasts'
 
@@ -174,13 +175,24 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
   const [label, setLabel] = useState('')
   const [preset, setPreset] = useState<Preset>('recommended')
   const [folder, setFolder] = useState<string | null>(null)
-  const [cost, setCost] = useState('')
+  const [plan, setPlan] = useState(DEFAULT_PLAN.claude)
+  const [cost, setCost] = useState(String(findPlan('claude', DEFAULT_PLAN.claude)?.price ?? ''))
+  const [costEdited, setCostEdited] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState<Account | null>(null)
 
   const prov = providers.find((p) => p.id === providerId)
   const sharing = preset === 'recommended' ? defaultSharing : PRESETS[preset]
+
+  const pickPlan = (id: ProviderId, name: string) => {
+    setPlan(name)
+    if (!costEdited) setCost(String(findPlan(id, name)?.price ?? ''))
+  }
+  const pickProvider = (id: ProviderId) => {
+    setProviderId(id)
+    pickPlan(id, DEFAULT_PLAN[id])
+  }
 
   if (created)
     return (
@@ -238,7 +250,8 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
             homeDir: folder ?? undefined,
             sharing,
             color: ACCOUNT_COLORS[count % ACCOUNT_COLORS.length],
-            monthlyCost: cost ? Number(cost) : undefined
+            monthlyCost: cost ? Number(cost) : undefined,
+            plan: plan || undefined
           })
           setCreated(a)
         } catch (err) {
@@ -262,7 +275,7 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
                   on ? 'border-hop bg-hop/10' : 'border-rivet hover:bg-raised'
                 )}
               >
-                <input type="radio" name="provider" className="sr-only" checked={on} onChange={() => setProviderId(id)} />
+                <input type="radio" name="provider" className="sr-only" checked={on} onChange={() => pickProvider(id)} />
                 <ProviderMark id={id} />
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium">{p?.name ?? PROVIDER_META[id].product}</span>
@@ -283,10 +296,22 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
         )}
       </fieldset>
 
-      <div className="grid grid-cols-[1fr_140px] gap-3">
+      <div className="grid grid-cols-[1fr_190px_100px] gap-3">
         <label className="block">
           <span className="mb-1 block font-medium">Name</span>
           <input className="w-full" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Work Max, Side project Plus" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block font-medium">Plan</span>
+          <select className="w-full" value={plan} onChange={(e) => pickPlan(providerId, e.target.value)}>
+            {PLANS[providerId].map((p) => (
+              <option key={p.name} value={p.name}>
+                {planLabel(p)}
+              </option>
+            ))}
+            <option value="">Not sure</option>
+          </select>
+          <span className="mt-0.5 block truncate text-xs text-faint">{findPlan(providerId, plan)?.note ?? 'Baton fills it in after you sign in'}</span>
         </label>
         <label className="block">
           <span className="mb-1 block font-medium">Monthly cost</span>
@@ -294,7 +319,10 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
             className="w-full"
             inputMode="decimal"
             value={cost}
-            onChange={(e) => setCost(e.target.value.replace(/[^\d.]/g, ''))}
+            onChange={(e) => {
+              setCost(e.target.value.replace(/[^\d.]/g, ''))
+              setCostEdited(true)
+            }}
             placeholder="$ optional"
           />
         </label>

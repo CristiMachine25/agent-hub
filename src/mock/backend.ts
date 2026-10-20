@@ -194,7 +194,8 @@ export function createMockApi(platform: Platform): HopperApi {
           statusMessage: 'Not signed in yet. Choose Sign in to finish setting up this account.',
           createdAt: new Date().toISOString(),
           launchCount: 0,
-          monthlyCost: input.monthlyCost
+          monthlyCost: input.monthlyCost,
+          plan: input.plan
         }
         db.accounts.push(a)
         accountsChanged()

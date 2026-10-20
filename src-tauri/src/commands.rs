@@ -286,7 +286,7 @@ async fn create_account(app: &AppHandle, state: &Arc<AppState>, input: NewAccoun
             provider_id: input.provider_id,
             label,
             email: identity.email,
-            plan: identity.plan,
+            plan: identity.plan.or_else(|| non_empty(input.plan.clone())),
             home_dir: home.to_string_lossy().into_owned(),
             is_default_home: is_default,
             shared_from,
