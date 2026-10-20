@@ -450,3 +450,46 @@ pub struct TerminalInfo {
     pub exited: bool,
     pub exit_code: Option<i32>,
 }
+
+/// One item in a tool's shared knowledge folder.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeItem {
+    /// "skills" | "plugins" | "agents" | "commands" | "instructions" | "settings"
+    pub kind: String,
+    /// Skill folder, agent or command file stem, plugin name, or file name (CLAUDE.md, settings.json).
+    pub name: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeAccount {
+    pub account_id: String,
+    pub label: String,
+    pub is_default_home: bool,
+    /// Knowledge kinds this account links from the shared folder ("skills", "plugins", "agents",
+    /// "instructions", "settings", "mcp"). Empty for a default home, which is never linked.
+    pub kinds: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderKnowledge {
+    pub provider_id: ProviderId,
+    /// The Switchyard shared folder for this tool.
+    pub folder: String,
+    /// The tool's main folder (default home) the shared folder is seeded from.
+    pub main_folder: String,
+    pub items: Vec<KnowledgeItem>,
+    pub accounts: Vec<KnowledgeAccount>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReseedResult {
+    /// Files copied from the main folder.
+    pub added: usize,
+    /// Files already in the shared folder, left as they were.
+    pub kept: usize,
+}

@@ -91,6 +91,8 @@ pub fn run() {
             commands::transfer_preview,
             commands::transfer_import,
             commands::system_open_path,
+            commands::knowledge_get,
+            commands::knowledge_reseed,
         ])
         .build(tauri::generate_context!());
     match app {

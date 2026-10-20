@@ -760,6 +760,60 @@ pub async fn transfer_import(
     crate::transfer::apply(&app, &state, Path::new(&path), passphrase, choice).await.map_err(err)
 }
 
+// ---------- shared knowledge ----------
+
+/// The shared folder of every tool that has accounts: what it holds and who links it.
+#[tauri::command]
+pub async fn knowledge_get(state: St<'_>) -> Res<Vec<ProviderKnowledge>> {
+    let accounts = state.accounts.read().await.clone();
+    let mut out = Vec::new();
+    for adapter in &state.adapters {
+        let mine: Vec<&Account> = accounts.iter().filter(|a| a.provider_id == adapter.id()).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let shared = state.shared_dir(adapter.id());
+        let (dir, ad) = (shared.clone(), adapter.clone());
+        let items = tokio::task::spawn_blocking(move || knowledge::list_items(&dir, &ad.shareable_paths(), &ad.credential_paths()))
+            .await
+            .unwrap_or_default();
+        out.push(ProviderKnowledge {
+            provider_id: adapter.id(),
+            folder: shared.to_string_lossy().into_owned(),
+            main_folder: adapter.default_home().to_string_lossy().into_owned(),
+            items,
+            accounts: mine
+                .iter()
+                .map(|a| KnowledgeAccount {
+                    account_id: a.id.clone(),
+                    label: a.label.clone(),
+                    is_default_home: a.is_default_home,
+                    kinds: knowledge::shared_kinds(a),
+                })
+                .collect(),
+        });
+    }
+    Ok(out)
+}
+
+/// Copy anything new from the tool's main folder into its shared folder (never overwrites),
+/// then relink its accounts so new top-level items (e.g. a CLAUDE.md) show up there too.
+#[tauri::command]
+pub async fn knowledge_reseed(app: AppHandle, state: St<'_>, provider_id: ProviderId) -> Res<ReseedResult> {
+    let state = state.inner().clone();
+    let adapter = state.adapter(provider_id).map_err(err)?;
+    let (dir, ad) = (state.shared_dir(provider_id), adapter.clone());
+    let count = tokio::task::spawn_blocking(move || knowledge::reseed(&dir, ad.as_ref()))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| format!("Could not copy into the shared folder: {e}"))?;
+    let accounts = state.accounts.read().await.clone();
+    for a in accounts.iter().filter(|a| a.provider_id == provider_id && !a.is_default_home && knowledge::shares_any(&a.sharing)) {
+        apply_sharing(&app, &state, a, adapter.clone()).await;
+    }
+    Ok(ReseedResult { added: count.added, kept: count.kept })
+}
+
 #[tauri::command]
 pub async fn system_open_path(app: AppHandle, path: String) -> Res<()> {
     use tauri_plugin_opener::OpenerExt;
