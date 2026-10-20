@@ -24,12 +24,15 @@ pub struct Sources<'a> {
     pub knowledge: Option<&'a Path>,
     /// Chat history: stays where the old chats live so they can still be resumed.
     pub history: Option<&'a Path>,
+    /// Before a real folder in the home is moved aside for a knowledge link, copy its files the
+    /// knowledge source lacks into it (the source is a folder we own, not a tool home).
+    pub adopt: bool,
 }
 
 impl<'a> Sources<'a> {
     /// Every kind from one home.
     pub fn same(home: Option<&'a Path>) -> Self {
-        Self { knowledge: home, history: home }
+        Self { knowledge: home, history: home, adopt: false }
     }
 
     pub fn for_kind(&self, kind: ShareKind) -> Option<&'a Path> {
@@ -52,7 +55,7 @@ pub fn apply_for_account(account: &Account, adapter: &dyn ProviderAdapter, knowl
     let shareable = adapter.shareable_paths();
     let creds = adapter.credential_paths();
     let history = account.shared_from.as_deref().map(Path::new);
-    let sources = Sources { knowledge: knowledge.or(history), history };
+    let sources = Sources { knowledge: knowledge.or(history), history, adopt: knowledge.is_some() };
     apply(home, sources, &account.sharing, &shareable, &creds)
 }
 
@@ -69,6 +72,7 @@ pub fn apply(
     let history = usable(sources.history);
     for (kind, rels) in shareable {
         let source = usable(sources.for_kind(*kind));
+        let adopt = sources.adopt && *kind != ShareKind::History;
         // A kind moved off the history source may still have hard links to that source's files
         // in the home (Windows without symlinks); those are ours to replace or remove.
         let previous = history.as_ref().filter(|h| source.as_ref().is_some_and(|s| util::path_key(s) != util::path_key(h)));
@@ -81,7 +85,7 @@ pub fn apply(
             let old = previous.map(|p| p.join(rel));
             let result = match &source {
                 Some(src_home) if opts.enabled(*kind) => {
-                    drop_hard_link(old.as_deref(), &dst).and_then(|_| share_one(&src_home.join(rel), &dst, rel, &mut report))
+                    drop_hard_link(old.as_deref(), &dst).and_then(|_| share_one(&src_home.join(rel), &dst, rel, adopt, &mut report))
                 }
                 _ => {
                     let ours: Vec<PathBuf> = source.iter().map(|s| s.join(rel)).chain(old).collect();
@@ -126,7 +130,9 @@ fn looks_like_file(rel: &str) -> bool {
     Path::new(rel).extension().is_some()
 }
 
-fn share_one(src: &Path, dst: &Path, rel: &str, report: &mut SharingReport) -> io::Result<()> {
+/// `adopt`: before a real folder in the home is moved aside, copy its files that the source
+/// lacks into the source, so nothing made in this account disappears from view.
+fn share_one(src: &Path, dst: &Path, rel: &str, adopt: bool, report: &mut SharingReport) -> io::Result<()> {
     let is_dir = match fs::metadata(src) {
         Ok(m) => m.is_dir(),
         Err(_) if looks_like_file(rel) => return Ok(()), // nothing to share yet
@@ -146,6 +152,12 @@ fn share_one(src: &Path, dst: &Path, rel: &str, report: &mut SharingReport) -> i
         } else if meta.is_dir() && is_empty_dir(dst) {
             fs::remove_dir(dst)?;
         } else {
+            if adopt && is_dir && meta.is_dir() {
+                let c = copy_missing(dst, src)?;
+                if c.added > 0 {
+                    report.notes.push(format!("{rel}: {} file(s) copied into {}", c.added, src.display()));
+                }
+            }
             let backup = move_aside(dst)?;
             report.notes.push(format!("{rel}: existing item moved to {}", backup.display()));
         }
@@ -237,6 +249,73 @@ fn same_content(a: &Path, b: &Path) -> bool {
         }
         _ => false,
     }
+}
+
+/// Files handled by `copy_missing`.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct CopyCount {
+    /// Copied because the target lacked them.
+    pub added: usize,
+    /// Already in the target, left as they were.
+    pub kept: usize,
+}
+
+impl std::ops::AddAssign for CopyCount {
+    fn add_assign(&mut self, o: Self) {
+        self.added += o.added;
+        self.kept += o.kept;
+    }
+}
+
+/// Never copied: repo internals, installed packages and our own backups.
+fn skip_on_copy(name: &str) -> bool {
+    name == ".git" || name == "node_modules" || name.contains(".hopper-backup-")
+}
+
+/// Copy `src` (file or folder, links followed) to `dst`, adding only files `dst` lacks.
+/// Never overwrites, moves or deletes anything.
+pub fn copy_missing(src: &Path, dst: &Path) -> io::Result<CopyCount> {
+    copy_missing_at(src, dst, 0)
+}
+
+fn copy_missing_at(src: &Path, dst: &Path, depth: usize) -> io::Result<CopyCount> {
+    let mut count = CopyCount::default();
+    // Links are followed, so a link loop would otherwise recurse forever.
+    if depth > 32 {
+        return Ok(count);
+    }
+    let meta = fs::metadata(src)?;
+    if !meta.is_dir() {
+        if fs::symlink_metadata(dst).is_ok() {
+            count.kept += 1;
+            return Ok(count);
+        }
+        let created = fs::OpenOptions::new().write(true).create_new(true).open(dst);
+        match created {
+            Ok(mut out) => {
+                io::copy(&mut fs::File::open(src)?, &mut out)?;
+                let _ = fs::set_permissions(dst, meta.permissions());
+                count.added += 1;
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => count.kept += 1,
+            Err(e) => return Err(e),
+        }
+        return Ok(count);
+    }
+    if fs::symlink_metadata(dst).is_ok() && !dst.is_dir() {
+        return Ok(count); // something else where a folder would go: leave it
+    }
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let name = entry.file_name();
+        // Skip broken links instead of failing the whole copy.
+        if skip_on_copy(&name.to_string_lossy()) || fs::metadata(entry.path()).is_err() {
+            continue;
+        }
+        count += copy_missing_at(&entry.path(), &dst.join(&name), depth + 1)?;
+    }
+    Ok(count)
 }
 
 fn move_aside(p: &Path) -> io::Result<PathBuf> {
@@ -399,7 +478,7 @@ mod tests {
         fs::write(shared.join("CLAUDE.md"), "shared instructions").unwrap();
         fs::create_dir_all(main.join("projects")).unwrap();
         fs::write(main.join("projects").join("chat.jsonl"), "old chat").unwrap();
-        let sources = Sources { knowledge: Some(&shared), history: Some(&main) };
+        let sources = Sources { knowledge: Some(&shared), history: Some(&main), adopt: false };
         apply(&home, sources, &all_on(), &paths(), CREDS);
         assert!(is_link(&home.join("skills")));
         assert!(points_to(&home.join("skills"), &shared.join("skills")));
@@ -417,12 +496,57 @@ mod tests {
         let shared = t.path().join("shared");
         fs::create_dir_all(shared.join("skills")).unwrap();
         fs::write(shared.join("CLAUDE.md"), "shared").unwrap();
-        let r = apply(&home, Sources { knowledge: Some(&shared), history: Some(&main) }, &all_on(), &paths(), CREDS);
+        let r = apply(&home, Sources { knowledge: Some(&shared), history: Some(&main), adopt: false }, &all_on(), &paths(), CREDS);
         assert!(points_to(&home.join("skills"), &shared.join("skills")));
         assert_eq!(fs::read_to_string(home.join("CLAUDE.md")).unwrap(), "shared");
         assert!(points_to(&home.join("projects"), &main.join("projects")));
         assert_eq!(fs::read_to_string(main.join("skills").join("a.txt")).unwrap(), "skill");
         assert_eq!(fs::read_to_string(main.join("CLAUDE.md")).unwrap(), "instructions");
         assert!(!r.notes.iter().any(|n| n.contains("moved")), "{r:?}");
+    }
+
+    #[test]
+    fn real_folder_is_merged_into_the_shared_folder_before_it_is_moved_aside() {
+        let (t, main, home) = setup();
+        let shared = t.path().join("shared");
+        fs::create_dir_all(shared.join("skills").join("common")).unwrap();
+        fs::write(shared.join("skills").join("common").join("SKILL.md"), "shared version").unwrap();
+        fs::create_dir_all(home.join("skills").join("common")).unwrap();
+        fs::write(home.join("skills").join("common").join("SKILL.md"), "account version").unwrap();
+        fs::create_dir_all(home.join("skills").join("mine")).unwrap();
+        fs::write(home.join("skills").join("mine").join("SKILL.md"), "made here").unwrap();
+        let sources = Sources { knowledge: Some(&shared), history: Some(&main), adopt: true };
+        let r = apply(&home, sources, &all_on(), &paths(), CREDS);
+        assert!(points_to(&home.join("skills"), &shared.join("skills")));
+        assert_eq!(fs::read_to_string(home.join("skills").join("mine").join("SKILL.md")).unwrap(), "made here");
+        assert_eq!(fs::read_to_string(shared.join("skills").join("common").join("SKILL.md")).unwrap(), "shared version", "never overwritten");
+        let backup = fs::read_dir(&home)
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|e| e.file_name().to_string_lossy().starts_with("skills.hopper-backup-"))
+            .expect("backup kept");
+        assert_eq!(fs::read_to_string(backup.path().join("common").join("SKILL.md")).unwrap(), "account version");
+        assert!(r.notes.iter().any(|n| n.contains("1 file(s) copied")), "{r:?}");
+    }
+
+    #[test]
+    fn copy_missing_adds_only_new_files_and_skips_repo_internals() {
+        let t = tempfile::tempdir().unwrap();
+        let (a, b) = (t.path().join("a"), t.path().join("b"));
+        fs::create_dir_all(a.join("x").join(".git")).unwrap();
+        fs::create_dir_all(a.join("node_modules")).unwrap();
+        fs::write(a.join("x").join(".git").join("HEAD"), "ref").unwrap();
+        fs::write(a.join("node_modules").join("dep.js"), "dep").unwrap();
+        fs::write(a.join("x").join("new.txt"), "new").unwrap();
+        fs::write(a.join("same.txt"), "from a").unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(b.join("same.txt"), "from b").unwrap();
+        let c = copy_missing(&a, &b).unwrap();
+        assert_eq!(c, CopyCount { added: 1, kept: 1 });
+        assert_eq!(fs::read_to_string(b.join("same.txt")).unwrap(), "from b");
+        assert_eq!(fs::read_to_string(b.join("x").join("new.txt")).unwrap(), "new");
+        assert!(!b.join("x").join(".git").exists());
+        assert!(!b.join("node_modules").exists());
+        assert_eq!(fs::read_to_string(a.join("same.txt")).unwrap(), "from a", "source untouched");
     }
 }
