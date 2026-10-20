@@ -8,11 +8,12 @@ import { CommandPalette } from './components/CommandPalette'
 import { AddAccountDialog } from './components/AddAccountDialog'
 import { Overview } from './screens/Overview'
 import { Accounts } from './screens/Accounts'
+import { Knowledge } from './screens/Knowledge'
 import { Notifications } from './screens/Notifications'
 import { Settings } from './screens/Settings'
 import { Terminals } from './terminals/Terminals'
 
-const SCREENS: Screen[] = ['overview', 'accounts', 'terminals', 'notifications', 'settings']
+const SCREENS: Screen[] = ['overview', 'accounts', 'knowledge', 'terminals', 'notifications', 'settings']
 
 function useTheme() {
   const pref = useStore((s) => s.settings?.theme ?? 'dark')
@@ -119,6 +120,7 @@ export function App() {
         <main className={screen === 'terminals' ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-y-auto'} id="main">
           {screen === 'overview' && <Overview />}
           {screen === 'accounts' && <Accounts />}
+          {screen === 'knowledge' && <Knowledge />}
           {screen === 'terminals' && <Terminals />}
           {screen === 'notifications' && <Notifications />}
           {screen === 'settings' && <Settings />}
