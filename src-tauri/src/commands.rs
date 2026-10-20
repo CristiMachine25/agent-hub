@@ -3,7 +3,7 @@
 use crate::model::*;
 use crate::providers::{self, Adapter, CommandSpec};
 use crate::store::AppState;
-use crate::{launcher, notify, pty, recommend, sharing, usage, util};
+use crate::{knowledge, launcher, notify, pty, recommend, sharing, usage, util};
 use anyhow::{anyhow, Context};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -56,9 +56,11 @@ pub async fn emit_accounts(app: &AppHandle, state: &AppState) {
 }
 
 /// Apply sharing off the async runtime; surface backups/copies as an in-app notice.
-async fn apply_sharing(app: &AppHandle, state: &AppState, account: &Account, adapter: Adapter) {
+/// Knowledge links from the Switchyard shared folder, history from `shared_from`.
+pub(crate) async fn apply_sharing(app: &AppHandle, state: &AppState, account: &Account, adapter: Adapter) {
     let acct = account.clone();
-    let report = tokio::task::spawn_blocking(move || sharing::apply_for_account(&acct, adapter.as_ref(), None)).await;
+    let shared = state.shared_dir(account.provider_id);
+    let report = tokio::task::spawn_blocking(move || knowledge::apply_for_account(&acct, adapter.as_ref(), &shared)).await;
     let Ok(report) = report else { return };
     for n in &report.notes {
         log::info!("sharing {}: {n}", account.label);
@@ -396,8 +398,9 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
             unshared.sharing = SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false };
             let a2 = adapter.clone();
             let h2 = home.clone();
+            let shared = state.shared_dir(account.provider_id);
             tokio::task::spawn_blocking(move || {
-                sharing::apply_for_account(&unshared, a2.as_ref(), None);
+                sharing::apply_for_account(&unshared, a2.as_ref(), Some(&shared));
                 std::fs::remove_dir_all(&h2)
             })
             .await?
@@ -492,9 +495,10 @@ async fn terminal_command(
             spec.cwd = Some(pick_cwd(req_cwd, settings.default_cwd.clone()));
         }
     }
-    if account.shared_from.is_some() {
+    if account.shared_from.is_some() || knowledge::shares_any(&account.sharing) {
         let (a, ad) = (account.clone(), adapter.clone());
-        let _ = tokio::task::spawn_blocking(move || sharing::apply_for_account(&a, ad.as_ref(), None)).await;
+        let shared = state.shared_dir(account.provider_id);
+        let _ = tokio::task::spawn_blocking(move || knowledge::apply_for_account(&a, ad.as_ref(), &shared)).await;
     }
     Ok(spec)
 }

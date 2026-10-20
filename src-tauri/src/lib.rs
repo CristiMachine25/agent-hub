@@ -48,6 +48,8 @@ pub fn run() {
                     let _ = w.hide();
                 }
             }
+            // Seeding copies files: keep it off the main thread.
+            tauri::async_runtime::spawn(knowledge::migrate(app.handle().clone(), state.clone()));
             usage::start(app.handle().clone(), state);
             Ok(())
         })

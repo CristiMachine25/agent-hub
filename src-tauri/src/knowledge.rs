@@ -2,23 +2,29 @@
 //! Accounts link skills, plugins, agents, instructions and settings from here instead of from
 //! the tool's main folder; history keeps linking from where the old chats are.
 //! It starts as a copy of the main folder's items: copy only, never move, overwrite or delete.
-use crate::model::ShareKind;
+use crate::model::{Account, ShareKind, SharingOptions};
 use crate::providers::ProviderAdapter;
-use crate::sharing::{self, CopyCount};
+use crate::sharing::{self, CopyCount, SharingReport};
+use crate::store::AppState;
+use crate::util;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use tauri::AppHandle;
 
 /// Written once the shared folder has been seeded, so later starts don't copy again.
 const SEEDED_MARKER: &str = ".seeded";
+
+pub const KNOWLEDGE_KINDS: [ShareKind; 6] =
+    [ShareKind::Skills, ShareKind::Plugins, ShareKind::Agents, ShareKind::Instructions, ShareKind::Settings, ShareKind::Mcp];
 
 /// Seeding and reseeding never run at the same time (startup migration vs. a launch).
 static SEED_LOCK: Mutex<()> = Mutex::new(());
 
 /// Everything except history.
 pub fn is_knowledge(kind: ShareKind) -> bool {
-    kind != ShareKind::History
+    KNOWLEDGE_KINDS.contains(&kind)
 }
 
 /// Copy the knowledge items of `main` into `shared`, adding only what `shared` lacks.
@@ -74,6 +80,46 @@ pub fn ensure_seeded(shared: &Path, adapter: &dyn ProviderAdapter) -> io::Result
 pub fn reseed(shared: &Path, adapter: &dyn ProviderAdapter) -> io::Result<CopyCount> {
     let _guard = SEED_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     seed_from_main(shared, adapter)
+}
+
+/// True when any knowledge kind is shared.
+pub fn shares_any(opts: &SharingOptions) -> bool {
+    KNOWLEDGE_KINDS.iter().any(|k| opts.enabled(*k))
+}
+
+/// Link an account's items: knowledge from `shared` (seeded first if needed), history from
+/// `shared_from`. A tool's default home is never touched. If the shared folder cannot be
+/// prepared nothing is changed, so the account keeps whatever it links now.
+pub fn apply_for_account(account: &Account, adapter: &dyn ProviderAdapter, shared: &Path) -> SharingReport {
+    if account.is_default_home || util::path_key(Path::new(&account.home_dir)) == util::path_key(&adapter.default_home()) {
+        return SharingReport::default();
+    }
+    if let Err(e) = ensure_seeded(shared, adapter) {
+        let mut report = SharingReport::default();
+        report.notes.push(format!("shared folder {}: {e}", shared.display()));
+        return report;
+    }
+    sharing::apply_for_account(account, adapter, Some(shared))
+}
+
+/// On app start: seed the shared folder of every tool that has a non-default account, then
+/// relink those accounts from it. Accounts that share nothing are left alone.
+pub async fn migrate(app: AppHandle, state: Arc<AppState>) {
+    let accounts = state.accounts.read().await.clone();
+    for adapter in &state.adapters {
+        let mine: Vec<&Account> = accounts.iter().filter(|a| a.provider_id == adapter.id() && !a.is_default_home).collect();
+        if mine.is_empty() {
+            continue;
+        }
+        let (shared, ad) = (state.shared_dir(adapter.id()), adapter.clone());
+        if let Ok(Err(e)) = tokio::task::spawn_blocking(move || ensure_seeded(&shared, ad.as_ref())).await {
+            log::warn!("shared folder for {}: {e}", adapter.id().as_str());
+            continue;
+        }
+        for account in mine.into_iter().filter(|a| shares_any(&a.sharing) || a.sharing.history) {
+            crate::commands::apply_sharing(&app, &state, account, adapter.clone()).await;
+        }
+    }
 }
 
 #[cfg(test)]
