@@ -88,7 +88,7 @@ export function createMockTerminals(deps: Deps): HopperApi['terminals'] {
         deps.emit('usage-updated', deps.usage())
         deps.notify(t.account.id, `${t.account.label} reached its ${w.label.toLowerCase()} limit`, 'Switch to another account to keep going.')
       }
-      out(t, `${color('#F25C6E', '⎿')} You've hit your limit · resets in 2h\r\n\r\n`)
+      out(t, `${color('#F06868', '⎿')} You've hit your limit · resets in 2h\r\n\r\n`)
       prompt(t)
       return
     }
