@@ -1,9 +1,9 @@
 //! Tauri commands: the HopperApi from src/shared/types.ts. Names and argument names must match
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
 use crate::model::*;
-use crate::providers::Adapter;
+use crate::providers::{Adapter, CommandSpec};
 use crate::store::AppState;
-use crate::{launcher, notify, recommend, sharing, usage, util};
+use crate::{launcher, notify, pty, recommend, sharing, usage, util};
 use anyhow::{anyhow, Context};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +12,7 @@ use tauri::{AppHandle, Emitter, State};
 
 type Res<T> = Result<T, String>;
 type St<'a> = State<'a, Arc<AppState>>;
+type Terms<'a> = State<'a, pty::Terminals>;
 
 fn err(e: anyhow::Error) -> String {
     format!("{e:#}")
@@ -465,61 +466,148 @@ fn pick_cwd(req_cwd: Option<String>, default_cwd: Option<String>) -> String {
         .unwrap_or_else(|| util::home().to_string_lossy().into_owned())
 }
 
+/// Command for a terminal target (CLI or login) with its cwd filled in. Re-applies sharing first
+/// so skills/plugins added to the shared home since the last launch are picked up.
+async fn terminal_command(
+    state: &AppState,
+    account: &Account,
+    adapter: &Adapter,
+    login: bool,
+    resume: bool,
+    extra_args: &[String],
+    req_cwd: Option<String>,
+) -> anyhow::Result<CommandSpec> {
+    let mut spec = if login {
+        adapter.login_command(account).await?
+    } else {
+        adapter.cli_command(account, resume, extra_args).await?
+    };
+    if spec.cwd.is_none() {
+        let default_cwd = state.settings.read().await.default_cwd.clone();
+        spec.cwd = Some(pick_cwd(req_cwd, default_cwd));
+    }
+    if account.shared_from.is_some() {
+        let (a, ad) = (account.clone(), adapter.clone());
+        let _ = tokio::task::spawn_blocking(move || sharing::apply_for_account(&a, ad.as_ref())).await;
+    }
+    Ok(spec)
+}
+
+/// Bump lastLaunchedAt/launchCount and tell the UI.
+async fn record_launch(app: &AppHandle, state: &AppState, account_id: &str) -> anyhow::Result<()> {
+    {
+        let mut accounts = state.accounts.write().await;
+        if let Some(a) = accounts.iter_mut().find(|a| a.id == account_id) {
+            a.last_launched_at = Some(util::now_iso());
+            a.launch_count = a.launch_count.saturating_add(1);
+        }
+    }
+    state.save_accounts().await?;
+    emit_accounts(app, state).await;
+    Ok(())
+}
+
 /// Shared by the `launch` command and the tray menu.
 pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchRequest) -> anyhow::Result<LaunchResult> {
     let account = state.account(&req.account_id).await.ok_or_else(|| anyhow!("Account not found"))?;
     let adapter = state.adapter(account.provider_id)?;
-    let settings = state.settings.read().await.clone();
-    let cwd = pick_cwd(req.cwd.clone(), settings.default_cwd.clone());
     let extra = req.extra_args.clone().unwrap_or_default();
 
-    let spec = match req.target {
-        LaunchTarget::Cli => adapter.cli_command(&account, req.resume.unwrap_or(false), &extra).await,
-        LaunchTarget::Login => adapter.login_command(&account).await,
-        LaunchTarget::Desktop => match adapter.desktop_command(&account).await {
-            Ok(Some(spec)) => Ok(spec),
+    let result = if req.target == LaunchTarget::Desktop {
+        let spec = match adapter.desktop_command(&account).await {
+            Ok(Some(spec)) => spec,
             Ok(None) => {
                 return Ok(failed(format!(
                     "{} has no desktop app that can run with a separate account",
                     notify::provider_name(account.provider_id)
                 )))
             }
-            Err(e) => Err(e),
-        },
-    };
-    let mut spec = match spec {
-        Ok(s) => s,
-        Err(e) => return Ok(failed(format!("{e:#}"))),
-    };
-
-    let result = if req.target == LaunchTarget::Desktop {
+            Err(e) => return Ok(failed(format!("{e:#}"))),
+        };
         tokio::task::spawn_blocking(move || launcher::launch_desktop(&spec)).await?
     } else {
-        if spec.cwd.is_none() {
-            spec.cwd = Some(cwd);
-        }
-        // Pick up skills/plugins added to the shared home since the last launch.
-        if account.shared_from.is_some() {
-            let (a, ad) = (account.clone(), adapter.clone());
-            let _ = tokio::task::spawn_blocking(move || sharing::apply_for_account(&a, ad.as_ref())).await;
-        }
+        let login = req.target == LaunchTarget::Login;
+        let spec = match terminal_command(state, &account, &adapter, login, req.resume.unwrap_or(false), &extra, req.cwd.clone()).await {
+            Ok(s) => s,
+            Err(e) => return Ok(failed(format!("{e:#}"))),
+        };
         let title = notify::display_name(&account);
-        let terminal = settings.terminal.clone();
+        let terminal = state.settings.read().await.terminal.clone();
         tokio::task::spawn_blocking(move || launcher::launch_in_terminal(&spec, &title, &terminal)).await?
     };
 
     if result.ok {
-        {
-            let mut accounts = state.accounts.write().await;
-            if let Some(a) = accounts.iter_mut().find(|a| a.id == account.id) {
-                a.last_launched_at = Some(util::now_iso());
-                a.launch_count = a.launch_count.saturating_add(1);
-            }
-        }
-        state.save_accounts().await?;
-        emit_accounts(app, state).await;
+        record_launch(app, state, &account.id).await?;
     }
     Ok(result)
+}
+
+// ---------- embedded terminals ----------
+
+/// Sends pty output to the UI as `terminal-output` / `terminal-exit` events.
+struct EventSink(AppHandle);
+
+impl pty::PtySink for EventSink {
+    fn output(&self, id: &str, data: String) {
+        let _ = self.0.emit("terminal-output", serde_json::json!({ "id": id, "data": data }));
+    }
+    fn exit(&self, id: &str, code: Option<i32>) {
+        let _ = self.0.emit("terminal-exit", serde_json::json!({ "id": id, "code": code }));
+    }
+}
+
+#[tauri::command]
+pub async fn terminal_spawn(app: AppHandle, state: St<'_>, terms: Terms<'_>, req: TerminalSpawnRequest) -> Res<TerminalInfo> {
+    let state = state.inner().clone();
+    let terms = terms.inner().clone();
+    spawn_terminal(&app, &state, terms, req).await.map_err(err)
+}
+
+async fn spawn_terminal(app: &AppHandle, state: &Arc<AppState>, terms: pty::Terminals, req: TerminalSpawnRequest) -> anyhow::Result<TerminalInfo> {
+    let account = state.account(&req.account_id).await.ok_or_else(|| anyhow!("Account not found"))?;
+    let adapter = state.adapter(account.provider_id)?;
+    let extra = req.extra_args.clone().unwrap_or_default();
+    let login = req.target == TerminalTarget::Login;
+    let spec = terminal_command(state, &account, &adapter, login, req.resume.unwrap_or(false), &extra, req.cwd.clone()).await?;
+    let title = notify::display_name(&account);
+    let spawn = pty::PtySpawn { account_id: account.id.clone(), title, spec, cols: req.cols, rows: req.rows };
+    let sink: Arc<dyn pty::PtySink> = Arc::new(EventSink(app.clone()));
+    let info = tokio::task::spawn_blocking(move || terms.spawn(spawn, sink)).await??;
+    record_launch(app, state, &account.id).await?;
+    Ok(info)
+}
+
+/// Runs a blocking pty call off the async runtime (writes can block on a full pipe).
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Send + 'static) -> Res<T> {
+    tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(err)
+}
+
+#[tauri::command]
+pub async fn terminal_write(terms: Terms<'_>, id: String, data: String) -> Res<()> {
+    let terms = terms.inner().clone();
+    blocking(move || terms.write(&id, data.as_bytes())).await
+}
+
+#[tauri::command]
+pub async fn terminal_resize(terms: Terms<'_>, id: String, cols: u16, rows: u16) -> Res<()> {
+    let terms = terms.inner().clone();
+    blocking(move || terms.resize(&id, cols, rows)).await
+}
+
+#[tauri::command]
+pub async fn terminal_kill(terms: Terms<'_>, id: String) -> Res<()> {
+    let terms = terms.inner().clone();
+    blocking(move || terms.kill(&id)).await
+}
+
+#[tauri::command]
+pub async fn terminal_list(terms: Terms<'_>) -> Res<Vec<TerminalInfo>> {
+    Ok(terms.list())
+}
+
+#[tauri::command]
+pub async fn terminal_scrollback(terms: Terms<'_>, id: String) -> Res<String> {
+    terms.scrollback(&id).ok_or_else(|| "Terminal not found".into())
 }
 
 // ---------- recommendations, notifications, settings, system ----------
@@ -570,6 +658,9 @@ pub async fn settings_set(app: AppHandle, state: St<'_>, patch: serde_json::Valu
         new.default_cwd = non_empty(new.default_cwd);
         new.profiles_dir = non_empty(new.profiles_dir);
         let wake = new.poll_interval_minutes != settings.poll_interval_minutes || new.live_usage != settings.live_usage;
+        if new.launch_at_login != settings.launch_at_login {
+            crate::set_autostart(&app, new.launch_at_login).map_err(err)?;
+        }
         *settings = new.clone();
         (new, wake)
     };

@@ -4,6 +4,7 @@ pub mod launcher;
 pub mod model;
 pub mod notify;
 pub mod providers;
+pub mod pty;
 pub mod recommend;
 pub mod sharing;
 pub mod store;
@@ -15,13 +16,21 @@ use std::sync::Arc;
 use store::AppState;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+use tauri_plugin_autostart::ManagerExt;
 
+/// User-facing product name for Rust-side strings (tray, messages). Rename here only.
+pub const APP_NAME: &str = "Baton";
 const TRAY_ID: &str = "main";
 const MAIN_WINDOW: &str = "main";
+/// Passed by the login item; the app then starts hidden in the tray.
+const MINIMIZED_ARG: &str = "--minimized";
 
 pub fn run() {
-    let result = tauri::Builder::default()
+    let app = tauri::Builder::default()
+        // Must be the first plugin: a second launch just focuses the running window.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)))
+        .plugin(tauri_plugin_autostart::Builder::new().arg(MINIMIZED_ARG).build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
@@ -29,7 +38,14 @@ pub fn run() {
             let dir = app.path().app_data_dir()?;
             let state = Arc::new(AppState::load(dir)?);
             app.manage(state.clone());
+            app.manage(pty::Terminals::default());
             build_tray(app.handle())?;
+            sync_autostart(app.handle(), &state);
+            if std::env::args().any(|a| a == MINIMIZED_ARG) {
+                if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
+                    let _ = w.hide();
+                }
+            }
             usage::start(app.handle().clone(), state);
             Ok(())
         })
@@ -56,6 +72,12 @@ pub fn run() {
             commands::usage_refresh,
             commands::usage_set_manual,
             commands::launch,
+            commands::terminal_spawn,
+            commands::terminal_write,
+            commands::terminal_resize,
+            commands::terminal_kill,
+            commands::terminal_list,
+            commands::terminal_scrollback,
             commands::recommend,
             commands::notifications_list,
             commands::notifications_mark_read,
@@ -63,10 +85,38 @@ pub fn run() {
             commands::settings_set,
             commands::system_open_path,
         ])
-        .run(tauri::generate_context!());
-    if let Err(e) = result {
-        eprintln!("AI Hopper failed to start: {e}");
-        std::process::exit(1);
+        .build(tauri::generate_context!());
+    match app {
+        Ok(app) => app.run(|app, event| {
+            if let RunEvent::Exit = event {
+                if let Some(terms) = app.try_state::<pty::Terminals>() {
+                    terms.kill_all();
+                }
+            }
+        }),
+        Err(e) => {
+            eprintln!("{APP_NAME} failed to start: {e}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Register or remove the OS login item.
+pub fn set_autostart(app: &AppHandle, enabled: bool) -> anyhow::Result<()> {
+    let manager = app.autolaunch();
+    let result = if enabled { manager.enable() } else { manager.disable() };
+    result.map_err(|e| anyhow::anyhow!("Could not change start at login: {e}"))
+}
+
+/// Make the OS login item match settings.launchAtLogin (e.g. after the app moved or the user
+/// removed the item by hand). Only touches the OS when they differ.
+fn sync_autostart(app: &AppHandle, state: &AppState) {
+    let wanted = state.settings.try_read().map(|s| s.launch_at_login).unwrap_or(false);
+    let current = app.autolaunch().is_enabled().unwrap_or(!wanted);
+    if current != wanted {
+        if let Err(e) = set_autostart(app, wanted) {
+            log::warn!("{e:#}");
+        }
     }
 }
 
@@ -87,7 +137,7 @@ fn show_main_window(app: &AppHandle) {
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = static_menu(app, &[])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip("AI Hopper")
+        .tooltip(APP_NAME)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(on_menu_event)
@@ -113,7 +163,8 @@ fn static_menu(app: &AppHandle, launch_items: &[(String, String)]) -> tauri::Res
         menu.append(&PredefinedMenuItem::separator(app)?)?;
     }
     menu.append(&MenuItem::with_id(app, "refresh", "Refresh usage", true, None::<&str>)?)?;
-    menu.append(&MenuItem::with_id(app, "show", "Show AI Hopper", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "terminals", "Open terminal grid", true, None::<&str>)?)?;
+    menu.append(&MenuItem::with_id(app, "show", format!("Show {APP_NAME}"), true, None::<&str>)?)?;
     menu.append(&PredefinedMenuItem::separator(app)?)?;
     menu.append(&MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?)?;
     Ok(menu)
@@ -156,6 +207,10 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         "quit" => app.exit(0),
         "show" => show_main_window(app),
+        "terminals" => {
+            show_main_window(app);
+            let _ = app.emit("navigate", "terminals");
+        }
         "refresh" => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
