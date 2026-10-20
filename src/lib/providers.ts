@@ -2,12 +2,12 @@ import type { ProviderId, SharingOptions, TaskType } from '@shared/types'
 
 export const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot']
 
-/** Short user-facing names. Brand colors are used only for the tiny identity mark. */
-export const PROVIDER_META: Record<ProviderId, { short: string; product: string; mark: string; brand: string }> = {
-  claude: { short: 'Claude', product: 'Claude Code', mark: 'C', brand: '#D97757' },
-  codex: { short: 'Codex', product: 'Codex (ChatGPT)', mark: 'X', brand: '#10A37F' },
-  gemini: { short: 'Gemini', product: 'Gemini CLI', mark: 'G', brand: '#4E86F7' },
-  copilot: { short: 'Copilot', product: 'GitHub Copilot CLI', mark: 'P', brand: '#8B6CEF' }
+/** Short user-facing names. The logos live in ProviderMark. */
+export const PROVIDER_META: Record<ProviderId, { short: string; product: string }> = {
+  claude: { short: 'Claude', product: 'Claude Code' },
+  codex: { short: 'Codex', product: 'Codex (ChatGPT)' },
+  gemini: { short: 'Gemini', product: 'Gemini CLI' },
+  copilot: { short: 'Copilot', product: 'GitHub Copilot CLI' }
 }
 
 export const TASKS: { id: TaskType; label: string; hint: string }[] = [
