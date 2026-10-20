@@ -1,0 +1,286 @@
+// Shared contract between the Electron main process, the preload bridge and the UI.
+// Every module codes against these types. Change them only with care: all three sides depend on them.
+
+export type ProviderId = 'claude' | 'codex' | 'gemini' | 'copilot'
+
+/** What we know about a provider's tooling on this machine. */
+export interface ProviderInfo {
+  id: ProviderId
+  name: string // "Claude Code"
+  vendor: string // "Anthropic"
+  /** Executable name of the CLI, e.g. "claude". */
+  cliCommand: string
+  cliInstalled: boolean
+  cliPath?: string
+  cliVersion?: string
+  /** Desktop app (Claude Desktop, ChatGPT/Codex app, ...) if one exists for this provider. */
+  desktopName?: string
+  desktopInstalled: boolean
+  desktopPath?: string
+  /** Desktop app can run several accounts at once (separate user-data dirs). */
+  desktopMultiAccount: boolean
+  /** Env var that points the CLI at an isolated config home, e.g. CLAUDE_CONFIG_DIR. */
+  homeEnvVar?: string
+  /** Install hint shown in the UI when the CLI is missing. */
+  installHint: string
+}
+
+/** Which parts of a profile's home are linked to a shared source instead of being private. */
+export interface SharingOptions {
+  skills: boolean
+  plugins: boolean
+  agents: boolean // also covers slash commands
+  instructions: boolean // CLAUDE.md / AGENTS.md / GEMINI.md
+  settings: boolean // settings.json / config.toml (never credentials)
+  mcp: boolean // MCP server config
+  history: boolean // chats / sessions / projects, so one account can resume another's session
+}
+
+export const DEFAULT_SHARING: SharingOptions = {
+  skills: true,
+  plugins: true,
+  agents: true,
+  instructions: true,
+  settings: false,
+  mcp: true,
+  history: true
+}
+
+export type AccountStatus = 'ok' | 'needs-login' | 'expired' | 'error' | 'unknown'
+
+/** One AI subscription/login, bound to an isolated config home. */
+export interface Account {
+  id: string
+  providerId: ProviderId
+  label: string // user-facing name, e.g. "Work Max"
+  email?: string
+  plan?: string // "Max 20x", "Pro", "Plus", "Business", "Copilot Pro+"...
+  /** Absolute path of the isolated config home for this account (value of homeEnvVar). */
+  homeDir: string
+  /** true when homeDir is the provider's stock location (~/.claude, ~/.codex ...). */
+  isDefaultHome: boolean
+  /** Path of the home whose skills/plugins/history are shared into this one. */
+  sharedFrom?: string
+  sharing: SharingOptions
+  color: string // hex, for charts and badges
+  tags: string[] // free-form, e.g. "coding", "research"; feeds recommendations
+  notes?: string
+  status: AccountStatus
+  statusMessage?: string
+  createdAt: string // ISO
+  lastLaunchedAt?: string
+  launchCount: number
+  /** Manual monthly price, for "value left" maths. */
+  monthlyCost?: number
+  pinned?: boolean
+}
+
+export interface NewAccountInput {
+  providerId: ProviderId
+  label: string
+  /** Use an existing directory (import) instead of creating a new one under the app's profiles dir. */
+  homeDir?: string
+  sharing?: SharingOptions
+  sharedFrom?: string
+  color?: string
+  tags?: string[]
+  monthlyCost?: number
+}
+
+/** An account found on disk that the user may import. */
+export interface DetectedAccount {
+  providerId: ProviderId
+  homeDir: string
+  isDefaultHome: boolean
+  email?: string
+  plan?: string
+  loggedIn: boolean
+  alreadyManaged: boolean
+  /** e.g. "found via ~/.local/bin/claude-h2.cmd" */
+  hint?: string
+}
+
+/** One rate-limit window, e.g. Claude "5-hour session" or "Weekly". */
+export interface UsageWindow {
+  id: string // stable key: "five_hour", "seven_day", "seven_day_opus", "primary", "secondary", "premium", "gemini-2.5-pro"...
+  label: string // "5-hour session"
+  usedPercent: number // 0..100
+  resetsAt?: string // ISO
+  windowMinutes?: number
+}
+
+export interface UsageSnapshot {
+  accountId: string
+  providerId: ProviderId
+  fetchedAt: string // ISO
+  source: 'api' | 'cli' | 'local-logs' | 'manual' | 'none'
+  windows: UsageWindow[]
+  plan?: string
+  email?: string
+  /** Pay-as-you-go / extra usage credits, when the provider reports them. */
+  credits?: { used: number; limit?: number; unit: string }
+  /** Set when the fetch failed; windows may then hold the last good values. */
+  error?: string
+  stale?: boolean
+}
+
+/** Point stored every poll, for charts. */
+export interface UsageHistoryPoint {
+  accountId: string
+  t: string // ISO
+  windows: Record<string, number> // window id -> usedPercent
+}
+
+/** Token activity per day, parsed from local session logs. */
+export interface DailyActivity {
+  accountId: string
+  date: string // YYYY-MM-DD local
+  inputTokens: number
+  outputTokens: number
+  cacheTokens: number
+  messages: number
+  sessions: number
+  models: Record<string, number> // model -> output tokens
+}
+
+export type LaunchTarget = 'cli' | 'desktop' | 'login'
+
+export interface LaunchRequest {
+  accountId: string
+  target: LaunchTarget
+  cwd?: string
+  /** Continue the most recent session (claude --continue, codex resume --last ...). */
+  resume?: boolean
+  extraArgs?: string[]
+}
+
+export interface LaunchResult {
+  ok: boolean
+  error?: string
+  /** The command that was run, shown to the user for transparency. */
+  commandLine?: string
+}
+
+export type NotificationKind =
+  | 'limit-reached'
+  | 'limit-reset'
+  | 'nearly-exhausted'
+  | 'use-it-or-lose-it'
+  | 'switch-suggested'
+  | 'login-required'
+  | 'info'
+
+export interface AppNotification {
+  id: string
+  kind: NotificationKind
+  accountId?: string
+  title: string
+  body: string
+  createdAt: string
+  read: boolean
+}
+
+export type TaskType = 'coding' | 'long-refactor' | 'quick-question' | 'research' | 'review' | 'any'
+
+export interface Recommendation {
+  accountId: string
+  score: number // 0..100, higher = better pick now
+  reason: string // plain-language, e.g. "62% of weekly left, resets in 2 days - use it before it resets"
+}
+
+export interface AppSettings {
+  pollIntervalMinutes: number // default 5
+  notifications: {
+    enabled: boolean
+    nearlyExhaustedPercent: number // default 80
+    useItOrLoseItHours: number // warn when a window resets within N hours with lots left; default 24
+    useItOrLoseItMinLeftPercent: number // default 40
+    onReset: boolean
+  }
+  /** "auto" picks Windows Terminal / Terminal.app / the default Linux terminal. */
+  terminal: string
+  defaultCwd?: string
+  defaultSharing: SharingOptions
+  /** Where new isolated homes are created. Default: <userData>/profiles */
+  profilesDir?: string
+  minimizeToTray: boolean
+  launchAtLogin: boolean
+  theme: 'system' | 'dark' | 'light'
+  /** Opt-in: call provider usage APIs with the account's own token. Off = local logs only. */
+  liveUsage: boolean
+}
+
+export interface AppEvents {
+  'usage-updated': Record<string, UsageSnapshot>
+  'accounts-changed': Account[]
+  notification: AppNotification
+}
+
+/** API the UI uses (src/api.ts implements it over Tauri invoke; mock mode in a plain browser). */
+export interface HopperApi {
+  platform: 'win32' | 'darwin' | 'linux'
+  providers: {
+    list(): Promise<ProviderInfo[]>
+  }
+  accounts: {
+    list(): Promise<Account[]>
+    detect(): Promise<DetectedAccount[]>
+    import(found: DetectedAccount[]): Promise<Account[]>
+    create(input: NewAccountInput): Promise<Account>
+    update(id: string, patch: Partial<Account>): Promise<Account>
+    remove(id: string, opts: { deleteHome: boolean }): Promise<void>
+    /** Re-apply sharing links after SharingOptions changed. */
+    applySharing(id: string): Promise<Account>
+  }
+  usage: {
+    latest(): Promise<Record<string, UsageSnapshot>>
+    history(accountId: string | null, days: number): Promise<UsageHistoryPoint[]>
+    activity(accountId: string | null, days: number): Promise<DailyActivity[]>
+    refresh(accountId?: string): Promise<Record<string, UsageSnapshot>>
+    setManual(accountId: string, windows: UsageWindow[]): Promise<UsageSnapshot>
+  }
+  launch(req: LaunchRequest): Promise<LaunchResult>
+  recommend(task: TaskType, providerId?: ProviderId): Promise<Recommendation[]>
+  notifications: {
+    list(): Promise<AppNotification[]>
+    markRead(id: string | 'all'): Promise<void>
+  }
+  settings: {
+    get(): Promise<AppSettings>
+    set(patch: Partial<AppSettings>): Promise<AppSettings>
+  }
+  system: {
+    openPath(path: string): Promise<void>
+    pickDirectory(): Promise<string | null>
+  }
+  on<K extends keyof AppEvents>(event: K, cb: (payload: AppEvents[K]) => void): () => void
+}
+
+/**
+ * Tauri command names (Rust #[tauri::command] fns, snake_case). Arguments are passed as an object
+ * with camelCase keys matching the HopperApi parameter names, e.g. invoke('accounts_update', { id, patch }).
+ * Events are emitted from Rust with app.emit(<AppEvents key>, payload).
+ */
+export const COMMANDS = {
+  providersList: 'providers_list',
+  accountsList: 'accounts_list',
+  accountsDetect: 'accounts_detect',
+  accountsImport: 'accounts_import', // { found }
+  accountsCreate: 'accounts_create', // { input }
+  accountsUpdate: 'accounts_update', // { id, patch }
+  accountsRemove: 'accounts_remove', // { id, deleteHome }
+  accountsApplySharing: 'accounts_apply_sharing', // { id }
+  usageLatest: 'usage_latest',
+  usageHistory: 'usage_history', // { accountId, days }
+  usageActivity: 'usage_activity', // { accountId, days }
+  usageRefresh: 'usage_refresh', // { accountId? }
+  usageSetManual: 'usage_set_manual', // { accountId, windows }
+  launch: 'launch', // { req }
+  recommend: 'recommend', // { task, providerId? }
+  notificationsList: 'notifications_list',
+  notificationsMarkRead: 'notifications_mark_read', // { id }
+  settingsGet: 'settings_get',
+  settingsSet: 'settings_set', // { patch }
+  systemOpenPath: 'system_open_path' // { path }
+  // pickDirectory is done in the UI with @tauri-apps/plugin-dialog
+} as const
