@@ -18,6 +18,7 @@ If you pay for more than one AI plan (two Claude Max accounts, ChatGPT Pro, Gemi
 - **Notifications.** Nearly exhausted, limit reached, limit reset, and "use it or lose it" when lots of quota is about to reset unused.
 - **Recommendations.** Pick a task type (coding, long refactor, quick question, research, review) and get the best account to use right now.
 - **One-click launch.** Opens your terminal with the right account, or resumes your last session. Desktop apps too, where they support it.
+- **Permission modes.** Pick per tool how every CLI starts, on every account: ask as usual, accept edits, plan, or bypass permissions (Claude Code), auto or bypass (Codex), auto edit or YOLO (Gemini), allow all tools (Copilot).
 - **Sharing you control.** Per account, choose what to share with your main setup: skills, plugins, agents and commands, instructions, MCP servers, settings, chat history. Credentials are never shared.
 - **Terminal grid.** Run up to nine AI CLIs side by side in one window, each pane on its own account with its own meter. When one hits its limit, continue the same chat on another account in one click. Keep several sessions, each with its own layout, in a collapsible list beside the grid; hidden sessions keep running.
 - **Tray menu** for quick launches without opening the window. Switchyard can start at login, hidden in the tray.
