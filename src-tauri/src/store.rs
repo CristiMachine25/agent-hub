@@ -20,6 +20,8 @@ const LATEST_FILE: &str = "usage-latest.json";
 const HISTORY_FILE: &str = "usage-history.jsonl";
 const ACTIVITY_FILE: &str = "activity-cache.json";
 const NOTIFY_STATE_FILE: &str = "notify-state.json";
+/// App data folder name used before the rename to Baton (same parent dir as the new one).
+const LEGACY_DIR_NAME: &str = "dev.aihopper.app";
 
 /// Cached per-account activity scan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,6 +54,13 @@ impl AppState {
     /// Load every file from `dir`, falling back to defaults for anything missing or unreadable.
     pub fn load(dir: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        if let Some(legacy) = dir.parent().map(|p| p.join(LEGACY_DIR_NAME)) {
+            match migrate_legacy(&legacy, &dir) {
+                Ok(true) => log::info!("copied data from {}", legacy.display()),
+                Ok(false) => {}
+                Err(e) => log::warn!("migrating {} failed: {e:#}", legacy.display()),
+            }
+        }
         let state = Self {
             adapters: providers::all(),
             accounts: RwLock::new(load_accounts(&dir.join(ACCOUNTS_FILE))),
@@ -277,9 +286,71 @@ pub fn prune_history(path: &Path, now: chrono::DateTime<chrono::Utc>) -> anyhow:
     Ok(())
 }
 
+/// One-time copy of the pre-rename data into the new app data dir. Runs only while the new dir
+/// has no accounts file; the legacy dir is left untouched. Profiles made by the old app stay where
+/// they are, so the profiles dir setting points at them unless the user already chose one.
+fn migrate_legacy(legacy: &Path, dir: &Path) -> anyhow::Result<bool> {
+    if dir.join(ACCOUNTS_FILE).exists() || !legacy.join(ACCOUNTS_FILE).is_file() {
+        return Ok(false);
+    }
+    for entry in std::fs::read_dir(legacy)? {
+        let path = entry?.path();
+        let is_data = matches!(path.extension().and_then(|e| e.to_str()), Some("json" | "jsonl"));
+        if let (true, Some(name)) = (is_data && path.is_file(), path.file_name()) {
+            std::fs::copy(&path, dir.join(name)).with_context(|| format!("copying {}", path.display()))?;
+        }
+    }
+    let old_profiles = legacy.join("profiles");
+    if old_profiles.is_dir() {
+        let settings_path = dir.join(SETTINGS_FILE);
+        let mut settings: serde_json::Value = std::fs::read_to_string(&settings_path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        let unset = settings.get("profilesDir").and_then(|v| v.as_str()).is_none_or(|v| v.trim().is_empty());
+        if let (true, Some(obj)) = (unset, settings.as_object_mut()) {
+            obj.insert("profilesDir".into(), old_profiles.to_string_lossy().into_owned().into());
+            util::write_atomic(&settings_path, serde_json::to_string_pretty(&settings)?.as_bytes())?;
+        }
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrates_legacy_data_once_and_keeps_the_old_dir() {
+        let root = tempfile::tempdir().unwrap();
+        let (legacy, dir) = (root.path().join(LEGACY_DIR_NAME), root.path().join("dev.baton.app"));
+        std::fs::create_dir_all(legacy.join("profiles")).unwrap();
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(legacy.join(ACCOUNTS_FILE), "[]").unwrap();
+        std::fs::write(legacy.join(SETTINGS_FILE), r#"{"theme":"dark"}"#).unwrap();
+        std::fs::write(legacy.join(HISTORY_FILE), "{}\n").unwrap();
+        std::fs::write(legacy.join("notes.txt"), "x").unwrap();
+
+        assert!(migrate_legacy(&legacy, &dir).unwrap());
+        assert!(dir.join(ACCOUNTS_FILE).is_file() && dir.join(HISTORY_FILE).is_file());
+        assert!(!dir.join("notes.txt").exists());
+        assert!(legacy.join(ACCOUNTS_FILE).is_file());
+        let raw = std::fs::read_to_string(dir.join(SETTINGS_FILE)).unwrap();
+        let settings: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(settings["theme"], "dark");
+        assert_eq!(settings["profilesDir"], legacy.join("profiles").to_string_lossy().as_ref());
+
+        // Second start: the new dir already has accounts, so nothing is copied again.
+        std::fs::write(legacy.join(ACCOUNTS_FILE), "[1]").unwrap();
+        assert!(!migrate_legacy(&legacy, &dir).unwrap());
+        assert_eq!(std::fs::read_to_string(dir.join(ACCOUNTS_FILE)).unwrap(), "[]");
+    }
+
+    #[test]
+    fn migration_skips_when_there_is_no_legacy_data() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(!migrate_legacy(&root.path().join("missing"), root.path()).unwrap());
+    }
 
     fn point(id: &str, t: chrono::DateTime<chrono::Utc>) -> UsageHistoryPoint {
         UsageHistoryPoint { account_id: id.into(), t: t.to_rfc3339(), windows: HashMap::from([("w".into(), 10.0)]) }
