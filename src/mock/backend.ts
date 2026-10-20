@@ -1,0 +1,373 @@
+// In-memory HopperApi used when the UI runs in a plain browser. Mutations persist for the page's lifetime.
+import type {
+  Account,
+  AppEvents,
+  AppSettings,
+  HopperApi,
+  LaunchRequest,
+  LaunchResult,
+  NewAccountInput,
+  UsageSnapshot,
+  UsageWindow
+} from '@shared/types'
+import { DEFAULT_SHARING } from '@shared/types'
+import { scoreAccounts } from '@/lib/recommend'
+import { ACCOUNT_COLORS } from '@/lib/providers'
+import type { Platform } from '@/lib/platform'
+import { buildMockDb, homeRoot } from './data'
+
+type Listener = (payload: never) => void
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+const clone = <T,>(x: T): T => structuredClone(x)
+
+export function createMockApi(platform: Platform): HopperApi {
+  const db = buildMockDb(platform)
+  const listeners = new Map<keyof AppEvents, Set<Listener>>()
+  const { home, sep } = homeRoot(platform)
+
+  function emit<K extends keyof AppEvents>(event: K, payload: AppEvents[K]) {
+    listeners.get(event)?.forEach((cb) => (cb as (p: AppEvents[K]) => void)(clone(payload)))
+  }
+
+  function accountsChanged() {
+    emit('accounts-changed', db.accounts)
+  }
+
+  function find(id: string): Account {
+    const a = db.accounts.find((x) => x.id === id)
+    if (!a) throw new Error(`No account with id ${id}. It may have been removed; reload the list.`)
+    return a
+  }
+
+  function slug(s: string) {
+    return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'account'
+  }
+
+  function nudgeUsage() {
+    const now = Date.now()
+    for (const snap of Object.values(db.usage)) {
+      if (snap.stale) continue
+      snap.fetchedAt = new Date(now).toISOString()
+      for (const w of snap.windows) {
+        if (w.usedPercent >= 100) continue
+        if (w.resetsAt && Date.parse(w.resetsAt) <= now) {
+          w.usedPercent = 0
+          w.resetsAt = new Date(now + (w.windowMinutes ?? 300) * 60_000).toISOString()
+          continue
+        }
+        const bump = Math.random() < 0.5 ? Math.random() * 3 : 0
+        w.usedPercent = Math.min(100, Math.round((w.usedPercent + bump) * 10) / 10)
+      }
+    }
+  }
+
+  let pollTimer: ReturnType<typeof setInterval> | undefined
+  function schedulePoll() {
+    if (pollTimer) clearInterval(pollTimer)
+    pollTimer = setInterval(() => {
+      nudgeUsage()
+      emit('usage-updated', db.usage)
+    }, Math.max(1, db.settings.pollIntervalMinutes) * 60_000)
+  }
+  schedulePoll()
+
+  function quote(s: string) {
+    return /\s/.test(s) ? `"${s}"` : s
+  }
+
+  function buildCommand(a: Account, req: LaunchRequest): string {
+    const prov = db.providers.find((p) => p.id === a.providerId)!
+    const cwd = req.cwd ?? db.settings.defaultCwd ?? home
+    let cli = prov.cliCommand
+    if (req.target === 'login') {
+      cli = a.providerId === 'codex' ? 'codex login' : a.providerId === 'claude' ? 'claude /login' : a.providerId === 'copilot' ? 'copilot /login' : 'gemini'
+    } else if (req.resume) {
+      cli += a.providerId === 'codex' ? ' resume --last' : a.providerId === 'gemini' ? ' --resume latest' : ' --continue'
+    }
+    if (req.extraArgs?.length) cli += ' ' + req.extraArgs.map(quote).join(' ')
+    const envVar = prov.homeEnvVar
+    const term = db.settings.terminal
+
+    if (req.target === 'desktop') {
+      const app = platform === 'win32'
+        ? `${home}\\AppData\\Local\\AnthropicClaude\\claude.exe`
+        : platform === 'darwin' ? '/Applications/Claude.app' : '/usr/bin/claude-desktop'
+      const dataDir = `${a.homeDir}${sep}desktop`
+      return platform === 'darwin'
+        ? `open -n -a ${quote(app)} --args --user-data-dir=${quote(dataDir)}`
+        : `${quote(app)} --user-data-dir=${quote(dataDir)}`
+    }
+
+    if (platform === 'win32') {
+      const env = a.isDefaultHome || !envVar ? '' : `set ${envVar}=${a.homeDir}&& `
+      if (term === 'cmd') return `cmd.exe /c start "${a.label}" /d ${quote(cwd)} cmd /k "${env}${cli}"`
+      if (term === 'powershell') return `powershell.exe -NoExit -Command "${a.isDefaultHome || !envVar ? '' : `$env:${envVar}='${a.homeDir}'; `}${cli}"`
+      return `wt.exe -w 0 new-tab --title "${a.label}" -d ${quote(cwd)} cmd /k "${env}${cli}"`
+    }
+    const env = a.isDefaultHome || !envVar ? '' : `${envVar}=${quote(a.homeDir)} `
+    const script = `cd ${quote(cwd)} && ${env}${cli}`
+    if (platform === 'darwin') {
+      if (term === 'iterm') return `osascript -e 'tell application "iTerm" to create window with default profile command "${script}"'`
+      return `osascript -e 'tell application "Terminal" to do script "${script}"'`
+    }
+    const t = term === 'auto' ? 'gnome-terminal' : term
+    if (t === 'kitty' || t === 'alacritty') return `${t} -e bash -lc '${script}; exec bash'`
+    if (t === 'konsole') return `konsole -e bash -lc '${script}; exec bash'`
+    return `${t} -- bash -lc '${script}; exec bash'`
+  }
+
+  const api: HopperApi = {
+    platform,
+    providers: {
+      async list() {
+        await wait(80)
+        return clone(db.providers)
+      }
+    },
+    accounts: {
+      async list() {
+        await wait(60)
+        return clone(db.accounts)
+      },
+      async detect() {
+        await wait(900)
+        const managed = new Set(db.accounts.map((a) => a.homeDir.toLowerCase()))
+        return clone(db.detected.map((d) => ({ ...d, alreadyManaged: managed.has(d.homeDir.toLowerCase()) })))
+      },
+      async import(found) {
+        await wait(400)
+        const created: Account[] = []
+        for (const f of found) {
+          const n = db.accounts.length
+          const a: Account = {
+            id: `acc-${slug(f.homeDir)}-${n}`,
+            providerId: f.providerId,
+            label: f.email ? `${f.email.split('@')[0]} (${f.plan ?? f.providerId})` : f.homeDir.split(/[\\/]/).pop() ?? 'Imported',
+            email: f.email,
+            plan: f.plan,
+            homeDir: f.homeDir,
+            isDefaultHome: f.isDefaultHome,
+            sharing: { ...db.settings.defaultSharing },
+            color: ACCOUNT_COLORS[n % ACCOUNT_COLORS.length],
+            tags: [],
+            status: f.loggedIn ? 'ok' : 'needs-login',
+            statusMessage: f.loggedIn ? undefined : 'Not signed in yet. Choose Sign in to finish setting up this account.',
+            createdAt: new Date().toISOString(),
+            launchCount: 0
+          }
+          db.accounts.push(a)
+          created.push(a)
+          if (f.loggedIn) {
+            db.usage[a.id] = {
+              accountId: a.id,
+              providerId: a.providerId,
+              fetchedAt: new Date().toISOString(),
+              source: 'api',
+              windows: defaultWindows(a.providerId, 10, 25)
+            }
+          }
+        }
+        accountsChanged()
+        emit('usage-updated', db.usage)
+        return clone(created)
+      },
+      async create(input: NewAccountInput) {
+        await wait(500)
+        const n = db.accounts.length
+        const homeDir = input.homeDir ?? `${home}${sep}${platform === 'win32' ? 'AppData\\Roaming\\AI Hopper\\profiles' : platform === 'darwin' ? 'Library/Application Support/AI Hopper/profiles' : '.local/share/ai-hopper/profiles'}${sep}${input.providerId}-${slug(input.label)}`
+        if (db.accounts.some((a) => a.homeDir.toLowerCase() === homeDir.toLowerCase())) {
+          throw new Error(`Another account already uses ${homeDir}. Pick a different folder or label.`)
+        }
+        const a: Account = {
+          id: `acc-${slug(input.label)}-${n}`,
+          providerId: input.providerId,
+          label: input.label,
+          homeDir,
+          isDefaultHome: false,
+          sharedFrom: input.sharedFrom,
+          sharing: input.sharing ?? { ...DEFAULT_SHARING },
+          color: input.color ?? ACCOUNT_COLORS[n % ACCOUNT_COLORS.length],
+          tags: input.tags ?? [],
+          status: 'needs-login',
+          statusMessage: 'Not signed in yet. Choose Sign in to finish setting up this account.',
+          createdAt: new Date().toISOString(),
+          launchCount: 0,
+          monthlyCost: input.monthlyCost
+        }
+        db.accounts.push(a)
+        accountsChanged()
+        return clone(a)
+      },
+      async update(id, patch) {
+        await wait(120)
+        const a = find(id)
+        const { id: _ignore, ...rest } = patch
+        Object.assign(a, rest)
+        accountsChanged()
+        return clone(a)
+      },
+      async remove(id, _opts) {
+        await wait(300)
+        find(id)
+        db.accounts = db.accounts.filter((a) => a.id !== id)
+        delete db.usage[id]
+        accountsChanged()
+        emit('usage-updated', db.usage)
+      },
+      async applySharing(id) {
+        await wait(350)
+        return clone(find(id))
+      }
+    },
+    usage: {
+      async latest() {
+        await wait(80)
+        return clone(db.usage)
+      },
+      async history(accountId, days) {
+        await wait(120)
+        const since = Date.now() - days * 86_400_000
+        return clone(db.history.filter((p) => (accountId === null || p.accountId === accountId) && Date.parse(p.t) >= since))
+      },
+      async activity(accountId, days) {
+        await wait(120)
+        const since = Date.now() - days * 86_400_000
+        return clone(
+          db.activity.filter((d) => (accountId === null || d.accountId === accountId) && Date.parse(d.date + 'T23:59:59') >= since)
+        )
+      },
+      async refresh(accountId) {
+        await wait(700)
+        nudgeUsage()
+        if (accountId && db.usage[accountId]?.stale) {
+          // Simulate the provider coming back.
+          db.usage[accountId].stale = false
+          db.usage[accountId].error = undefined
+          db.usage[accountId].fetchedAt = new Date().toISOString()
+        }
+        emit('usage-updated', db.usage)
+        return clone(db.usage)
+      },
+      async setManual(accountId, windows: UsageWindow[]) {
+        await wait(150)
+        const a = find(accountId)
+        const snap: UsageSnapshot = {
+          accountId,
+          providerId: a.providerId,
+          fetchedAt: new Date().toISOString(),
+          source: 'manual',
+          windows
+        }
+        db.usage[accountId] = snap
+        emit('usage-updated', db.usage)
+        return clone(snap)
+      }
+    },
+    async launch(req: LaunchRequest): Promise<LaunchResult> {
+      await wait(350)
+      const a = db.accounts.find((x) => x.id === req.accountId)
+      if (!a) return { ok: false, error: 'That account no longer exists. Reload the account list.' }
+      const prov = db.providers.find((p) => p.id === a.providerId)!
+      if (req.target === 'desktop' && !prov.desktopInstalled) {
+        return { ok: false, error: `${prov.name} has no desktop app installed on this computer. Launch the CLI instead.` }
+      }
+      if (req.target !== 'desktop' && !prov.cliInstalled) {
+        return {
+          ok: false,
+          error: `${prov.name} isn't installed, so there is nothing to launch. Install it with "${prov.installHint}" and try again.`
+        }
+      }
+      const commandLine = buildCommand(a, req)
+      a.launchCount += 1
+      a.lastLaunchedAt = new Date().toISOString()
+      accountsChanged()
+      return { ok: true, commandLine }
+    },
+    async recommend(task, providerId) {
+      await wait(90)
+      const installed = Object.fromEntries(db.providers.map((p) => [p.id, p.cliInstalled]))
+      return scoreAccounts(db.accounts, db.usage, task, Date.now(), providerId, installed)
+    },
+    notifications: {
+      async list() {
+        await wait(60)
+        return clone(db.notifications)
+      },
+      async markRead(id) {
+        await wait(60)
+        for (const n of db.notifications) if (id === 'all' || n.id === id) n.read = true
+      }
+    },
+    settings: {
+      async get() {
+        await wait(40)
+        return clone(db.settings)
+      },
+      async set(patch: Partial<AppSettings>) {
+        await wait(120)
+        db.settings = {
+          ...db.settings,
+          ...patch,
+          notifications: { ...db.settings.notifications, ...(patch.notifications ?? {}) },
+          defaultSharing: { ...db.settings.defaultSharing, ...(patch.defaultSharing ?? {}) }
+        }
+        if (patch.pollIntervalMinutes) schedulePoll()
+        return clone(db.settings)
+      }
+    },
+    system: {
+      async openPath(path) {
+        console.info('[mock] open folder', path)
+      },
+      async pickDirectory() {
+        await wait(200)
+        return `${home}${sep}code${sep}northwind-api`
+      }
+    },
+    on(event, cb) {
+      let set = listeners.get(event)
+      if (!set) listeners.set(event, (set = new Set()))
+      set.add(cb as Listener)
+      return () => set!.delete(cb as Listener)
+    }
+  }
+
+  // Demo: a new notification arrives shortly after load so the live path is visible.
+  setTimeout(() => {
+    const n = {
+      id: `n-live-${Date.now()}`,
+      kind: 'switch-suggested' as const,
+      accountId: 'acc-gpt-pro',
+      title: 'Work Max 20x is at 36% of its session: ChatGPT Pro has 78% left',
+      body: 'Switch for the next long task to keep Work Max for Opus work.',
+      createdAt: new Date().toISOString(),
+      read: false
+    }
+    db.notifications.unshift(n)
+    emit('notification', n)
+  }, 45_000)
+
+  return api
+}
+
+function defaultWindows(p: Account['providerId'], session: number, week: number): UsageWindow[] {
+  const now = Date.now()
+  const iso = (ms: number) => new Date(now + ms).toISOString()
+  switch (p) {
+    case 'claude':
+      return [
+        { id: 'five_hour', label: '5-hour session', usedPercent: session, windowMinutes: 300, resetsAt: iso(3 * 3600e3) },
+        { id: 'seven_day', label: 'Weekly limit', usedPercent: week, windowMinutes: 10080, resetsAt: iso(5 * 86400e3) }
+      ]
+    case 'codex':
+      return [
+        { id: 'primary', label: '5-hour session', usedPercent: session, windowMinutes: 300, resetsAt: iso(4 * 3600e3) },
+        { id: 'secondary', label: 'Weekly limit', usedPercent: week, windowMinutes: 10080, resetsAt: iso(6 * 86400e3) }
+      ]
+    case 'gemini':
+      return [{ id: 'gemini-2.5-pro', label: 'Gemini Pro daily', usedPercent: session, windowMinutes: 1440, resetsAt: iso(14 * 3600e3) }]
+    case 'copilot':
+      return [{ id: 'premium', label: 'Premium requests', usedPercent: week, windowMinutes: 43200, resetsAt: iso(12 * 86400e3) }]
+  }
+}
