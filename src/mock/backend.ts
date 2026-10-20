@@ -15,6 +15,7 @@ import { scoreAccounts } from '@/lib/recommend'
 import { ACCOUNT_COLORS } from '@/lib/providers'
 import type { Platform } from '@/lib/platform'
 import { buildMockDb, homeRoot } from './data'
+import { createMockTerminals } from './terminals'
 
 type Listener = (payload: never) => void
 
@@ -284,6 +285,18 @@ export function createMockApi(platform: Platform): HopperApi {
       accountsChanged()
       return { ok: true, commandLine }
     },
+    terminals: createMockTerminals({
+      account: (id) => db.accounts.find((a) => a.id === id),
+      provider: (id) => db.providers.find((p) => p.id === id),
+      defaultCwd: () => db.settings.defaultCwd ?? home,
+      usage: () => db.usage,
+      emit,
+      notify(accountId, title, body) {
+        const n = { id: `n-term-${Date.now()}`, kind: 'limit-reached' as const, accountId, title, body, createdAt: new Date().toISOString(), read: false }
+        db.notifications.unshift(n)
+        emit('notification', n)
+      }
+    }),
     async recommend(task, providerId) {
       await wait(90)
       const installed = Object.fromEntries(db.providers.map((p) => [p.id, p.cliInstalled]))

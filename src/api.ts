@@ -30,6 +30,14 @@ function createTauriApi(): HopperApi {
       setManual: (accountId, windows) => call(COMMANDS.usageSetManual, { accountId, windows })
     },
     launch: (req) => call(COMMANDS.launch, { req }),
+    terminals: {
+      spawn: (req) => call(COMMANDS.terminalSpawn, { req }),
+      write: (id, data) => call(COMMANDS.terminalWrite, { id, data }),
+      resize: (id, cols, rows) => call(COMMANDS.terminalResize, { id, cols, rows }),
+      kill: (id) => call(COMMANDS.terminalKill, { id }),
+      list: () => call(COMMANDS.terminalList),
+      scrollback: (id) => call(COMMANDS.terminalScrollback, { id })
+    },
     recommend: (task, providerId) => call(COMMANDS.recommend, { task, providerId: providerId ?? null }),
     notifications: {
       list: () => call(COMMANDS.notificationsList),
