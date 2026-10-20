@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { FolderOpen, ShieldCheck } from 'lucide-react'
+import { Download, FolderOpen, ShieldCheck, Upload } from 'lucide-react'
 import type { AppSettings } from '@shared/types'
 import { api } from '@/api'
 import { useStore } from '@/store'
 import { SHARING_ITEMS } from '@/lib/providers'
 import { Segmented, Switch } from '@/components/ui'
+import { ExportDialog, ImportDialog } from '@/components/Transfer'
 import { Page } from './Overview'
 import { FONT_SIZE_KEY, FONT_SIZES, restyleAll, terminalFontSize } from '@/terminals/registry'
 
@@ -159,8 +160,36 @@ export function Settings() {
             <FontSize />
           </Row>
         </Group>
+
+        <Group title="Move to another computer">
+          <Transfer />
+        </Group>
       </div>
     </Page>
+  )
+}
+
+/** Export the setup to a file, or bring one in from another computer. */
+function Transfer() {
+  const [dialog, setDialog] = useState<'export' | 'import' | null>(null)
+  return (
+    <>
+      <Row
+        label="Export your setup"
+        help="Accounts, plans and colors, and optionally skills, preferences and encrypted sign-ins, in one file for Switchyard on Windows, macOS or Linux."
+      >
+        <button className="btn btn-sm" onClick={() => setDialog('export')}>
+          <Upload size={14} /> Export…
+        </button>
+      </Row>
+      <Row label="Import a setup" help="Choose what to add from a file. Accounts, files and sign-ins already on this computer are never replaced or removed.">
+        <button className="btn btn-sm" onClick={() => setDialog('import')}>
+          <Download size={14} /> Import…
+        </button>
+      </Row>
+      <ExportDialog open={dialog === 'export'} onClose={() => setDialog(null)} />
+      <ImportDialog open={dialog === 'import'} onClose={() => setDialog(null)} />
+    </>
   )
 }
 
