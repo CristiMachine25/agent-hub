@@ -17,6 +17,8 @@ jobs:
             args: --target aarch64-apple-darwin
           - platform: macos-latest
             args: --target x86_64-apple-darwin
+            # Intel Macs: name the files amd64 instead of Tauri's x64 so they're easy to tell apart.
+            assetNamePattern: '[name]_[version]_amd64[ext]'
           - platform: ubuntu-22.04
             args: ''
           - platform: windows-latest
@@ -50,3 +52,4 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          assetNamePattern: ${{ matrix.assetNamePattern }}
