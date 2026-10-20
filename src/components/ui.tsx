@@ -141,10 +141,13 @@ export function Dialog({
   title,
   children,
   footer,
-  width = 520
+  width = 520,
+  onDismiss
 }: {
   open: boolean
   onClose: () => void
+  /** Clicking the backdrop or pressing Escape. Defaults to onClose; set it to ask before losing input. */
+  onDismiss?: () => void
   title: string
   children: ReactNode
   footer?: ReactNode
@@ -160,7 +163,7 @@ export function Dialog({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation()
-        onClose()
+        ;(onDismiss ?? onClose)()
       }
       if (e.key === 'Tab' && el) {
         const items = [...el.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(
@@ -183,17 +186,17 @@ export function Dialog({
       window.removeEventListener('keydown', onKey, true)
       prev?.focus?.()
     }
-  }, [open, onClose])
+  }, [open, onClose, onDismiss])
   if (!open) return null
   return (
-    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 px-4 pb-6 pt-[max(24px,8vh)]" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 px-4 pb-6 pt-[max(24px,8vh)]" onMouseDown={onDismiss ?? onClose}>
       <div
         ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         onMouseDown={(e) => e.stopPropagation()}
-        className="toast-in flex max-h-full w-full flex-col rounded-lg border border-rivet bg-deck shadow-2xl shadow-black/40"
+        className="toast-in relative flex max-h-full w-full flex-col rounded-lg border border-rivet bg-deck shadow-2xl shadow-black/40"
         style={{ maxWidth: width }}
       >
         <div className="flex items-center justify-between border-b border-rivet px-5 py-3">
