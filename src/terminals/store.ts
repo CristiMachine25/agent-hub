@@ -1,5 +1,6 @@
-// Terminal grid state: the workspace (layout + panes), terminal status, and the actions panes call.
-// xterm instances live in ./registry; this store only holds plain data.
+// Terminal grid state: named sessions, each a workspace (layout + panes), terminal status, and the actions
+// panes call. `ws` is always the active session's workspace; the others wait in `sessions` with their
+// terminals still running. xterm instances live in ./registry; this store only holds plain data.
 import { create } from 'zustand'
 import type { TerminalInfo } from '@shared/types'
 import { api, errorText } from '@/api'
@@ -13,6 +14,7 @@ import {
   reattach,
   serializeWorkspace,
   emptyPane,
+  defaultWorkspace,
   type Dir,
   type LayoutId,
   type PaneConfig,
@@ -22,6 +24,14 @@ import {
 import { disposeTerm, estimateSize, focusTerm, getTerm, onTerminalExit, prepare } from './registry'
 
 const STORAGE_KEY = 'switchyard.workspace'
+const SESSIONS_KEY = 'switchyard.sessions'
+
+export interface Session {
+  id: string
+  name: string
+  /** Workspace of an inactive session. The active one's lives in `ws` (this copy may be stale). */
+  ws: Workspace
+}
 
 export interface StartOptions {
   accountId: string
@@ -32,6 +42,8 @@ export interface StartOptions {
 
 interface GridState {
   ws: Workspace
+  sessions: Session[]
+  activeId: string
   infos: Record<string, TerminalInfo>
   /** Pane uid → spawn in progress. */
   starting: Record<string, boolean>
@@ -49,23 +61,55 @@ interface GridState {
   continueOn(index: number, accountId: string): Promise<void>
   close(index: number): Promise<void>
   openInGrid(accountId: string, opts?: { resume?: boolean; cwd?: string }): Promise<void>
+  newSession(): void
+  switchSession(id: string): void
+  renameSession(id: string, name: string): void
+  closeSession(id: string): Promise<void>
 }
 
-function load(): Workspace {
+const newSessionId = () => `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+
+function read(key: string): string | null {
   try {
-    return parseWorkspace(localStorage.getItem(STORAGE_KEY))
+    return localStorage.getItem(key)
   } catch {
-    return parseWorkspace(null)
+    return null
   }
 }
 
-function save(ws: Workspace) {
+/** Saved sessions, or one session holding the single workspace older versions saved. */
+function load(): { sessions: Session[]; activeId: string } {
   try {
-    localStorage.setItem(STORAGE_KEY, serializeWorkspace(ws))
+    const d = JSON.parse(read(SESSIONS_KEY) ?? 'null') as { active?: string; list?: { id?: string; name?: string; ws?: unknown }[] } | null
+    const list = (d?.list ?? [])
+      .filter((x) => typeof x?.id === 'string')
+      .map((x) => ({ id: x.id as string, name: typeof x.name === 'string' && x.name.trim() ? x.name : 'Session', ws: parseWorkspace(JSON.stringify(x.ws ?? null)) }))
+    if (list.length) return { sessions: list, activeId: list.some((x) => x.id === d?.active) ? (d?.active as string) : list[0].id }
+  } catch {
+    /* unreadable: start fresh below */
+  }
+  const id = newSessionId()
+  return { sessions: [{ id, name: 'Session 1', ws: parseWorkspace(read(STORAGE_KEY)) }], activeId: id }
+}
+
+function save(sessions: Session[], activeId: string, ws: Workspace) {
+  try {
+    const list = sessions.map((x) => ({ id: x.id, name: x.name, ws: JSON.parse(serializeWorkspace(x.id === activeId ? ws : x.ws)) }))
+    localStorage.setItem(SESSIONS_KEY, JSON.stringify({ active: activeId, list }))
   } catch {
     /* private mode or full storage: the grid still works, it just won't be restored */
   }
 }
+
+/** "Session N" with the lowest N not in use. */
+function nextName(sessions: Session[]): string {
+  const used = new Set(sessions.map((x) => x.name))
+  let n = 1
+  while (used.has(`Session ${n}`)) n++
+  return `Session ${n}`
+}
+
+const initial = load()
 
 const theme = () => useStore.getState().resolvedTheme
 
@@ -104,8 +148,16 @@ export const useGrid = create<GridState>((set, get) => {
     })
   })
 
+  /** Put the live workspace back into its session entry. */
+  const stash = (): Session[] => {
+    const { sessions, activeId, ws } = get()
+    return sessions.map((x) => (x.id === activeId ? { ...x, ws } : x))
+  }
+
   return {
-    ws: load(),
+    ws: initial.sessions.find((x) => x.id === initial.activeId)!.ws,
+    sessions: initial.sessions,
+    activeId: initial.activeId,
     infos: {},
     starting: {},
     errors: {},
@@ -120,17 +172,24 @@ export const useGrid = create<GridState>((set, get) => {
       } catch {
         /* backend without terminals: start with no live panes */
       }
-      const ws = reattach(get().ws, running)
+      // Other sessions keep their own running terminals; only truly orphaned ones join the active grid.
+      const alive = new Set(running.map((t) => t.id))
+      const sessions = get().sessions.map((x) =>
+        x.id === get().activeId ? x : { ...x, ws: { ...x.ws, panes: x.ws.panes.map((p) => (p.terminalId && !alive.has(p.terminalId) ? { ...p, terminalId: undefined } : p)) } }
+      )
+      const elsewhere = new Set(sessions.filter((x) => x.id !== get().activeId).flatMap((x) => x.ws.panes.map((p) => p.terminalId)))
+      const ws = reattach(get().ws, running.filter((t) => !elsewhere.has(t.id)))
       const infos = Object.fromEntries(running.map((t) => [t.id, t]))
       // Seed each re-attached terminal with what it printed while the UI was away.
+      const panes = [...ws.panes, ...sessions.flatMap((x) => (x.id === get().activeId ? [] : x.ws.panes))]
       await Promise.all(
-        ws.panes.map(async (p) => {
+        panes.map(async (p) => {
           if (!p.terminalId) return
           const sb = await api.terminals.scrollback(p.terminalId).catch(() => '')
           getTerm(p.terminalId, theme(), sb)
         })
       )
-      set({ ws, infos, restored: true })
+      set({ ws, sessions, infos, restored: true })
     },
 
     setLayout(id) {
@@ -230,10 +289,43 @@ export const useGrid = create<GridState>((set, get) => {
       await new Promise((r) => requestAnimationFrame(() => r(null)))
       if (ws.panes[index]?.terminalId) await killQuietly(ws.panes[index].terminalId)
       await get().start(index, { accountId, target: 'cli', cwd: opts.cwd, resume: opts.resume })
+    },
+
+    newSession() {
+      const sessions = stash()
+      const id = newSessionId()
+      const ws = defaultWorkspace()
+      set({ sessions: [...sessions, { id, name: nextName(sessions), ws }], activeId: id, ws })
+    },
+
+    switchSession(id) {
+      if (id === get().activeId) return
+      const sessions = stash()
+      const target = sessions.find((x) => x.id === id)
+      if (!target) return
+      set({ sessions, activeId: id, ws: target.ws })
+      requestAnimationFrame(() => focusTerm(target.ws.panes[target.ws.focused]?.terminalId))
+    },
+
+    renameSession(id, name) {
+      const clean = name.trim().slice(0, 40)
+      if (!clean) return
+      set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, name: clean } : x)) }))
+    },
+
+    async closeSession(id) {
+      const sessions = stash()
+      const gone = sessions.find((x) => x.id === id)
+      if (!gone) return
+      await Promise.all(gone.ws.panes.map((p) => killQuietly(p.terminalId)))
+      let rest = sessions.filter((x) => x.id !== id)
+      if (!rest.length) rest = [{ id: newSessionId(), name: 'Session 1', ws: defaultWorkspace() }]
+      const activeId = id === get().activeId ? rest[Math.max(0, sessions.indexOf(gone) - 1)]?.id ?? rest[0].id : get().activeId
+      set({ sessions: rest, activeId, ws: rest.find((x) => x.id === activeId)!.ws })
     }
   }
 })
 
 useGrid.subscribe((s, prev) => {
-  if (s.ws !== prev.ws) save(s.ws)
+  if (s.ws !== prev.ws || s.sessions !== prev.sessions || s.activeId !== prev.activeId) save(s.sessions, s.activeId, s.ws)
 })
