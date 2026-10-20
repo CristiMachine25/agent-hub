@@ -20,8 +20,8 @@ const LATEST_FILE: &str = "usage-latest.json";
 const HISTORY_FILE: &str = "usage-history.jsonl";
 const ACTIVITY_FILE: &str = "activity-cache.json";
 const NOTIFY_STATE_FILE: &str = "notify-state.json";
-/// App data folder name used before the rename to Baton (same parent dir as the new one).
-const LEGACY_DIR_NAME: &str = "dev.aihopper.app";
+/// App data folder names used before the renames (same parent dir as the new one), newest first.
+const LEGACY_DIR_NAMES: [&str; 2] = ["dev.baton.app", "dev.aihopper.app"];
 
 /// Cached per-account activity scan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,9 +54,12 @@ impl AppState {
     /// Load every file from `dir`, falling back to defaults for anything missing or unreadable.
     pub fn load(dir: PathBuf) -> anyhow::Result<Self> {
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
-        if let Some(legacy) = dir.parent().map(|p| p.join(LEGACY_DIR_NAME)) {
+        for legacy in LEGACY_DIR_NAMES.iter().filter_map(|n| dir.parent().map(|p| p.join(n))) {
             match migrate_legacy(&legacy, &dir) {
-                Ok(true) => log::info!("copied data from {}", legacy.display()),
+                Ok(true) => {
+                    log::info!("copied data from {}", legacy.display());
+                    break;
+                }
                 Ok(false) => {}
                 Err(e) => log::warn!("migrating {} failed: {e:#}", legacy.display()),
             }
@@ -323,7 +326,7 @@ mod tests {
     #[test]
     fn migrates_legacy_data_once_and_keeps_the_old_dir() {
         let root = tempfile::tempdir().unwrap();
-        let (legacy, dir) = (root.path().join(LEGACY_DIR_NAME), root.path().join("dev.baton.app"));
+        let (legacy, dir) = (root.path().join(LEGACY_DIR_NAMES[0]), root.path().join("dev.switchyard.app"));
         std::fs::create_dir_all(legacy.join("profiles")).unwrap();
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(legacy.join(ACCOUNTS_FILE), "[]").unwrap();
