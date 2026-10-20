@@ -240,6 +240,8 @@ export interface AppEvents {
   /** UTF-8 text from a terminal, already split on character boundaries. Batched (~16 ms). */
   'terminal-output': { id: string; data: string }
   'terminal-exit': { id: string; code: number | null }
+  /** Ask the UI to show a screen, e.g. "terminals" from the tray menu. */
+  navigate: string
 }
 
 /** API the UI uses (src/api.ts implements it over Tauri invoke; mock mode in a plain browser). */
