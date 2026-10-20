@@ -353,9 +353,11 @@ fn session_roots(home: &Path) -> Vec<PathBuf> {
 }
 
 /// Newest `rate_limits` seen in the session logs (only files touched in the last 8 days).
-/// Prefers the `codex` limit bucket when logs carry several.
+/// Prefers the `codex` limit bucket when logs carry several. Session folders shared with another
+/// home are skipped: their limits (and plan) belong to whichever account wrote them.
 fn latest_logged_limits(home: &Path) -> Option<(Value, DateTime<Utc>)> {
-    for (path, _) in jsonl_files_since(&session_roots(home), days_ago(8)) {
+    let own: Vec<PathBuf> = session_roots(home).into_iter().filter(|r| !crate::sharing::is_link(r)).collect();
+    for (path, _) in jsonl_files_since(&own, days_ago(8)) {
         let mut best: Option<(Value, DateTime<Utc>)> = None;
         let mut any: Option<(Value, DateTime<Utc>)> = None;
         for_each_json_line(
@@ -915,6 +917,15 @@ mod tests {
 
         let (rl, _) = latest_logged_limits(dir.path()).unwrap();
         assert_eq!(rl["primary"]["window_minutes"], 300);
+
+        // A profile that shares this history must not take these limits as its own.
+        let other = tempfile::tempdir().unwrap();
+        let link = other.path().join("sessions");
+        #[cfg(windows)]
+        junction::create(dir.path().join("sessions"), &link).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.path().join("sessions"), &link).unwrap();
+        assert!(latest_logged_limits(other.path()).is_none());
     }
 
     #[test]
