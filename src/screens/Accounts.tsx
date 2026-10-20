@@ -8,6 +8,7 @@ import { useGrid } from '@/terminals/store'
 import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { PLANS, findPlan, planLabel } from '@/lib/plans'
+import { useDrafts } from '@/lib/drafts'
 import { creditsText, formatAgo, formatPct, formatTokens, plural } from '@/lib/format'
 import { Meter, WindowGauge } from '@/components/Meter'
 import { AccountDot, Dialog, EmptyState, ProviderMark, Segmented, SectionTitle, Switch } from '@/components/ui'
@@ -36,6 +37,9 @@ export function Accounts() {
             </button>
           }
         />
+        <div className="mt-4 max-w-sm">
+          <Drafts />
+        </div>
       </Page>
     )
 
@@ -49,6 +53,7 @@ export function Accounts() {
           </button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+          <Drafts />
           {PROVIDER_ORDER.map((p) => {
             const list = accounts.filter((a) => a.providerId === p)
             if (!list.length) return null
@@ -350,6 +355,49 @@ function Fact({ label, value }: { label: string; value: string }) {
     <div className="min-w-0">
       <dt className="text-xs text-muted">{label}</dt>
       <dd className="truncate text-md font-semibold tabular-nums">{value}</dd>
+    </div>
+  )
+}
+
+/** Profiles the user started creating and saved for later. Clicking one reopens the form as it was. */
+function Drafts() {
+  const drafts = useDrafts((s) => s.drafts)
+  const now = useStore((s) => s.now)
+  const setAddOpen = useStore((s) => s.setAddOpen)
+  if (!drafts.length) return null
+  return (
+    <div className="mb-3">
+      <div className="px-2 pb-1 pt-2 text-xs text-muted">Drafts</div>
+      <ul>
+        {drafts.map((d) => (
+          <li key={d.id} className="group flex items-center rounded hover:bg-raised/60">
+            <button
+              className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-left"
+              onClick={() => {
+                useDrafts.getState().resume(d.id)
+                setAddOpen(true)
+              }}
+              title="Finish creating this profile"
+            >
+              <ProviderMark id={d.providerId} size={14} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate">{d.label.trim() || `New ${PROVIDER_META[d.providerId].short} profile`}</span>
+                <span className="block truncate text-xs text-faint">
+                  Draft{d.plan ? `, ${d.plan}` : ''}, saved {formatAgo(d.savedAt, now)}
+                </span>
+              </span>
+            </button>
+            <button
+              className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-faint opacity-0 hover:bg-ground hover:text-ink focus:opacity-100 group-hover:opacity-100"
+              onClick={() => useDrafts.getState().remove(d.id)}
+              title="Delete draft"
+              aria-label={`Delete draft ${d.label || ''}`.trim()}
+            >
+              <Trash2 size={13} />
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }
