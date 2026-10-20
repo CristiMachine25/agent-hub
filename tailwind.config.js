@@ -36,5 +36,8 @@ module.exports = {
       borderRadius: { DEFAULT: '6px', md: '6px', lg: '8px' }
     }
   },
-  plugins: []
+  plugins: [
+    // `compact:` styles apply inside a collapsed sidebar.
+    ({ addVariant }) => addVariant('compact', '.sidebar-compact &')
+  ]
 }
