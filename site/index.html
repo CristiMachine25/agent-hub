@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baton: pass your work to the account that still has quota</title>
+<meta name="description" content="A free, open-source desktop app for Windows, macOS and Linux. Keep all your Claude, ChatGPT, Gemini and Copilot accounts signed in side by side, see how much of every limit is left, and launch your CLI with the right account in one click.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#1A1918" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#F5F3EE" media="(prefers-color-scheme: light)">
+<link rel="canonical" href="https://cristimachine25.github.io/baton/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+<link rel="preload" href="assets/fonts/source-serif-4-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/hanken-grotesk-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="assets/site.css">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Baton">
+<meta property="og:title" content="Baton: pass your work to the account that still has quota.">
+<meta property="og:description" content="Keep every Claude, ChatGPT, Gemini and Copilot account signed in side by side, see what is left of every limit, and launch the right one in one click. Free, open source, local-only.">
+<meta property="og:url" content="https://cristimachine25.github.io/baton/">
+<meta property="og:image" content="https://cristimachine25.github.io/baton/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Baton showing several AI accounts with segmented meters of how much quota each has left.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Baton: pass your work to the account that still has quota.">
+<meta name="twitter:description" content="Every AI account signed in side by side, every limit in view, one-click launch. Free, open source, local-only.">
+<meta name="twitter:image" content="https://cristimachine25.github.io/baton/assets/og.png">
+
+<script>
+  /* Picks the download label for this visitor's OS. Runs inline so the button never changes after paint. */
+  function batonDownload(root) {
+    var ua = navigator.userAgent || "";
+    var p = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "").toLowerCase();
+    var os = null;
+    if (/android|iphone|ipad|ipod/i.test(ua)) os = "mobile";
+    else if (p.indexOf("win") === 0 || /windows/i.test(ua)) os = "windows";
+    else if (p.indexOf("mac") === 0 || /mac os x/i.test(ua)) os = "macos";
+    else if (p.indexOf("linux") > -1 || /linux|x11|cros/i.test(ua)) os = "linux";
+    if (!os) return;
+    var names = { windows: "Windows", macos: "macOS", linux: "Linux" };
+    var files = { windows: ".exe or .msi", macos: ".dmg for Apple Silicon and Intel", linux: ".AppImage or .deb" };
+    var label = root.querySelector("[data-dl-label]");
+    var note = root.querySelector("[data-dl-note]");
+    var others = root.querySelector("[data-dl-others]");
+    if (os === "mobile") {
+      note.textContent = "Baton is a desktop app for Windows, macOS and Linux. Open this page on your computer to install it.";
+      return;
+    }
+    label.textContent = "Download for " + names[os];
+    note.textContent = "v0.2.0, " + files[os] + ", about 3 MB.";
+    var rest = Object.keys(names).filter(function (k) { return k !== os; });
+    others.innerHTML = 'Also for <a href="https://github.com/CristiMachine25/baton/releases/latest">' + names[rest[0]] +
+      '</a> and <a href="https://github.com/CristiMachine25/baton/releases/latest">' + names[rest[1]] + "</a>.";
+  }
+</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="./" aria-label="Baton home">
+      <img src="favicon.svg" alt="" width="28" height="28">
+      <span>Baton</span>
+    </a>
+    <nav aria-label="Main">
+      <ul>
+        <li class="nav-opt"><a href="#features">Features</a></li>
+        <li class="nav-opt"><a href="#tools">Tools</a></li>
+        <li class="nav-opt"><a href="#privacy">Privacy</a></li>
+        <li class="nav-opt"><a href="#faq">FAQ</a></li>
+        <li><a href="https://github.com/CristiMachine25/baton">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<!-- Hero -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="wrap hero-in">
+    <div class="hero-copy">
+      <h1 id="hero-title">Pass your work to the account that still has quota.</h1>
+      <p class="lede">Baton keeps every Claude, ChatGPT, Gemini and Copilot account you pay for signed in side by side, shows how much of each limit is left, and opens Claude Code, Codex, Gemini CLI or Copilot CLI with the one you pick.</p>
+
+      <div class="dl" id="download">
+        <a class="btn btn-primary" href="https://github.com/CristiMachine25/baton/releases/latest">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+          <span data-dl-label>Download Baton</span>
+        </a>
+        <a class="btn btn-quiet" href="https://github.com/CristiMachine25/baton">Source on GitHub</a>
+        <p class="dl-note"><span data-dl-note>v0.2.0 for Windows, macOS and Linux, about 3 MB.</span> <span data-dl-others></span></p>
+      </div>
+      <script>batonDownload(document.getElementById("download"));</script>
+
+      <p class="hero-foot">Free and open source under the MIT license. No account, no server, no telemetry.</p>
+    </div>
+
+    <figure class="board-fig">
+      <div class="board" id="board" aria-hidden="true">
+        <div class="board-head">
+          <span class="board-title">Best account right now</span>
+          <span class="board-clock" data-clock>Tue 14:20</span>
+        </div>
+
+        <div class="best" data-best>
+          <div class="best-name">
+            <span class="dot" data-best-dot></span>
+            <strong data-best-name>H2 Max</strong>
+            <span class="best-tool" data-best-tool>Claude Code, Max 5x</span>
+          </div>
+          <div class="best-figure">
+            <span class="big" data-best-pct>64%</span>
+            <span class="big-cap">left of the<br>5-hour session</span>
+          </div>
+          <div class="meter meter-big" data-best-meter></div>
+          <div class="best-sub">
+            <span data-best-reset>Resets in 2h 10m</span>
+            <span class="fake-btn" data-best-btn>Launch Claude</span>
+          </div>
+        </div>
+
+        <ul class="rows" data-rows></ul>
+
+        <div class="toast" data-toast>
+          <span class="toast-msg" data-toast-msg>Launched Claude as H2 Max</span>
+          <code class="toast-cmd" data-toast-cmd>CLAUDE_CONFIG_DIR=~/.claude-h2 claude</code>
+        </div>
+      </div>
+      <figcaption>
+        <span class="sr-only">Demo of the Baton board with five accounts. Each meter has 20 segments showing how much of a limit is left, colored from green for plenty to red for empty. When the account in use reaches its limit, Baton hands the work to the next best account and launches it. Simulated time, made-up accounts.</span>
+        <span aria-hidden="true">Simulated time, made-up accounts.</span>
+        <button class="pause" type="button" data-pause aria-pressed="false">Pause demo</button>
+      </figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- Problem -->
+<section class="problem" aria-labelledby="problem-title">
+  <div class="wrap">
+    <h2 id="problem-title" class="sr-only">The problem</h2>
+    <p class="problem-text">
+      Two Claude Max plans, ChatGPT Pro, a Copilot seat. One hits its 5-hour limit in the middle of a task, so you log out, log in to another, guess which one still has quota, and on Sunday a weekly limit resets with
+      <span class="inline-meter" role="img" aria-label="60 percent">
+        <span class="meter meter-inline" data-static="60"></span>
+      </span>
+      of it never used.
+    </p>
+  </div>
+</section>
+
+<!-- What you see -->
+<section class="sec" id="features" aria-labelledby="features-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="features-title">One board for every limit you have</h2>
+      <p>Meters show what is left, not what is used, because that is the number you act on. Green means plenty, red means you are about to stop.</p>
+    </div>
+
+    <div class="tour">
+      <div class="tour-list" role="tablist" aria-label="Screens" aria-orientation="vertical">
+        <button role="tab" id="tab-limits" aria-controls="panel-limits" aria-selected="true">
+          <strong>Live limits</strong>
+          <span>5-hour session, weekly, weekly Opus, Codex windows, Gemini model quotas and Copilot premium requests, each with a reset countdown and history.</span>
+        </button>
+        <button role="tab" id="tab-alerts" aria-controls="panel-alerts" aria-selected="false" tabindex="-1">
+          <strong>Warnings before the wall</strong>
+          <span>A notification when an account is nearly out, when it hits a limit, when it comes back, and when lots of quota is about to reset unused.</span>
+        </button>
+        <button role="tab" id="tab-accounts" aria-controls="panel-accounts" aria-selected="false" tabindex="-1">
+          <strong>Each account on its own</strong>
+          <span>Limits over time, local session activity, and the profile folder that keeps the account signed in.</span>
+        </button>
+      </div>
+
+      <div class="tour-panels">
+        <div class="shot" role="tabpanel" id="panel-limits" aria-labelledby="tab-limits">
+          <picture>
+            <source srcset="assets/shots/overview-light.webp" media="(prefers-color-scheme: light)">
+            <img src="assets/shots/overview-dark.webp" width="1240" height="820" alt="The Overview screen: H2 Max is the best account right now with 70% of its weekly limit left, three other accounts are suggested below it, a use-it-or-lose-it alert, and every account listed with its segmented meters." loading="lazy" decoding="async">
+          </picture>
+        </div>
+        <div class="shot" role="tabpanel" id="panel-alerts" aria-labelledby="tab-alerts" hidden>
+          <picture>
+            <source srcset="assets/shots/notifications-light.webp" media="(prefers-color-scheme: light)">
+            <img src="assets/shots/notifications-dark.webp" width="1240" height="820" alt="The Notifications screen: H2 Max has 70% of its weekly limit resetting unused in 9 hours, Plus side account hit its 5-hour limit, and Personal Pro has 4% of its weekly limit left." loading="lazy" decoding="async">
+          </picture>
+        </div>
+        <div class="shot" role="tabpanel" id="panel-accounts" aria-labelledby="tab-accounts" hidden>
+          <picture>
+            <source srcset="assets/shots/accounts-light.webp" media="(prefers-color-scheme: light)">
+            <img src="assets/shots/accounts-dark.webp" width="1240" height="820" alt="The Accounts screen: accounts grouped by tool on the left; on the right, Work Max 20x with launch buttons, its three limits and a usage chart." loading="lazy" decoding="async">
+          </picture>
+        </div>
+      </div>
+    </div>
+
+    <div class="recommend">
+      <div class="recommend-copy">
+        <h3>A pick for the task in front of you</h3>
+        <p>Choose coding, a long refactor, a quick question, research or review. Baton weighs every account's session and weekly limits and tells you which one to use, with two fallbacks in case you disagree.</p>
+      </div>
+      <ol class="picks" aria-label="Example recommendation for a long refactor">
+        <li><span class="dot" style="--c:#199E70"></span><span class="pick-name">H2 Max</span><span class="pick-why">70% of weekly left, resets in 9h. Use it before it's gone.</span></li>
+        <li><span class="dot" style="--c:#3987E5"></span><span class="pick-name">Work Max 20x</span><span class="pick-why">59% of weekly left, 36% of the 5-hour session.</span></li>
+        <li><span class="dot" style="--c:#C98500"></span><span class="pick-name">ChatGPT Pro</span><span class="pick-why">42% of weekly left.</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- Launch -->
+<section class="sec sec-alt" id="launch" aria-labelledby="launch-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="launch-title">Launch with the right account in one click</h2>
+      <p>Each account lives in its own config folder, so switching never means logging out. Launch from the window, from the tray menu, or press <kbd>Ctrl</kbd> <kbd>K</kbd> (<kbd>Cmd</kbd> <kbd>K</kbd> on a Mac), type a name and press Enter. Your terminal opens with that account, or picks up your last session.</p>
+    </div>
+
+    <div class="launch-grid">
+      <div class="shot">
+        <picture>
+          <source srcset="assets/shots/palette-light.webp" media="(prefers-color-scheme: light)">
+          <img src="assets/shots/palette-dark.webp" width="1240" height="820" alt="The quick launch palette open over the Overview: a list of launch actions such as Launch Claude as H2 Max, each with a small meter of what is left." loading="lazy" decoding="async">
+        </picture>
+      </div>
+      <div class="ran">
+        <p class="ran-title">Every launch shows exactly what ran</p>
+        <pre class="term"><code><span class="prompt">$</span> CLAUDE_CONFIG_DIR=~/.claude-h2 claude
+<span class="prompt">$</span> CODEX_HOME=~/.codex-pro codex
+<span class="prompt">$</span> GEMINI_CLI_HOME=~/.gemini-ai-pro gemini</code></pre>
+        <p class="ran-note">Claude Desktop opens with the chosen account too. Nothing is copied between accounts unless you ask for it.</p>
+      </div>
+    </div>
+
+    <div class="grid-preview">
+      <div class="grid-copy">
+        <h3>Several accounts side by side, in one window</h3>
+        <p>The terminal grid runs up to nine AI CLIs at once, each pane on a different account with its own meter. When one hits its limit, the pane offers the next account with quota and resumes the same chat there.</p>
+      </div>
+      <div class="tgrid" role="img" aria-label="Preview of the terminal grid: four panes, each running an AI CLI on a different account. One pane has reached its 5-hour limit and offers to continue on another account.">
+        <div class="pane">
+          <div class="pane-head"><span class="dot" style="--c:#3987E5"></span>Work Max 20x<span class="pane-pct q-half">36% left</span></div>
+          <pre><span class="p">&gt;</span> move billing to the new client
+  Reading src/billing/client.ts
+  Editing src/billing/invoice.ts
+  <span class="ok">3 files changed</span></pre>
+        </div>
+        <div class="pane pane-limit">
+          <div class="pane-head"><span class="dot" style="--c:#199E70"></span>H2 Max<span class="pane-pct q-empty">Limit reached</span></div>
+          <pre><span class="p">&gt;</span> write the migration for orders
+  Running tests (12 of 40)</pre>
+          <div class="pane-stop">
+            <span>5-hour limit reached. Back in 1h 19m.</span>
+            <span class="fake-btn">Continue on Personal Pro</span>
+          </div>
+        </div>
+        <div class="pane">
+          <div class="pane-head"><span class="dot" style="--c:#C98500"></span>ChatGPT Pro<span class="pane-pct q-full">78% left</span></div>
+          <pre><span class="p">›</span> add tests for parseInvoice
+  Wrote tests/parse_invoice.test.ts
+  <span class="ok">9 passed</span></pre>
+        </div>
+        <div class="pane">
+          <div class="pane-head"><span class="dot" style="--c:#9085E9"></span>Gemini AI Pro<span class="pane-pct q-full">65% left</span></div>
+          <pre><span class="p">&gt;</span> summarize open issues labeled bug
+  Found 14 issues in 3 areas
+  <span class="cursor"></span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tools -->
+<section class="sec" id="tools" aria-labelledby="tools-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="tools-title">Works with the tools you already use</h2>
+      <p>Baton uses each tool's own sign-in and its official CLI. It does not proxy your prompts or replace any app.</p>
+    </div>
+    <div class="table-scroll">
+      <table class="tools">
+        <thead>
+          <tr><th scope="col">Tool</th><th scope="col">Plans</th><th scope="col">Limits it tracks</th><th scope="col">Launches</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row"><span class="mono-mark" aria-hidden="true">C</span>Claude Code</th>
+            <td>Pro, Max 5x, Max 20x, Team</td>
+            <td>5-hour session, weekly, weekly Opus</td>
+            <td>CLI and Claude Desktop</td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="mono-mark" aria-hidden="true">X</span>Codex CLI</th>
+            <td>ChatGPT Plus, Pro, Team</td>
+            <td>5-hour and weekly windows</td>
+            <td>CLI</td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="mono-mark" aria-hidden="true">G</span>Gemini CLI</th>
+            <td>Google AI Pro, Ultra, free tier</td>
+            <td>Daily quota per model</td>
+            <td>CLI</td>
+          </tr>
+          <tr>
+            <th scope="row"><span class="mono-mark" aria-hidden="true">P</span>GitHub Copilot CLI</th>
+            <td>Copilot Pro, Pro+, Business</td>
+            <td>Monthly premium requests</td>
+            <td>CLI</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="tools-next">Planned next: Cursor, Antigravity, Kiro, Amp and OpenRouter. Adding a provider means implementing one Rust trait, so <a href="https://github.com/CristiMachine25/baton">pull requests are welcome</a>.</p>
+  </div>
+</section>
+
+<!-- Privacy -->
+<section class="sec sec-alt" id="privacy" aria-labelledby="privacy-title">
+  <div class="wrap privacy">
+    <div class="privacy-copy">
+      <h2 id="privacy-title">Everything stays on your computer</h2>
+      <ul class="facts">
+        <li><strong>No Baton server.</strong> No account with us, no telemetry, no analytics. Your data lives in the app's folder on your disk.</li>
+        <li><strong>Tokens go only where they came from.</strong> To read live limits, Baton sends each account's own saved sign-in to that provider's usage endpoint, and nowhere else.</li>
+        <li><strong>Live usage is optional.</strong> Turn it off in Settings and Baton works from local session logs only.</li>
+        <li><strong>Uninstall leaves your setup alone.</strong> Every CLI folder stays exactly as it was.</li>
+      </ul>
+    </div>
+    <div class="share" aria-labelledby="share-title">
+      <h3 id="share-title">Sharing you control</h3>
+      <p>Per account, choose what it shares with your main setup.</p>
+      <ul class="toggles">
+        <li><span>Skills</span><span class="sw on" role="img" aria-label="Shared"></span></li>
+        <li><span>Plugins</span><span class="sw on" role="img" aria-label="Shared"></span></li>
+        <li><span>Agents and commands</span><span class="sw on" role="img" aria-label="Shared"></span></li>
+        <li><span>Instructions</span><span class="sw on" role="img" aria-label="Shared"></span></li>
+        <li><span>MCP servers</span><span class="sw" role="img" aria-label="Not shared"></span></li>
+        <li><span>Settings</span><span class="sw" role="img" aria-label="Not shared"></span></li>
+        <li><span>Chat history</span><span class="sw" role="img" aria-label="Not shared"></span></li>
+        <li class="never"><span>Credentials</span><span class="never-label">Never shared</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="sec" id="how" aria-labelledby="how-title">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2 id="how-title">Running in a minute</h2>
+    </div>
+    <ol class="steps">
+      <li>
+        <span class="step-n" aria-hidden="true">1</span>
+        <h3>Install</h3>
+        <p>About 3 MB for Windows, macOS or Linux. It sits in the tray and starts with your computer if you want it to.</p>
+      </li>
+      <li>
+        <span class="step-n" aria-hidden="true">2</span>
+        <h3>It finds your accounts</h3>
+        <p>Baton detects installed CLIs and the config folders already on your disk, including side-by-side ones like <code>~/.claude-work</code>. Add a new account and you sign in once, in its own folder.</p>
+      </li>
+      <li>
+        <span class="step-n" aria-hidden="true">3</span>
+        <h3>Launch</h3>
+        <p>Pick the account with quota left and your terminal opens with it. When it runs out, pass it on to the next one.</p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="sec sec-alt" id="faq" aria-labelledby="faq-title">
+  <div class="wrap faq-wrap">
+    <h2 id="faq-title">Questions</h2>
+    <div class="faq">
+      <details>
+        <summary>Is this allowed by the providers' terms?</summary>
+        <p>Baton does not get around any limit. Each account signs in through the tool's own login and runs the official CLI, and Baton only reads the limits each provider already shows you. Whether you may hold several accounts with one provider is up to that provider, so check their terms for the plans you use.</p>
+      </details>
+      <details>
+        <summary>Can Baton see my chats or code?</summary>
+        <p>No. It reads usage numbers and local session statistics such as token counts. It never sends your prompts, chats or code anywhere, and there is no Baton server to send them to.</p>
+      </details>
+      <details>
+        <summary>Does it work offline?</summary>
+        <p>Launching works offline. Live limits need the network, because they come from each provider's usage endpoint. Without it, Baton shows the last numbers it saw and when it saw them.</p>
+      </details>
+      <details>
+        <summary>Does it run on Linux?</summary>
+        <p>Yes. Download the <code>.AppImage</code> for any distribution or the <code>.deb</code> for Debian and Ubuntu.</p>
+      </details>
+      <details>
+        <summary>Why does Windows warn me when I run the installer?</summary>
+        <p>The early builds are not code-signed yet, so SmartScreen does not recognize them. Choose <strong>More info</strong>, then <strong>Run anyway</strong>. You can build from source if you prefer; the steps are in the README.</p>
+      </details>
+      <details>
+        <summary>What does it cost?</summary>
+        <p>Nothing. Baton is open source under the MIT license. You keep paying your AI providers as you do now, just with less of it going to waste.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<!-- Closing download -->
+<section class="closing" aria-labelledby="closing-title">
+  <div class="wrap closing-in">
+    <h2 id="closing-title">Use every plan you pay for.</h2>
+    <p class="closing-sub">Hand the baton on instead of waiting for a reset.</p>
+    <div class="dl" id="download-2">
+      <a class="btn btn-primary" href="https://github.com/CristiMachine25/baton/releases/latest">
+        <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+        <span data-dl-label>Download Baton</span>
+      </a>
+      <p class="dl-note"><span data-dl-note>v0.2.0 for Windows, macOS and Linux, about 3 MB.</span> <span data-dl-others></span></p>
+    </div>
+    <script>batonDownload(document.getElementById("download-2"));</script>
+  </div>
+</section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <div class="foot-brand">
+      <img src="favicon.svg" alt="" width="24" height="24">
+      <span>Baton</span>
+    </div>
+    <ul class="foot-links">
+      <li><a href="https://github.com/CristiMachine25/baton">GitHub</a></li>
+      <li><a href="https://github.com/CristiMachine25/baton/releases">Releases</a></li>
+      <li><a href="https://github.com/CristiMachine25/baton/blob/main/LICENSE">MIT license</a></li>
+      <li><a href="https://github.com/CristiMachine25/baton/issues">Report an issue</a></li>
+    </ul>
+    <p class="disclaimer">Baton is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google or GitHub. Product names belong to their owners and are used only to say what Baton works with. Usage endpoints can change without notice.</p>
+  </div>
+</footer>
+
+<script src="assets/site.js" defer></script>
+</body>
+</html>
