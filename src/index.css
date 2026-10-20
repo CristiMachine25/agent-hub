@@ -6,38 +6,38 @@
 :root,
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --ground: 14 20 30; /* Night shift */
-  --deck: 22 30 43; /* Deck */
-  --raised: 29 39 56;
-  --rivet: 38 50 69; /* Rivet */
-  --ink: 231 235 242; /* Paper */
-  --muted: 147 160 181;
-  --faint: 107 120 140;
-  --hop: 161 147 255; /* Hop violet */
-  --hop-ink: 20 15 51;
-  --full: 61 211 155;
-  --half: 230 190 69;
-  --low: 242 138 60;
-  --empty: 242 92 110;
-  --cell-off: 35 46 64;
+  --ground: 26 25 24; /* Charcoal #1A1918 */
+  --deck: 34 33 32; /* Panel #222120 */
+  --raised: 42 40 38; /* #2A2826 */
+  --rivet: 53 50 47; /* Line #35322F */
+  --ink: 236 234 228; /* #ECEAE4 */
+  --muted: 163 160 151; /* #A3A097 */
+  --faint: 125 122 114; /* #7D7A72 */
+  --hop: 154 165 255; /* Periwinkle #9AA5FF */
+  --hop-ink: 22 23 46;
+  --full: 94 201 140; /* #5EC98C */
+  --half: 226 190 92; /* #E2BE5C */
+  --low: 236 141 74; /* #EC8D4A */
+  --empty: 240 104 104; /* #F06868 */
+  --cell-off: 52 49 46;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
-  --ground: 238 241 246;
-  --deck: 255 255 255;
-  --raised: 246 248 251;
-  --rivet: 213 220 230;
-  --ink: 18 25 38;
-  --muted: 85 98 117;
-  --faint: 128 140 158;
-  --hop: 90 68 219;
+  --ground: 245 243 238; /* Paper #F5F3EE */
+  --deck: 251 250 247;
+  --raised: 238 235 228;
+  --rivet: 220 215 205;
+  --ink: 31 29 26;
+  --muted: 96 92 84;
+  --faint: 132 127 117;
+  --hop: 69 86 214; /* #4556D6 */
   --hop-ink: 255 255 255;
-  --full: 13 143 98;
-  --half: 169 124 8;
-  --low: 194 90 18;
-  --empty: 204 47 73;
-  --cell-off: 223 228 236;
+  --full: 22 128 74;
+  --half: 146 104 0;
+  --low: 182 80 14;
+  --empty: 196 46 52;
+  --cell-off: 226 222 213;
 }
 
 @layer base {
