@@ -8,6 +8,7 @@ pub mod pty;
 pub mod recommend;
 pub mod sharing;
 pub mod store;
+pub mod transfer;
 pub mod usage;
 pub mod util;
 
@@ -83,6 +84,9 @@ pub fn run() {
             commands::notifications_mark_read,
             commands::settings_get,
             commands::settings_set,
+            commands::transfer_export,
+            commands::transfer_preview,
+            commands::transfer_import,
             commands::system_open_path,
         ])
         .build(tauri::generate_context!());

@@ -235,7 +235,7 @@ pub async fn accounts_import(app: AppHandle, state: St<'_>, found: Vec<DetectedA
 }
 
 /// A unique new home under the profiles dir: <profiles>/<provider>/<slug>[-n].
-async fn new_home_dir(state: &AppState, provider: ProviderId, label: &str) -> PathBuf {
+pub(crate) async fn new_home_dir(state: &AppState, provider: ProviderId, label: &str) -> PathBuf {
     let base = state.profiles_dir().await.join(provider.as_str());
     let slug = Some(util::slugify(label)).filter(|s| !s.is_empty()).unwrap_or_else(|| "account".into());
     let taken: Vec<String> = state.accounts.read().await.iter().map(|a| util::path_key(Path::new(&a.home_dir))).collect();
@@ -256,7 +256,7 @@ pub async fn accounts_create(app: AppHandle, state: St<'_>, input: NewAccountInp
     create_account(&app, &state, input).await.map_err(err)
 }
 
-async fn create_account(app: &AppHandle, state: &Arc<AppState>, input: NewAccountInput) -> anyhow::Result<Account> {
+pub(crate) async fn create_account(app: &AppHandle, state: &Arc<AppState>, input: NewAccountInput) -> anyhow::Result<Account> {
     let label = input.label.trim().to_string();
     if label.is_empty() {
         return Err(anyhow!("Give the account a name"));
@@ -319,7 +319,7 @@ pub async fn accounts_update(app: AppHandle, state: St<'_>, id: String, patch: s
     update_account(&app, &state, &id, patch).await.map_err(err)
 }
 
-async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &str, mut patch: serde_json::Value) -> anyhow::Result<Account> {
+pub(crate) async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &str, mut patch: serde_json::Value) -> anyhow::Result<Account> {
     if let Some(obj) = patch.as_object_mut() {
         for k in ["id", "providerId", "createdAt", "isDefaultHome", "launchCount", "lastLaunchedAt"] {
             obj.remove(k);
@@ -684,14 +684,19 @@ pub async fn settings_get(state: St<'_>) -> Res<AppSettings> {
 
 #[tauri::command]
 pub async fn settings_set(app: AppHandle, state: St<'_>, patch: serde_json::Value) -> Res<AppSettings> {
+    apply_settings_patch(&app, &state, patch).await.map_err(err)
+}
+
+/// Merge a partial settings object, clamp the numbers, save, and wake the poller if its timing changed.
+pub(crate) async fn apply_settings_patch(app: &AppHandle, state: &AppState, patch: serde_json::Value) -> anyhow::Result<AppSettings> {
     if !patch.is_object() {
-        return Err("Settings patch must be an object".into());
+        return Err(anyhow!("Settings patch must be an object"));
     }
     let (new, wake) = {
         let mut settings = state.settings.write().await;
-        let mut v = serde_json::to_value(&*settings).map_err(|e| e.to_string())?;
+        let mut v = serde_json::to_value(&*settings)?;
         util::merge_json(&mut v, &patch);
-        let mut new: AppSettings = serde_json::from_value(v).map_err(|e| format!("Invalid settings: {e}"))?;
+        let mut new: AppSettings = serde_json::from_value(v).map_err(|e| anyhow!("Invalid settings: {e}"))?;
         new.poll_interval_minutes = new.poll_interval_minutes.clamp(1, 24 * 60);
         let n = &mut new.notifications;
         n.nearly_exhausted_percent = n.nearly_exhausted_percent.clamp(1.0, 99.0);
@@ -701,17 +706,42 @@ pub async fn settings_set(app: AppHandle, state: St<'_>, patch: serde_json::Valu
         new.profiles_dir = non_empty(new.profiles_dir);
         let wake = new.poll_interval_minutes != settings.poll_interval_minutes || new.live_usage != settings.live_usage;
         if new.launch_at_login != settings.launch_at_login {
-            crate::set_autostart(&app, new.launch_at_login).map_err(err)?;
+            crate::set_autostart(app, new.launch_at_login)?;
         }
         *settings = new.clone();
         (new, wake)
     };
-    state.save_settings().await.map_err(err)?;
+    state.save_settings().await?;
     if wake {
         state.poll_wake.notify_one();
     }
-    crate::refresh_tray(&app);
+    crate::refresh_tray(app);
     Ok(new)
+}
+
+// ---------- moving the setup to another computer ----------
+
+#[tauri::command]
+pub async fn transfer_export(state: St<'_>, path: String, opts: crate::transfer::ExportOptions) -> Res<crate::transfer::ExportSummary> {
+    crate::transfer::export(&state, Path::new(&path), opts).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn transfer_preview(state: St<'_>, path: String, passphrase: Option<String>) -> Res<crate::transfer::ImportPreview> {
+    let state = state.inner().clone();
+    crate::transfer::preview(&state, Path::new(&path), passphrase).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn transfer_import(
+    app: AppHandle,
+    state: St<'_>,
+    path: String,
+    passphrase: Option<String>,
+    choice: crate::transfer::ImportChoice,
+) -> Res<crate::transfer::ImportReport> {
+    let state = state.inner().clone();
+    crate::transfer::apply(&app, &state, Path::new(&path), passphrase, choice).await.map_err(err)
 }
 
 #[tauri::command]
