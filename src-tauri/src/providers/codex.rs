@@ -654,11 +654,11 @@ impl ProviderAdapter for CodexAdapter {
             args.extend(["resume".to_string(), "--last".to_string()]);
         }
         args.extend(extra_args.iter().cloned());
-        Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None })
+        Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None, note: None })
     }
 
     async fn login_command(&self, account: &Account) -> anyhow::Result<CommandSpec> {
-        Ok(CommandSpec { program: self.program(), args: vec!["login".into()], env: self.cli_env(account), cwd: None })
+        Ok(CommandSpec { program: self.program(), args: vec!["login".into()], env: self.cli_env(account), cwd: None, note: None })
     }
 
     /// The Codex app reads CODEX_HOME, but it is single-instance and (on Windows) an MSIX package

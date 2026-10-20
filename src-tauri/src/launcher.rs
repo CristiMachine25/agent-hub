@@ -253,8 +253,8 @@ fn spawn_detached(mut cmd: Command) -> anyhow::Result<()> {
 pub fn launch_in_terminal(spec: &CommandSpec, title: &str, terminal: &str) -> LaunchResult {
     let shown = display_command_line(spec, Os::current());
     match launch_terminal_inner(spec, title, terminal) {
-        Ok(()) => LaunchResult { ok: true, error: None, command_line: Some(shown) },
-        Err(e) => LaunchResult { ok: false, error: Some(format!("{e:#}")), command_line: Some(shown) },
+        Ok(()) => LaunchResult { ok: true, error: None, command_line: Some(shown), note: spec.note.clone() },
+        Err(e) => LaunchResult { ok: false, error: Some(format!("{e:#}")), command_line: Some(shown), note: None },
     }
 }
 
@@ -275,8 +275,9 @@ pub fn launch_desktop(spec: &CommandSpec) -> LaunchResult {
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
     match spawn_detached(cmd) {
-        Ok(()) => LaunchResult { ok: true, error: None, command_line: Some(shown) },
+        Ok(()) => LaunchResult { ok: true, error: None, command_line: Some(shown), note: spec.note.clone() },
         Err(e) => LaunchResult {
+            note: None,
             ok: false,
             error: Some(format!("Could not start {}: {e}", spec.program)),
             command_line: Some(shown),
@@ -356,6 +357,7 @@ mod tests {
                 ("ANTHROPIC_API_KEY".to_string(), None),
             ]),
             cwd: Some(r"C:\src\my app".into()),
+            note: None,
         }
     }
 
@@ -395,6 +397,7 @@ mod tests {
             args: vec!["resume".into(), "it's".into()],
             env: HashMap::from([("CODEX_HOME".to_string(), Some("/home/me/My Switchyard/codex".to_string())), ("OPENAI_API_KEY".to_string(), None)]),
             cwd: Some("/home/me/src".into()),
+            note: None,
         };
         let s = unix_script(&spec, "#!/bin/zsh -l");
         assert!(s.starts_with("#!/bin/zsh -l\n"));
@@ -432,6 +435,7 @@ mod tests {
             args: vec!["a b".into(), "100%".into()],
             env: HashMap::from([("MYVAR".to_string(), Some("x y".to_string())), ("GONE".to_string(), None)]),
             cwd: Some(dir.to_string_lossy().into_owned()),
+            note: None,
         };
         let script = t.path().join("launch.cmd");
         std::fs::write(&script, windows_script(&spec, "test")).unwrap();

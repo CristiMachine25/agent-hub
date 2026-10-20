@@ -171,7 +171,7 @@ export const useStore = create<State>((set, get) => ({
             : target === 'desktop'
               ? `Opened the desktop app as ${acc?.label}`
               : `${opts.resume ? 'Resumed' : 'Launched'} ${name} as ${acc?.label}`
-        get().toast({ kind: 'success', title: what, command: res.commandLine })
+        get().toast({ kind: 'success', title: what, body: res.note, command: res.commandLine })
       } else {
         get().toast({
           kind: 'error',

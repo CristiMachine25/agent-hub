@@ -257,6 +257,9 @@ pub struct LaunchResult {
     pub ok: bool,
     pub error: Option<String>,
     pub command_line: Option<String>,
+    /// Something the user should know after a successful launch (e.g. "sign in once in this window").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

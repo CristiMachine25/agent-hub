@@ -456,7 +456,7 @@ pub async fn launch(app: AppHandle, state: St<'_>, req: LaunchRequest) -> Res<La
 }
 
 fn failed(msg: impl Into<String>) -> LaunchResult {
-    LaunchResult { ok: false, error: Some(msg.into()), command_line: None }
+    LaunchResult { ok: false, error: Some(msg.into()), command_line: None, note: None }
 }
 
 fn pick_cwd(req_cwd: Option<String>, default_cwd: Option<String>) -> String {

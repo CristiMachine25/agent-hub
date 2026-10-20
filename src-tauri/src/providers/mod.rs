@@ -19,6 +19,8 @@ pub struct CommandSpec {
     /// (e.g. strip ANTHROPIC_API_KEY so the subscription login is used).
     pub env: HashMap<String, Option<String>>,
     pub cwd: Option<String>,
+    /// Shown to the user after a successful launch.
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -567,7 +567,7 @@ mod tests {
         } else {
             ("sh", vec!["-c".to_string(), "echo hello; exit 3".to_string()])
         };
-        CommandSpec { program: program.into(), args, env: HashMap::new(), cwd: None }
+        CommandSpec { program: program.into(), args, env: HashMap::new(), cwd: None, note: None }
     }
 
     #[test]
@@ -598,6 +598,7 @@ mod tests {
             args: vec!["a b".into(), "100%".into()],
             env: HashMap::from([("MYVAR".to_string(), Some("x y".to_string())), ("GONE".to_string(), None)]),
             cwd: Some(dir.to_string_lossy().into_owned()),
+            note: None,
         };
         let (out, code, _, _) = run_to_exit(spec);
         assert!(out.contains("[x y] [a b] [100%] [] [xterm-256color]"), "output: {out:?}");

@@ -161,6 +161,8 @@ export interface LaunchResult {
   error?: string
   /** The command that was run, shown to the user for transparency. */
   commandLine?: string
+  /** Something to tell the user after a successful launch. */
+  note?: string
 }
 
 export type NotificationKind =
