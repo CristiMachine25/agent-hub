@@ -5,9 +5,10 @@ use crate::providers::{Adapter, CommandSpec};
 use crate::store::AppState;
 use crate::{launcher, notify, pty, recommend, sharing, usage, util};
 use anyhow::{anyhow, Context};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, State};
 
 type Res<T> = Result<T, String>;
@@ -538,8 +539,46 @@ pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchR
 
     if result.ok {
         record_launch(app, state, &account.id).await?;
+        if req.target == LaunchTarget::Login || account.status == AccountStatus::NeedsLogin {
+            watch_sign_in(app, state, &account);
+        }
     }
     Ok(result)
+}
+
+/// How often and how long to look for a finished sign-in after opening a login.
+const SIGN_IN_CHECK_EVERY: Duration = Duration::from_secs(3);
+const SIGN_IN_WATCH_FOR: Duration = Duration::from_secs(15 * 60);
+
+/// Accounts with a sign-in watch running, so repeated launches don't stack watchers.
+fn sign_in_watches() -> &'static Mutex<HashSet<String>> {
+    static W: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+    W.get_or_init(Default::default)
+}
+
+/// After a login is opened, read the profile's sign-in every few seconds. As soon as it shows a new
+/// login (signed in now, or as someone else), refresh that account so the UI updates by itself.
+pub fn watch_sign_in(app: &AppHandle, state: &Arc<AppState>, account: &Account) {
+    if !sign_in_watches().lock().unwrap().insert(account.id.clone()) {
+        return;
+    }
+    let (app, state, id, home, provider) = (app.clone(), state.clone(), account.id.clone(), PathBuf::from(&account.home_dir), account.provider_id);
+    tauri::async_runtime::spawn(async move {
+        if let Ok(adapter) = state.adapter(provider) {
+            let before = adapter.read_identity(&home).await;
+            let started = std::time::Instant::now();
+            while started.elapsed() < SIGN_IN_WATCH_FOR && state.account(&id).await.is_some() {
+                tokio::time::sleep(SIGN_IN_CHECK_EVERY).await;
+                let now = adapter.read_identity(&home).await;
+                if now.logged_in && (!before.logged_in || now.email != before.email) {
+                    log::info!("sign-in finished for {id}, refreshing");
+                    usage::poll(&app, &state, Some(&id)).await;
+                    break;
+                }
+            }
+        }
+        sign_in_watches().lock().unwrap().remove(&id);
+    });
 }
 
 // ---------- embedded terminals ----------
@@ -574,6 +613,9 @@ async fn spawn_terminal(app: &AppHandle, state: &Arc<AppState>, terms: pty::Term
     let sink: Arc<dyn pty::PtySink> = Arc::new(EventSink(app.clone()));
     let info = tokio::task::spawn_blocking(move || terms.spawn(spawn, sink)).await??;
     record_launch(app, state, &account.id).await?;
+    if login || account.status == AccountStatus::NeedsLogin {
+        watch_sign_in(app, state, &account);
+    }
     Ok(info)
 }
 
