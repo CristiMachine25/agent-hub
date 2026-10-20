@@ -1,4 +1,4 @@
-# AI Hopper: design plan
+# Baton: design plan
 
 ## The one question
 
@@ -20,19 +20,26 @@ requests) is a gauge on that tank. The app is the board you glance at before pic
 
 ## Palette
 
-Interactive color (focus, selection, primary button) is violet, deliberately outside the quota scale, so
-"violet" always means "you can act here" and green-to-red always means "quota left".
+Dark is the default look, whatever the OS setting: a warm charcoal close to Claude's dark mode, not blue-black.
+Light (paper) and System stay available in Settings.
+
+Interactive color (focus, selection, primary button) is a soft periwinkle, deliberately outside the quota scale,
+so "periwinkle" always means "you can act here" and green-to-red always means "quota left". It is also far from
+Anthropic's terracotta, so the app never looks like it borrows their branding.
 
 | Name | Role | Dark (default) | Light |
 |---|---|---|---|
-| Night shift | App ground | `#0E141E` | `#EEF1F6` |
-| Deck | Panels, sidebar, rows on hover | `#161E2B` | `#FFFFFF` |
-| Rivet | Lines, empty meter cells | `#263245` | `#D5DCE6` |
-| Paper / Ink | Primary text | `#E7EBF2` | `#121926` |
-| Hop violet | Actions, focus ring, selection | `#A193FF` | `#5A44DB` |
-| Quota scale | Full / Half / Low / Empty (left) | `#3DD39B` `#E6BE45` `#F28A3C` `#F25C6E` | `#0D8F62` `#A97C08` `#C25A12` `#CC2F49` |
+| Charcoal / Paper | App ground, terminal background | `#1A1918` | `#F5F3EE` |
+| Panel | Sidebar, panels, pane headers | `#222120` | `#FBFAF7` |
+| Raised | Hover, selected rows | `#2A2826` | `#EEEBE4` |
+| Line | Borders, dividers | `#35322F` | `#DCD7CD` |
+| Text | Primary text | `#ECEAE4` | `#1F1D1A` |
+| Muted | Secondary text | `#A3A097` | `#605C54` |
+| Periwinkle | Actions, focus ring, selection | `#9AA5FF` | `#4556D6` |
+| Quota scale | Full / Half / Low / Empty (left) | `#5EC98C` `#E2BE5C` `#EC8D4A` `#F06868` | `#16804A` `#926800` `#B6500E` `#C42E34` |
 
-Muted text: `#93A0B5` dark / `#556275` light (both pass 4.5:1 on their ground).
+Muted text passes 4.5:1 on its ground in both themes. The quota colors were re-tuned to sit on warm charcoal
+(slightly softer and warmer than the old blue-ink set).
 Thresholds for the quota scale (percent left): Full ≥ 50, Half 20–49, Low 5–19, Empty < 5.
 Every color state also carries a word ("Limit reached", "Low") so color is never the only signal.
 
@@ -41,14 +48,30 @@ Account identity colors come from a validated categorical set (dataviz reference
 
 ## Type
 
-- **Hanken Grotesk** (variable, bundled with @fontsource): all UI text and numbers. A compact, slightly
-  technical grotesk with true tabular figures, so countdowns and percentages do not jitter as they tick.
-  Big numbers in the "Use now" panel use weight 700 at 44px.
-- **IBM Plex Mono**: only for things you could paste into a terminal: command lines, paths, env vars.
-  Never for labels.
+Claude's interface pairs a book serif for headings and answers with a plain sans for controls. Baton does the same:
 
-Sizes: 13px base (desktop density), 12px secondary, 15px section titles, 20px screen titles, 44px hero figure.
-Sentence case everywhere. No all-caps eyebrows.
+- **Source Serif 4** (variable, bundled with @fontsource): screen titles, section headings, the account name and
+  the big percentage in "Best account right now", the app name. Semibold, tabular figures for numbers that tick.
+- **Hanken Grotesk** (variable): everything you click or scan: buttons, rows, labels, small numbers. It stays
+  because its tabular figures keep countdowns from jittering, and it is neutral enough next to the serif.
+- **IBM Plex Mono**: terminals and anything you could paste into one: command lines, paths, env vars.
+
+Sizes: 13px base (desktop density), 12px secondary, 17px serif section titles, 24px serif screen titles,
+44px serif hero figure. Sentence case everywhere. No all-caps eyebrows.
+
+## Icon
+
+A relay baton on a diagonal, its body made of four quota segments (amber to green), with two short periwinkle
+strokes behind it for the handoff. Drawn on the charcoal tile; it reads at 16px. Source: `app-icon.svg`
+(`npx tauri icon app-icon.svg` regenerates the platform icons), mirrored in `src/components/Logo.tsx`.
+
+## Terminal grid
+
+Panes are flat panels on the ground color with a 36px header: account dot, name, provider, a 10-cell meter for
+the binding window with its reset countdown, status, then icon buttons. The focused pane gets a periwinkle
+border. Headers drop the provider, then the meter and status, as a pane gets narrower (container queries, not
+window breakpoints). A pane whose account hits its limit shows one calm banner with a single "Continue on X"
+button; there is no red alarm. The xterm theme comes from the same tokens.
 
 ## Layout
 
@@ -57,7 +80,7 @@ usable at 900×600, never scrolls horizontally.
 
 ```
 ┌────────────┬──────────────────────────────────────────────────────────────┐
-│ ◆ AI Hopper│ Overview                                    Refresh  Ctrl K   │
+│ ◆ Baton    │ Overview                                    Refresh  Ctrl K   │
 │            │ ┌ Use now ───────────────────────────────────────────────────┐│
 │ Overview   │ │ For: [Coding] Long refactor  Quick question  Research  …    ││
 │ Accounts   │ │                                                              ││
