@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Baton: pass your work to the account that still has quota</title>
+<title>Switchyard: switch your work to the account that still has quota</title>
 <meta name="description" content="A free, open-source desktop app for Windows, macOS and Linux. Keep all your Claude, ChatGPT, Gemini and Copilot accounts signed in side by side, see how much of every limit is left, and launch your CLI with the right account in one click.">
 <meta name="color-scheme" content="dark light">
 <meta name="theme-color" content="#1A1918" media="(prefers-color-scheme: dark)">
 <meta name="theme-color" content="#F5F3EE" media="(prefers-color-scheme: light)">
-<link rel="canonical" href="https://cristimachine25.github.io/baton/">
+<link rel="canonical" href="https://cristimachine25.github.io/switchyard/">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <link rel="preload" href="assets/fonts/source-serif-4-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -16,22 +16,22 @@
 <link rel="stylesheet" href="assets/site.css">
 
 <meta property="og:type" content="website">
-<meta property="og:site_name" content="Baton">
-<meta property="og:title" content="Baton: pass your work to the account that still has quota.">
+<meta property="og:site_name" content="Switchyard">
+<meta property="og:title" content="Switchyard: switch your work to the account that still has quota.">
 <meta property="og:description" content="Keep every Claude, ChatGPT, Gemini and Copilot account signed in side by side, see what is left of every limit, and launch the right one in one click. Free, open source, local-only.">
-<meta property="og:url" content="https://cristimachine25.github.io/baton/">
-<meta property="og:image" content="https://cristimachine25.github.io/baton/assets/og.png">
+<meta property="og:url" content="https://cristimachine25.github.io/switchyard/">
+<meta property="og:image" content="https://cristimachine25.github.io/switchyard/assets/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Baton showing several AI accounts with segmented meters of how much quota each has left.">
+<meta property="og:image:alt" content="Switchyard showing several AI accounts with segmented meters of how much quota each has left.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Baton: pass your work to the account that still has quota.">
+<meta name="twitter:title" content="Switchyard: switch your work to the account that still has quota.">
 <meta name="twitter:description" content="Every AI account signed in side by side, every limit in view, one-click launch. Free, open source, local-only.">
-<meta name="twitter:image" content="https://cristimachine25.github.io/baton/assets/og.png">
+<meta name="twitter:image" content="https://cristimachine25.github.io/switchyard/assets/og.png">
 
 <script>
   /* Picks the download label for this visitor's OS. Runs inline so the button never changes after paint. */
-  function batonDownload(root) {
+  function switchyardDownload(root) {
     var ua = navigator.userAgent || "";
     var p = ((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "").toLowerCase();
     var os = null;
@@ -46,14 +46,14 @@
     var note = root.querySelector("[data-dl-note]");
     var others = root.querySelector("[data-dl-others]");
     if (os === "mobile") {
-      note.textContent = "Baton is a desktop app for Windows, macOS and Linux. Open this page on your computer to install it.";
+      note.textContent = "Switchyard is a desktop app for Windows, macOS and Linux. Open this page on your computer to install it.";
       return;
     }
     label.textContent = "Download for " + names[os];
     note.textContent = "v0.2.0, " + files[os] + ", about 3 MB.";
     var rest = Object.keys(names).filter(function (k) { return k !== os; });
-    others.innerHTML = 'Also for <a href="https://github.com/CristiMachine25/baton/releases/latest">' + names[rest[0]] +
-      '</a> and <a href="https://github.com/CristiMachine25/baton/releases/latest">' + names[rest[1]] + "</a>.";
+    others.innerHTML = 'Also for <a href="https://github.com/CristiMachine25/switchyard/releases/latest">' + names[rest[0]] +
+      '</a> and <a href="https://github.com/CristiMachine25/switchyard/releases/latest">' + names[rest[1]] + "</a>.";
   }
 </script>
 </head>
@@ -62,9 +62,9 @@
 
 <header class="top">
   <div class="wrap top-in">
-    <a class="brand" href="./" aria-label="Baton home">
+    <a class="brand" href="./" aria-label="Switchyard home">
       <img src="favicon.svg" alt="" width="28" height="28">
-      <span>Baton</span>
+      <span>Switchyard</span>
     </a>
     <nav aria-label="Main">
       <ul>
@@ -72,7 +72,7 @@
         <li class="nav-opt"><a href="#tools">Tools</a></li>
         <li class="nav-opt"><a href="#privacy">Privacy</a></li>
         <li class="nav-opt"><a href="#faq">FAQ</a></li>
-        <li><a href="https://github.com/CristiMachine25/baton">GitHub</a></li>
+        <li><a href="https://github.com/CristiMachine25/switchyard">GitHub</a></li>
       </ul>
     </nav>
   </div>
@@ -84,18 +84,18 @@
 <section class="hero" aria-labelledby="hero-title">
   <div class="wrap hero-in">
     <div class="hero-copy">
-      <h1 id="hero-title">Pass your work to the account that still has quota.</h1>
-      <p class="lede">Baton keeps every Claude, ChatGPT, Gemini and Copilot account you pay for signed in side by side, shows how much of each limit is left, and opens Claude Code, Codex, Gemini CLI or Copilot CLI with the one you pick.</p>
+      <h1 id="hero-title">Switch your work to the account that still has quota.</h1>
+      <p class="lede">Switchyard keeps every Claude, ChatGPT, Gemini and Copilot account you pay for signed in side by side, shows how much of each limit is left, and opens Claude Code, Codex, Gemini CLI or Copilot CLI with the one you pick.</p>
 
       <div class="dl" id="download">
-        <a class="btn btn-primary" href="https://github.com/CristiMachine25/baton/releases/latest">
+        <a class="btn btn-primary" href="https://github.com/CristiMachine25/switchyard/releases/latest">
           <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
-          <span data-dl-label>Download Baton</span>
+          <span data-dl-label>Download Switchyard</span>
         </a>
-        <a class="btn btn-quiet" href="https://github.com/CristiMachine25/baton">Source on GitHub</a>
+        <a class="btn btn-quiet" href="https://github.com/CristiMachine25/switchyard">Source on GitHub</a>
         <p class="dl-note"><span data-dl-note>v0.2.0 for Windows, macOS and Linux, about 3 MB.</span> <span data-dl-others></span></p>
       </div>
-      <script>batonDownload(document.getElementById("download"));</script>
+      <script>switchyardDownload(document.getElementById("download"));</script>
 
       <p class="hero-foot">Free and open source under the MIT license. No account, no server, no telemetry.</p>
     </div>
@@ -132,7 +132,7 @@
         </div>
       </div>
       <figcaption>
-        <span class="sr-only">Demo of the Baton board with five accounts. Each meter has 20 segments showing how much of a limit is left, colored from green for plenty to red for empty. When the account in use reaches its limit, Baton hands the work to the next best account and launches it. Simulated time, made-up accounts.</span>
+        <span class="sr-only">Demo of the Switchyard board with five accounts. Each meter has 20 segments showing how much of a limit is left, colored from green for plenty to red for empty. When the account in use reaches its limit, Switchyard hands the work to the next best account and launches it. Simulated time, made-up accounts.</span>
         <span aria-hidden="true">Simulated time, made-up accounts.</span>
         <button class="pause" type="button" data-pause aria-pressed="false">Pause demo</button>
       </figcaption>
@@ -203,7 +203,7 @@
     <div class="recommend">
       <div class="recommend-copy">
         <h3>A pick for the task in front of you</h3>
-        <p>Choose coding, a long refactor, a quick question, research or review. Baton weighs every account's session and weekly limits and tells you which one to use, with two fallbacks in case you disagree.</p>
+        <p>Choose coding, a long refactor, a quick question, research or review. Switchyard weighs every account's session and weekly limits and tells you which one to use, with two fallbacks in case you disagree.</p>
       </div>
       <ol class="picks" aria-label="Example recommendation for a long refactor">
         <li><span class="dot" style="--c:#199E70"></span><span class="pick-name">H2 Max</span><span class="pick-why">70% of weekly left, resets in 9h. Use it before it's gone.</span></li>
@@ -282,7 +282,7 @@
   <div class="wrap">
     <div class="sec-head">
       <h2 id="tools-title">Works with the tools you already use</h2>
-      <p>Baton uses each tool's own sign-in and its official CLI. It does not proxy your prompts or replace any app.</p>
+      <p>Switchyard uses each tool's own sign-in and its official CLI. It does not proxy your prompts or replace any app.</p>
     </div>
     <div class="table-scroll">
       <table class="tools">
@@ -317,7 +317,7 @@
         </tbody>
       </table>
     </div>
-    <p class="tools-next">Planned next: Cursor, Antigravity, Kiro, Amp and OpenRouter. Adding a provider means implementing one Rust trait, so <a href="https://github.com/CristiMachine25/baton">pull requests are welcome</a>.</p>
+    <p class="tools-next">Planned next: Cursor, Antigravity, Kiro, Amp and OpenRouter. Adding a provider means implementing one Rust trait, so <a href="https://github.com/CristiMachine25/switchyard">pull requests are welcome</a>.</p>
   </div>
 </section>
 
@@ -327,9 +327,9 @@
     <div class="privacy-copy">
       <h2 id="privacy-title">Everything stays on your computer</h2>
       <ul class="facts">
-        <li><strong>No Baton server.</strong> No account with us, no telemetry, no analytics. Your data lives in the app's folder on your disk.</li>
-        <li><strong>Tokens go only where they came from.</strong> To read live limits, Baton sends each account's own saved sign-in to that provider's usage endpoint, and nowhere else.</li>
-        <li><strong>Live usage is optional.</strong> Turn it off in Settings and Baton works from local session logs only.</li>
+        <li><strong>No Switchyard server.</strong> No account with us, no telemetry, no analytics. Your data lives in the app's folder on your disk.</li>
+        <li><strong>Tokens go only where they came from.</strong> To read live limits, Switchyard sends each account's own saved sign-in to that provider's usage endpoint, and nowhere else.</li>
+        <li><strong>Live usage is optional.</strong> Turn it off in Settings and Switchyard works from local session logs only.</li>
         <li><strong>Uninstall leaves your setup alone.</strong> Every CLI folder stays exactly as it was.</li>
       </ul>
     </div>
@@ -365,7 +365,7 @@
       <li>
         <span class="step-n" aria-hidden="true">2</span>
         <h3>It finds your accounts</h3>
-        <p>Baton detects installed CLIs and the config folders already on your disk, including side-by-side ones like <code>~/.claude-work</code>. Add a new account and you sign in once, in its own folder.</p>
+        <p>Switchyard detects installed CLIs and the config folders already on your disk, including side-by-side ones like <code>~/.claude-work</code>. Add a new account and you sign in once, in its own folder.</p>
       </li>
       <li>
         <span class="step-n" aria-hidden="true">3</span>
@@ -383,15 +383,15 @@
     <div class="faq">
       <details>
         <summary>Is this allowed by the providers' terms?</summary>
-        <p>Baton does not get around any limit. Each account signs in through the tool's own login and runs the official CLI, and Baton only reads the limits each provider already shows you. Whether you may hold several accounts with one provider is up to that provider, so check their terms for the plans you use.</p>
+        <p>Switchyard does not get around any limit. Each account signs in through the tool's own login and runs the official CLI, and Switchyard only reads the limits each provider already shows you. Whether you may hold several accounts with one provider is up to that provider, so check their terms for the plans you use.</p>
       </details>
       <details>
-        <summary>Can Baton see my chats or code?</summary>
-        <p>No. It reads usage numbers and local session statistics such as token counts. It never sends your prompts, chats or code anywhere, and there is no Baton server to send them to.</p>
+        <summary>Can Switchyard see my chats or code?</summary>
+        <p>No. It reads usage numbers and local session statistics such as token counts. It never sends your prompts, chats or code anywhere, and there is no Switchyard server to send them to.</p>
       </details>
       <details>
         <summary>Does it work offline?</summary>
-        <p>Launching works offline. Live limits need the network, because they come from each provider's usage endpoint. Without it, Baton shows the last numbers it saw and when it saw them.</p>
+        <p>Launching works offline. Live limits need the network, because they come from each provider's usage endpoint. Without it, Switchyard shows the last numbers it saw and when it saw them.</p>
       </details>
       <details>
         <summary>Does it run on Linux?</summary>
@@ -403,7 +403,7 @@
       </details>
       <details>
         <summary>What does it cost?</summary>
-        <p>Nothing. Baton is open source under the MIT license. You keep paying your AI providers as you do now, just with less of it going to waste.</p>
+        <p>Nothing. Switchyard is open source under the MIT license. You keep paying your AI providers as you do now, just with less of it going to waste.</p>
       </details>
     </div>
   </div>
@@ -413,15 +413,15 @@
 <section class="closing" aria-labelledby="closing-title">
   <div class="wrap closing-in">
     <h2 id="closing-title">Use every plan you pay for.</h2>
-    <p class="closing-sub">Hand the baton on instead of waiting for a reset.</p>
+    <p class="closing-sub">Switch tracks instead of waiting for a reset.</p>
     <div class="dl" id="download-2">
-      <a class="btn btn-primary" href="https://github.com/CristiMachine25/baton/releases/latest">
+      <a class="btn btn-primary" href="https://github.com/CristiMachine25/switchyard/releases/latest">
         <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
-        <span data-dl-label>Download Baton</span>
+        <span data-dl-label>Download Switchyard</span>
       </a>
       <p class="dl-note"><span data-dl-note>v0.2.0 for Windows, macOS and Linux, about 3 MB.</span> <span data-dl-others></span></p>
     </div>
-    <script>batonDownload(document.getElementById("download-2"));</script>
+    <script>switchyardDownload(document.getElementById("download-2"));</script>
   </div>
 </section>
 
@@ -431,15 +431,15 @@
   <div class="wrap foot-in">
     <div class="foot-brand">
       <img src="favicon.svg" alt="" width="24" height="24">
-      <span>Baton</span>
+      <span>Switchyard</span>
     </div>
     <ul class="foot-links">
-      <li><a href="https://github.com/CristiMachine25/baton">GitHub</a></li>
-      <li><a href="https://github.com/CristiMachine25/baton/releases">Releases</a></li>
-      <li><a href="https://github.com/CristiMachine25/baton/blob/main/LICENSE">MIT license</a></li>
-      <li><a href="https://github.com/CristiMachine25/baton/issues">Report an issue</a></li>
+      <li><a href="https://github.com/CristiMachine25/switchyard">GitHub</a></li>
+      <li><a href="https://github.com/CristiMachine25/switchyard/releases">Releases</a></li>
+      <li><a href="https://github.com/CristiMachine25/switchyard/blob/main/LICENSE">MIT license</a></li>
+      <li><a href="https://github.com/CristiMachine25/switchyard/issues">Report an issue</a></li>
     </ul>
-    <p class="disclaimer">Baton is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google or GitHub. Product names belong to their owners and are used only to say what Baton works with. Usage endpoints can change without notice.</p>
+    <p class="disclaimer">Switchyard is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google or GitHub. Product names belong to their owners and are used only to say what Switchyard works with. Usage endpoints can change without notice.</p>
   </div>
 </footer>
 

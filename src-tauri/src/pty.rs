@@ -204,7 +204,7 @@ fn build_command(spec: &CommandSpec) -> anyhow::Result<(CommandBuilder, Option<P
     let mut cmd = if cfg!(windows) && is_batch_file(&program) {
         let resolved = CommandSpec { program, args: spec.args.clone(), ..Default::default() };
         let body = format!("@echo off\r\n{}\r\nexit /b %ERRORLEVEL%\r\n", launcher::windows_command_line(&resolved));
-        let dir = std::env::temp_dir().join("baton");
+        let dir = std::env::temp_dir().join("switchyard");
         std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
         let path = dir.join(format!("pty-{}.cmd", uuid::Uuid::new_v4().simple()));
         std::fs::write(&path, body).with_context(|| format!("writing {}", path.display()))?;

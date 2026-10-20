@@ -23,7 +23,7 @@ const PENDING_LIMIT = 512
 let listening = false
 let exitHandler: (id: string, code: number | null) => void = () => {}
 
-export const FONT_SIZE_KEY = 'baton.terminalFontSize'
+export const FONT_SIZE_KEY = 'switchyard.terminalFontSize'
 export const FONT_SIZES = [11, 12, 13, 14, 15, 16, 18]
 
 export function terminalFontSize(): number {

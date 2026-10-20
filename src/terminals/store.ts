@@ -21,7 +21,7 @@ import {
 } from '@/lib/grid'
 import { disposeTerm, estimateSize, focusTerm, getTerm, onTerminalExit, prepare } from './registry'
 
-const STORAGE_KEY = 'baton.workspace'
+const STORAGE_KEY = 'switchyard.workspace'
 
 export interface StartOptions {
   accountId: string

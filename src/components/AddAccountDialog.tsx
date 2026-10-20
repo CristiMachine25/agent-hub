@@ -92,7 +92,7 @@ function FindStep({ onDone, onCreate }: { onDone: () => void; onCreate: () => vo
     <div>
       {fresh.length === 0 ? (
         <p className="mb-3 text-muted">
-          Every profile on this computer is already in Baton. To add another login for the same tool, create a new profile.
+          Every profile on this computer is already in Switchyard. To add another login for the same tool, create a new profile.
         </p>
       ) : (
         <p className="mb-3 text-muted">
@@ -202,7 +202,7 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
           <div>
             <p className="font-semibold">{created.label} is ready</p>
             <p className="text-muted">
-              Sign in once so Baton can launch it and track its limits. A terminal opens with the {PROVIDER_META[created.providerId].short} sign-in.
+              Sign in once so Switchyard can launch it and track its limits. A terminal opens with the {PROVIDER_META[created.providerId].short} sign-in.
             </p>
             <p className="code mt-2 text-muted">{created.homeDir}</p>
           </div>
@@ -311,7 +311,7 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
             ))}
             <option value="">Not sure</option>
           </select>
-          <span className="mt-0.5 block truncate text-xs text-faint">{findPlan(providerId, plan)?.note ?? 'Baton fills it in after you sign in'}</span>
+          <span className="mt-0.5 block truncate text-xs text-faint">{findPlan(providerId, plan)?.note ?? 'Switchyard fills it in after you sign in'}</span>
         </label>
         <label className="block">
           <span className="mb-1 block font-medium">Monthly cost</span>
@@ -356,7 +356,7 @@ function CreateStep({ onDone, count }: { onDone: () => void; count: number }) {
         <span className="mb-1 block font-medium">Profile folder</span>
         <div className="flex items-center gap-2">
           <span className={clsx('min-w-0 flex-1 truncate', folder ? 'code' : 'text-muted')}>
-            {folder ?? 'Baton creates a new folder for this account'}
+            {folder ?? 'Switchyard creates a new folder for this account'}
           </span>
           {folder && (
             <button type="button" className="btn btn-ghost btn-sm" onClick={() => setFolder(null)}>

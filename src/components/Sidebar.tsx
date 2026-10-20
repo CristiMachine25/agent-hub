@@ -40,7 +40,7 @@ export function Sidebar() {
       {MAC_TRAFFIC_LIGHTS && <div data-tauri-drag-region className="h-7 shrink-0" />}
       <div data-tauri-drag-region className="flex h-14 items-center gap-2.5 px-4 max-[999px]:justify-center max-[999px]:px-0">
         <Logo size={26} />
-        <span className="font-serif text-[19px] font-semibold max-[999px]:hidden">Baton</span>
+        <span className="font-serif text-[19px] font-semibold max-[999px]:hidden">Switchyard</span>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
         {NAV.map((n) => {

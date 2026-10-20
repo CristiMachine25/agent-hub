@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://cristimachine25.github.io/baton/sitemap.xml
+Sitemap: https://cristimachine25.github.io/switchyard/sitemap.xml

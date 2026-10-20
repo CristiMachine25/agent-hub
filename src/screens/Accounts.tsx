@@ -29,7 +29,7 @@ export function Accounts() {
       <Page title="Accounts">
         <EmptyState
           title="No accounts yet"
-          body="Start by letting Baton look for the CLI profiles already on this computer. Nothing is changed until you import."
+          body="Start by letting Switchyard look for the CLI profiles already on this computer. Nothing is changed until you import."
           action={
             <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
               <Search size={15} /> Find accounts on this computer
@@ -242,7 +242,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 ? `${creditsText(snap.credits)}.`
                 : snap?.error
                   ? 'No limits to show for this account.'
-                  : 'No usage data yet. Baton checks every few minutes.'}
+                  : 'No usage data yet. Switchyard checks every few minutes.'}
           </p>
         )}
         {!signedOut && (!snap || snap.source === 'none' || snap.source === 'manual' || !snap.windows.length) && <ManualLimits account={a} />}
@@ -298,7 +298,7 @@ function AccountDetail({ account: a }: { account: Account }) {
               Launched with <code className="code">{prov.homeEnvVar}</code> pointing here.{' '}
             </>
           ) : null}
-          {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from Baton yet.'}
+          {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from Switchyard yet.'}
         </p>
       </section>
 
@@ -510,14 +510,14 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
       }
     >
       <p className="text-muted">
-        Baton stops tracking and launching this account. Its sign-in and chats stay in the profile folder unless you delete it.
+        Switchyard stops tracking and launching this account. Its sign-in and chats stay in the profile folder unless you delete it.
       </p>
       <label className={clsx('mt-4 flex items-start gap-2.5', a.isDefaultHome && 'opacity-60')}>
         <input type="checkbox" className="mt-0.5" checked={deleteHome} disabled={a.isDefaultHome} onChange={(e) => setDeleteHome(e.target.checked)} />
         <span>
           <span className="block">Also delete the profile folder</span>
           <span className="code block break-all text-muted">{a.homeDir}</span>
-          {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Baton never deletes it.</span>}
+          {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Switchyard never deletes it.</span>}
           {deleteHome && <span className="block text-xs text-empty">This can't be undone. Sessions not shared with another account are lost.</span>}
         </span>
       </label>
@@ -600,7 +600,7 @@ function ManualLimits({ account }: { account: Account }) {
         }
       >
         <p className="mb-3 text-muted">
-          Copy what the provider's usage page shows. Baton uses these for recommendations and warnings until live limits are available.
+          Copy what the provider's usage page shows. Switchyard uses these for recommendations and warnings until live limits are available.
         </p>
         <div className="grid grid-cols-[1fr_88px_104px_28px] items-center gap-2 text-xs text-muted">
           <span>Window</span>

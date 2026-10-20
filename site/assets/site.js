@@ -1,4 +1,4 @@
-// Baton landing page: segmented meters, the hero handoff demo, and the screen tour tabs.
+// Switchyard landing page: segmented meters, the hero handoff demo, and the screen tour tabs.
 (function () {
   "use strict";
 
@@ -100,7 +100,7 @@
       var from = accounts[active];
       active = next();
       var to = accounts[active];
-      $("[data-toast-msg]").textContent = from.name + " hit its limit. Passed to " + to.name + ".";
+      $("[data-toast-msg]").textContent = from.name + " hit its limit. Switched to " + to.name + ".";
       $("[data-toast-cmd]").textContent = to.cmd;
       toast.classList.add("show");
       clearTimeout(toastTimer);

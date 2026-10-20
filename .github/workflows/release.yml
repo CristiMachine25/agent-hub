@@ -45,7 +45,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Baton ${{ github.ref_name }}'
+          releaseName: 'Switchyard ${{ github.ref_name }}'
           releaseBody: 'Download the installer for your system below.'
           releaseDraft: true
           prerelease: false

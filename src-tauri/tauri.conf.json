@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Baton",
+  "productName": "Switchyard",
   "version": "0.2.0",
-  "identifier": "dev.baton.app",
+  "identifier": "dev.switchyard.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Baton", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }
+      { "label": "main", "title": "Switchyard", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }
     ],
     "security": { "csp": null }
   },

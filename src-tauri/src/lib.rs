@@ -20,7 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
 /// User-facing product name for Rust-side strings (tray, messages). Rename here only.
-pub const APP_NAME: &str = "Baton";
+pub const APP_NAME: &str = "Switchyard";
 const TRAY_ID: &str = "main";
 const MAIN_WINDOW: &str = "main";
 /// Passed by the login item; the app then starts hidden in the tray.

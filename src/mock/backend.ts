@@ -176,7 +176,7 @@ export function createMockApi(platform: Platform): HopperApi {
       async create(input: NewAccountInput) {
         await wait(500)
         const n = db.accounts.length
-        const homeDir = input.homeDir ?? `${home}${sep}${platform === 'win32' ? 'AppData\\Roaming\\Baton\\profiles' : platform === 'darwin' ? 'Library/Application Support/Baton/profiles' : '.local/share/baton/profiles'}${sep}${input.providerId}-${slug(input.label)}`
+        const homeDir = input.homeDir ?? `${home}${sep}${platform === 'win32' ? 'AppData\\Roaming\\Switchyard\\profiles' : platform === 'darwin' ? 'Library/Application Support/Switchyard/profiles' : '.local/share/switchyard/profiles'}${sep}${input.providerId}-${slug(input.label)}`
         if (db.accounts.some((a) => a.homeDir.toLowerCase() === homeDir.toLowerCase())) {
           throw new Error(`Another account already uses ${homeDir}. Pick a different folder or label.`)
         }

@@ -47,7 +47,7 @@ export function Overview() {
       <Page title="Overview">
         <EmptyState
           title="No accounts yet"
-          body="Baton can find the Claude, Codex, Gemini and Copilot profiles already on this computer, or create a fresh profile for another login."
+          body="Switchyard can find the Claude, Codex, Gemini and Copilot profiles already on this computer, or create a fresh profile for another login."
           action={
             <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
               <Search size={15} /> Find accounts on this computer
