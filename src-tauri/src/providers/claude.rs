@@ -39,6 +39,20 @@ pub struct ClaudeAdapter {
     version: VersionCache,
 }
 
+/// Environment variables Claude Code sets for the processes it runs; meaningless for a fresh session.
+const SESSION_MARKERS: &[&str] = &[
+    "CLAUDECODE",
+    "CLAUDE_CODE_ENTRYPOINT",
+    "CLAUDE_CODE_SESSION_ID",
+    "CLAUDE_CODE_CHILD_SESSION",
+    "CLAUDE_CODE_SESSION_ATTENDED",
+    "CLAUDE_CODE_MESSAGING_SOCKET",
+    "CLAUDE_CODE_MESSAGING_TOKEN",
+    "CLAUDE_CODE_EXECPATH",
+    "CLAUDE_PID",
+    "CLAUDE_EFFORT",
+];
+
 impl ClaudeAdapter {
     pub fn new() -> Self {
         Self { version: VersionCache::default() }
@@ -516,6 +530,10 @@ impl ClaudeAdapter {
         env.insert("CLAUDE_CONFIG_DIR".into(), value);
         // Strip API-key style auth so the subscription login is used.
         env_unset(&mut env, &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
+        // When Baton itself was started from a Claude Code terminal, don't let the new CLI think it is
+        // a child of that session (it would turn off transcript saving and talk to the parent's socket).
+        let inherited: Vec<&str> = SESSION_MARKERS.iter().copied().filter(|k| std::env::var_os(k).is_some()).collect();
+        env_unset(&mut env, &inherited);
         env
     }
 
@@ -988,5 +1006,19 @@ mod tests {
         assert_eq!(env["ANTHROPIC_API_KEY"], None);
         acc.is_default_home = true;
         assert_eq!(adapter.cli_env(&acc)["CLAUDE_CONFIG_DIR"], None);
+    }
+
+    #[test]
+    fn cli_env_clears_inherited_session_markers() {
+        let adapter = ClaudeAdapter::new();
+        let acc: Account = serde_json::from_value(json!({
+            "id": "a1", "providerId": "claude", "label": "Work", "homeDir": "/tmp/claude-work", "isDefaultHome": false,
+            "sharing": {"skills": true, "plugins": true, "agents": true, "instructions": true, "settings": false, "mcp": true, "history": true},
+            "color": "#fff", "status": "ok", "createdAt": "2026-10-20T00:00:00Z"}))
+        .unwrap();
+        std::env::set_var("CLAUDE_CODE_CHILD_SESSION", "1");
+        let env = adapter.cli_env(&acc);
+        std::env::remove_var("CLAUDE_CODE_CHILD_SESSION");
+        assert!(env.contains_key("CLAUDE_CODE_CHILD_SESSION") && env["CLAUDE_CODE_CHILD_SESSION"].is_none());
     }
 }
