@@ -172,7 +172,10 @@ function Header({ index, pane, account }: { index: number; pane: PaneConfig; acc
       <span className="min-w-[4.5rem] truncate text-sm font-semibold" title={account.label}>
         {account.label}
       </span>
-      <span className="pane-provider shrink-0 text-xs text-muted">{PROVIDER_META[account.providerId].short}</span>
+      <span className="pane-provider flex shrink-0 items-center gap-1 text-xs text-muted">
+        <ProviderMark id={account.providerId} size={12} />
+        {PROVIDER_META[account.providerId].short}
+      </span>
       {left !== undefined && b && (
         <span className="pane-meter ml-1 flex w-28 shrink-0 items-center gap-1.5" title={`${b.label}: ${formatPct(left)} left`}>
           <Meter left={left} cells={10} size="xs" label={`${account.label} ${b.label} left`} />
@@ -300,7 +303,7 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
                 onClick={() => setTarget(t)}
                 className={clsx('flex h-6 items-center gap-1 rounded-[4px] px-2 text-xs', target === t ? 'bg-raised font-semibold text-ink' : 'text-muted hover:text-ink')}
               >
-                {t === 'cli' ? <Play size={11} /> : <LogIn size={11} />}
+                {t === 'cli' ? chosen ? <ProviderMark id={chosen.providerId} size={11} /> : <Play size={11} /> : <LogIn size={11} />}
                 {t === 'cli' ? (chosen ? PROVIDER_META[chosen.providerId].product : 'CLI') : 'Sign in'}
               </button>
             ))}

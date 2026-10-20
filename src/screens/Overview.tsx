@@ -396,7 +396,8 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
         <AccountDot account={a} />
         <span className="min-w-0">
           <span className="block truncate font-semibold">{a.label}</span>
-          <span className="block truncate text-xs text-muted">
+          <span className="flex items-center gap-1 truncate text-xs text-muted">
+            <ProviderMark id={provider} size={11} />
             {signedOut ? 'Signed out' : snap?.stale ? `Checked ${formatAgo(snap.fetchedAt, now)}` : a.plan && !a.label.includes(a.plan) ? a.plan : PROVIDER_META[provider].short}
           </span>
         </span>

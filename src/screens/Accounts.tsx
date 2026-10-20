@@ -142,7 +142,8 @@ function AccountDetail({ account: a }: { account: Account }) {
           <AccountDot account={a} size={14} />
           <div className="-mt-1.5 min-w-0 flex-1">
             <h2 className="truncate font-serif text-[26px] font-semibold leading-8">{a.label}</h2>
-            <p className="text-muted">
+            <p className="flex flex-wrap items-center gap-x-1.5 text-muted">
+              <ProviderMark id={a.providerId} size={14} />
               {meta.product}
               {a.plan ? `, ${a.plan} plan` : ''}
               {a.email ? (signedOut ? `, ${a.email}` : `, signed in as ${a.email}`) : ''}
