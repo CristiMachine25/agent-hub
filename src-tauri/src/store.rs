@@ -1,1 +1,323 @@
-// TODO(core agent): store
+//! JSON persistence in the app data dir, plus the shared in-memory state managed by Tauri.
+use crate::model::*;
+use crate::notify::NotifyState;
+use crate::providers::{self, Adapter};
+use crate::util;
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::io::{BufRead, Write};
+use std::path::{Path, PathBuf};
+use tokio::sync::{Mutex, Notify, RwLock};
+
+pub const MAX_NOTIFICATIONS: usize = 200;
+pub const HISTORY_DAYS: i64 = 90;
+
+const ACCOUNTS_FILE: &str = "accounts.json";
+const SETTINGS_FILE: &str = "settings.json";
+const NOTIFICATIONS_FILE: &str = "notifications.json";
+const LATEST_FILE: &str = "usage-latest.json";
+const HISTORY_FILE: &str = "usage-history.jsonl";
+const ACTIVITY_FILE: &str = "activity-cache.json";
+const NOTIFY_STATE_FILE: &str = "notify-state.json";
+
+/// Cached per-account activity scan.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivityEntry {
+    pub scanned_at: String,
+    pub days: u32,
+    pub items: Vec<DailyActivity>,
+}
+
+/// Everything the commands, poller and tray share. Managed by Tauri as `Arc<AppState>`.
+pub struct AppState {
+    dir: PathBuf,
+    /// Built once so adapter-internal caches (version probes, tokens) survive between calls.
+    pub adapters: Vec<Adapter>,
+    pub accounts: RwLock<Vec<Account>>,
+    pub settings: RwLock<AppSettings>,
+    pub notifications: RwLock<Vec<AppNotification>>,
+    pub latest: RwLock<HashMap<String, UsageSnapshot>>,
+    pub activity: RwLock<HashMap<String, ActivityEntry>>,
+    pub notify_state: Mutex<NotifyState>,
+    /// Wakes the poller early (manual refresh, settings change).
+    pub poll_wake: Notify,
+    /// Serializes polls so a manual refresh and the timer never overlap.
+    pub poll_lock: Mutex<()>,
+    history_lock: Mutex<()>,
+}
+
+impl AppState {
+    /// Load every file from `dir`, falling back to defaults for anything missing or unreadable.
+    pub fn load(dir: PathBuf) -> anyhow::Result<Self> {
+        std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+        let state = Self {
+            adapters: providers::all(),
+            accounts: RwLock::new(load_accounts(&dir.join(ACCOUNTS_FILE))),
+            settings: RwLock::new(load_settings(&dir.join(SETTINGS_FILE))),
+            notifications: RwLock::new(load_or_default(&dir.join(NOTIFICATIONS_FILE))),
+            latest: RwLock::new(load_or_default(&dir.join(LATEST_FILE))),
+            activity: RwLock::new(load_or_default(&dir.join(ACTIVITY_FILE))),
+            notify_state: Mutex::new(load_or_default(&dir.join(NOTIFY_STATE_FILE))),
+            poll_wake: Notify::new(),
+            poll_lock: Mutex::new(()),
+            history_lock: Mutex::new(()),
+            dir,
+        };
+        if let Err(e) = prune_history(&state.dir.join(HISTORY_FILE), chrono::Utc::now()) {
+            log::warn!("pruning usage history failed: {e:#}");
+        }
+        Ok(state)
+    }
+
+    pub fn adapter(&self, id: ProviderId) -> anyhow::Result<Adapter> {
+        self.adapters
+            .iter()
+            .find(|a| a.id() == id)
+            .cloned()
+            .ok_or_else(|| anyhow::anyhow!("no adapter for {}", id.as_str()))
+    }
+
+    pub fn data_dir(&self) -> &Path {
+        &self.dir
+    }
+
+    /// Where new isolated homes live: settings.profilesDir or <app data>/profiles.
+    pub async fn profiles_dir(&self) -> PathBuf {
+        match self.settings.read().await.profiles_dir.as_deref().map(str::trim) {
+            Some(p) if !p.is_empty() => PathBuf::from(p),
+            _ => self.dir.join("profiles"),
+        }
+    }
+
+    pub async fn save_accounts(&self) -> anyhow::Result<()> {
+        let accounts = self.accounts.read().await;
+        util::write_json_atomic(&self.dir.join(ACCOUNTS_FILE), &*accounts)
+    }
+
+    pub async fn save_settings(&self) -> anyhow::Result<()> {
+        let settings = self.settings.read().await;
+        util::write_json_atomic(&self.dir.join(SETTINGS_FILE), &*settings)
+    }
+
+    pub async fn save_notifications(&self) -> anyhow::Result<()> {
+        let list = self.notifications.read().await;
+        util::write_json_atomic(&self.dir.join(NOTIFICATIONS_FILE), &*list)
+    }
+
+    pub async fn save_latest(&self) -> anyhow::Result<()> {
+        let latest = self.latest.read().await;
+        util::write_json_atomic(&self.dir.join(LATEST_FILE), &*latest)
+    }
+
+    pub async fn save_activity(&self) -> anyhow::Result<()> {
+        let activity = self.activity.read().await;
+        util::write_json_atomic(&self.dir.join(ACTIVITY_FILE), &*activity)
+    }
+
+    pub async fn save_notify_state(&self) -> anyhow::Result<()> {
+        let st = self.notify_state.lock().await;
+        util::write_json_atomic(&self.dir.join(NOTIFY_STATE_FILE), &*st)
+    }
+
+    /// Newest first, capped at MAX_NOTIFICATIONS.
+    pub async fn push_notifications(&self, items: Vec<AppNotification>) -> anyhow::Result<()> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        {
+            let mut list = self.notifications.write().await;
+            for n in items {
+                list.insert(0, n);
+            }
+            list.truncate(MAX_NOTIFICATIONS);
+        }
+        self.save_notifications().await
+    }
+
+    pub async fn append_history(&self, points: &[UsageHistoryPoint]) -> anyhow::Result<()> {
+        if points.is_empty() {
+            return Ok(());
+        }
+        let _guard = self.history_lock.lock().await;
+        append_history_file(&self.dir.join(HISTORY_FILE), points)
+    }
+
+    pub async fn read_history(&self, account_id: Option<&str>, days: u32) -> Vec<UsageHistoryPoint> {
+        let _guard = self.history_lock.lock().await;
+        let since = chrono::Utc::now() - chrono::Duration::days(i64::from(days.max(1)));
+        read_history_file(&self.dir.join(HISTORY_FILE), account_id, since)
+    }
+
+    pub async fn account(&self, id: &str) -> Option<Account> {
+        self.accounts.read().await.iter().find(|a| a.id == id).cloned()
+    }
+}
+
+fn load_or_default<T: Default + for<'de> Deserialize<'de>>(path: &Path) -> T {
+    match std::fs::read_to_string(path) {
+        Ok(s) => serde_json::from_str(&s).unwrap_or_else(|e| {
+            log::warn!("{} is unreadable ({e}); starting fresh", path.display());
+            backup_corrupt(path);
+            T::default()
+        }),
+        Err(_) => T::default(),
+    }
+}
+
+/// Keep a copy of a file we could not parse, so a bad write never silently loses data.
+fn backup_corrupt(path: &Path) {
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let _ = std::fs::copy(path, path.with_file_name(format!("{name}.corrupt-{stamp}")));
+}
+
+/// Accounts load one by one: a single malformed entry is skipped (the file is backed up) instead of
+/// wiping the whole list.
+fn load_accounts(path: &Path) -> Vec<Account> {
+    let Some(raw) = util::read_json(path) else {
+        if path.exists() {
+            backup_corrupt(path);
+        }
+        return vec![];
+    };
+    let entries = raw.as_array().cloned().unwrap_or_default();
+    let mut out = Vec::new();
+    let mut bad = false;
+    for v in entries {
+        match serde_json::from_value::<Account>(v) {
+            Ok(a) => out.push(a),
+            Err(e) => {
+                log::warn!("skipping malformed account: {e}");
+                bad = true;
+            }
+        }
+    }
+    if bad {
+        backup_corrupt(path);
+    }
+    out
+}
+
+/// Settings merge onto defaults key by key, so new fields get defaults and a bad value only resets itself.
+fn load_settings(path: &Path) -> AppSettings {
+    let raw = util::read_json(path).unwrap_or(serde_json::Value::Null);
+    settings_from_value(&raw)
+}
+
+pub fn settings_from_value(raw: &serde_json::Value) -> AppSettings {
+    let defaults = AppSettings::default();
+    let Ok(mut merged) = serde_json::to_value(&defaults) else {
+        return defaults;
+    };
+    if let Some(obj) = raw.as_object() {
+        for (k, v) in obj {
+            let mut candidate = merged.clone();
+            util::merge_json(&mut candidate, &serde_json::json!({ k: v }));
+            if serde_json::from_value::<AppSettings>(candidate.clone()).is_ok() {
+                merged = candidate;
+            }
+        }
+    }
+    serde_json::from_value(merged).unwrap_or(defaults)
+}
+
+fn append_history_file(path: &Path, points: &[UsageHistoryPoint]) -> anyhow::Result<()> {
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
+    let mut buf = Vec::new();
+    for p in points {
+        serde_json::to_writer(&mut buf, p)?;
+        buf.push(b'\n');
+    }
+    f.write_all(&buf)?;
+    Ok(())
+}
+
+fn read_history_file(
+    path: &Path,
+    account_id: Option<&str>,
+    since: chrono::DateTime<chrono::Utc>,
+) -> Vec<UsageHistoryPoint> {
+    let Ok(f) = std::fs::File::open(path) else {
+        return vec![];
+    };
+    std::io::BufReader::new(f)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|l| serde_json::from_str::<UsageHistoryPoint>(&l).ok())
+        .filter(|p| account_id.is_none_or(|id| p.account_id == id))
+        .filter(|p| util::parse_iso(&p.t).is_some_and(|t| t >= since))
+        .collect()
+}
+
+/// Drop points older than HISTORY_DAYS (and unparseable lines). Rewrites the file atomically.
+pub fn prune_history(path: &Path, now: chrono::DateTime<chrono::Utc>) -> anyhow::Result<()> {
+    let Ok(f) = std::fs::File::open(path) else {
+        return Ok(());
+    };
+    let cutoff = now - chrono::Duration::days(HISTORY_DAYS);
+    let mut kept = Vec::new();
+    let mut dropped = 0usize;
+    for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+        let keep = serde_json::from_str::<UsageHistoryPoint>(&line)
+            .ok()
+            .and_then(|p| util::parse_iso(&p.t))
+            .is_some_and(|t| t >= cutoff);
+        if keep {
+            kept.extend_from_slice(line.as_bytes());
+            kept.push(b'\n');
+        } else {
+            dropped += 1;
+        }
+    }
+    if dropped > 0 {
+        util::write_atomic(path, &kept)?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn point(id: &str, t: chrono::DateTime<chrono::Utc>) -> UsageHistoryPoint {
+        UsageHistoryPoint { account_id: id.into(), t: t.to_rfc3339(), windows: HashMap::from([("w".into(), 10.0)]) }
+    }
+
+    #[test]
+    fn settings_merge_keeps_good_fields_and_defaults_bad_ones() {
+        let raw = serde_json::json!({
+            "pollIntervalMinutes": 7,
+            "theme": "not-a-theme",
+            "notifications": { "enabled": false },
+            "unknownField": 1
+        });
+        let s = settings_from_value(&raw);
+        assert_eq!(s.poll_interval_minutes, 7);
+        assert_eq!(s.theme, Theme::System);
+        assert!(!s.notifications.enabled);
+        assert_eq!(s.notifications.nearly_exhausted_percent, 80.0);
+    }
+
+    #[test]
+    fn history_append_read_and_prune() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(HISTORY_FILE);
+        let now = chrono::Utc::now();
+        let old = now - chrono::Duration::days(100);
+        append_history_file(&path, &[point("a", old), point("a", now), point("b", now)]).unwrap();
+        assert_eq!(read_history_file(&path, Some("a"), old - chrono::Duration::days(1)).len(), 2);
+        assert_eq!(read_history_file(&path, None, now - chrono::Duration::days(1)).len(), 2);
+        prune_history(&path, now).unwrap();
+        assert_eq!(read_history_file(&path, None, old - chrono::Duration::days(1)).len(), 2);
+    }
+
+    #[test]
+    fn bad_account_entries_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(ACCOUNTS_FILE);
+        std::fs::write(&path, r#"[{"id":"broken"}]"#).unwrap();
+        assert!(load_accounts(&path).is_empty());
+    }
+}
