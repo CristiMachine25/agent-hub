@@ -340,7 +340,7 @@ pub struct AppSettings {
     pub permission_modes: PermissionModes,
 }
 
-/// Permission mode Switchyard starts each CLI in, per tool. Values are the tool's own mode names;
+/// Permission mode Agent Hub starts each CLI in, per tool. Values are the tool's own mode names;
 /// "default" leaves the CLI's own setting alone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -477,7 +477,7 @@ pub struct KnowledgeAccount {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderKnowledge {
     pub provider_id: ProviderId,
-    /// The Switchyard shared folder for this tool.
+    /// The Agent Hub shared folder for this tool.
     pub folder: String,
     /// The tool's main folder (default home) the shared folder is seeded from.
     pub main_folder: String,
@@ -526,7 +526,7 @@ pub struct InstalledSkill {
     pub provider_id: ProviderId,
     /// The folder name.
     pub name: String,
-    /// The directory id when Switchyard installed it, else None (copied from the main folder or added by hand).
+    /// The directory id when Agent Hub installed it, else None (copied from the main folder or added by hand).
     pub id: Option<String>,
 }
 

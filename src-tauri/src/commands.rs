@@ -56,7 +56,7 @@ pub async fn emit_accounts(app: &AppHandle, state: &AppState) {
 }
 
 /// Apply sharing off the async runtime; surface backups/copies as an in-app notice.
-/// Knowledge links from the Switchyard shared folder, history from `shared_from`.
+/// Knowledge links from the Agent Hub shared folder, history from `shared_from`.
 pub(crate) async fn apply_sharing(app: &AppHandle, state: &AppState, account: &Account, adapter: Adapter) {
     let acct = account.clone();
     let shared = state.shared_dir(account.provider_id);
@@ -884,7 +884,7 @@ pub async fn skills_install(app: AppHandle, state: St<'_>, id: String, provider_
     Ok(out)
 }
 
-/// Remove a skill Switchyard installed from one tool's shared folder.
+/// Remove a skill Agent Hub installed from one tool's shared folder.
 #[tauri::command]
 pub async fn skills_remove(state: St<'_>, id: String, provider_id: ProviderId) -> Res<()> {
     let r = skill_ref(&id)?;

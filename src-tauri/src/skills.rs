@@ -1,6 +1,6 @@
 //! Skills from the public skills.sh directory, installed into each tool's shared folder so every
 //! account that links its skills gets them at once. The files come from the skill's GitHub
-//! repository at one commit. Nothing is ever overwritten, and only folders Switchyard installed
+//! repository at one commit. Nothing is ever overwritten, and only folders Agent Hub installed
 //! (they carry a marker file) are ever removed.
 use crate::model::{DirectorySkill, ShareKind, SkillPreview};
 use crate::providers::ProviderAdapter;
@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Written into every skill folder Switchyard installs: where it came from.
+/// Written into every skill folder Agent Hub installs: where it came from.
 pub const MARKER: &str = ".switchyard-skill.json";
 
 /// Most files and bytes one skill may bring.
@@ -190,12 +190,12 @@ fn fill(dir: &Path, r: &SkillRef, d: &Download) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The directory id of a skill folder Switchyard installed, from its marker.
+/// The directory id of a skill folder Agent Hub installed, from its marker.
 pub fn installed_id(dir: &Path) -> Option<String> {
     util::read_json(&dir.join(MARKER))?.get("id")?.as_str().map(str::to_string)
 }
 
-/// Delete `<skills_dir>/<skill>` when Switchyard installed it from `r`. A link, or a folder that
+/// Delete `<skills_dir>/<skill>` when Agent Hub installed it from `r`. A link, or a folder that
 /// someone else put there, is left alone.
 pub fn remove_skill(skills_dir: &Path, r: &SkillRef) -> anyhow::Result<()> {
     let target = skills_dir.join(&r.skill);
@@ -278,7 +278,7 @@ fn field(head: &str, key: &str) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-/// The skill folders in `skills_dir`, with the directory id of those Switchyard installed.
+/// The skill folders in `skills_dir`, with the directory id of those Agent Hub installed.
 pub fn list_installed(skills_dir: &Path) -> Vec<(String, Option<String>)> {
     let Ok(entries) = fs::read_dir(skills_dir) else { return Vec::new() };
     let mut out: Vec<(String, Option<String>)> = entries
@@ -296,7 +296,7 @@ pub fn install_into(shared: &Path, adapter: &dyn ProviderAdapter, r: &SkillRef, 
     write_skill(&tool_skills_dir(shared, adapter)?, r, d)
 }
 
-/// Remove a skill Switchyard installed from one tool's shared folder.
+/// Remove a skill Agent Hub installed from one tool's shared folder.
 pub fn remove_from(shared: &Path, adapter: &dyn ProviderAdapter, r: &SkillRef) -> anyhow::Result<()> {
     remove_skill(&tool_skills_dir(shared, adapter)?, r)
 }
@@ -588,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_only_what_switchyard_installed() {
+    fn removes_only_what_agent_hub_installed() {
         let t = tempfile::tempdir().unwrap();
         // Someone else's skill with the same name stays.
         fs::create_dir_all(t.path().join("pdf")).unwrap();

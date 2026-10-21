@@ -305,7 +305,7 @@ export interface KnowledgeAccount {
   kinds: string[]
 }
 
-/** The Switchyard-owned shared profile for one tool: what is in it and who uses it. */
+/** The shared profile Agent Hub owns for one tool: what is in it and who uses it. */
 export interface ProviderKnowledge {
   providerId: ProviderId
   /** The shared folder every account links to. */
@@ -342,7 +342,7 @@ export interface InstalledSkill {
   providerId: ProviderId
   /** The folder name. */
   name: string
-  /** The directory id when Switchyard installed it; null for skills copied from the main folder or added by hand. */
+  /** The directory id when Agent Hub installed it; null for skills copied from the main folder or added by hand. */
   id: string | null
 }
 
@@ -440,7 +440,7 @@ export interface HopperApi {
     installed(): Promise<InstalledSkill[]>
     /** Download once, then add to each tool's shared folder. Never overwrites. */
     install(id: string, providerIds: ProviderId[]): Promise<SkillInstallOutcome[]>
-    /** Only removes a copy Switchyard installed. */
+    /** Only removes a copy Agent Hub installed. */
     remove(id: string, providerId: ProviderId): Promise<void>
   }
   system: {

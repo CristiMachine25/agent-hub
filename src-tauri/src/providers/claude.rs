@@ -598,7 +598,7 @@ impl ClaudeAdapter {
         env.insert("CLAUDE_CONFIG_DIR".into(), value);
         // Strip API-key style auth so the subscription login is used.
         env_unset(&mut env, &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
-        // When Switchyard itself was started from a Claude Code terminal, don't let the new CLI think it is
+        // When Agent Hub itself was started from a Claude Code terminal, don't let the new CLI think it is
         // a child of that session (it would turn off transcript saving and talk to the parent's socket).
         let inherited: Vec<&str> = SESSION_MARKERS.iter().copied().filter(|k| std::env::var_os(k).is_some()).collect();
         env_unset(&mut env, &inherited);
