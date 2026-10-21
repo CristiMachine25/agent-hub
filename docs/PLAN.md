@@ -1,10 +1,10 @@
-# Switchyard: plan
+# Agent Hub: plan
 
 ## The problem
 
 Power users pay for several AI subscriptions (Claude Pro/Max, ChatGPT Plus/Pro for Codex, Gemini, GitHub Copilot) and often several accounts of the same one. Each has rolling usage limits (5-hour sessions, weekly caps, monthly premium requests). Today you switch by logging out and back in, lose track of which account has quota left, and let limits reset unused, which wastes money.
 
-**Switchyard** is a small desktop app (Windows, macOS, Linux) that:
+**Agent Hub** is a small desktop app (Windows, macOS, Linux) that:
 
 1. Finds the AI accounts already on the machine.
 2. Keeps each account in its own isolated config home, so all of them stay logged in at once.
@@ -25,7 +25,7 @@ Power users pay for several AI subscriptions (Claude Pro/Max, ChatGPT Plus/Pro f
 | [aisw](https://burakdede.com/blog/switch-accounts-claude-code-codex-gemini-cli/), ccs, claude-profiles | Shell profile switchers | CLI only |
 | BridgeSpace (BridgeMind) | Grid of many agent terminals in one window | Not account-aware |
 
-Nobody ships a **cross-platform GUI** that combines profiles, live limits, launching and recommendations across providers. That is Switchyard.
+Nobody ships a **cross-platform GUI** that combines profiles, live limits, launching and recommendations across providers. That is Agent Hub.
 
 ## Tech choice
 
@@ -33,7 +33,7 @@ Nobody ships a **cross-platform GUI** that combines profiles, live limits, launc
 
 ## How accounts are isolated
 
-Every CLI supports pointing at an alternate home. Switchyard creates one home per account and launches the CLI with the matching env var:
+Every CLI supports pointing at an alternate home. Agent Hub creates one home per account and launches the CLI with the matching env var:
 
 | Provider | CLI | Isolation | Credentials | Usage source |
 |---|---|---|---|---|
