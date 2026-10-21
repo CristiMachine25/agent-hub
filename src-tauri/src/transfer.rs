@@ -321,16 +321,25 @@ fn file_sources(state: &AppState, accounts: &[Account]) -> anyhow::Result<Vec<(A
 fn collect_files(sources: &[(Adapter, PathBuf)]) -> (Vec<BundleFile>, usize) {
     let (mut out, mut skipped, mut total) = (Vec::new(), 0, 0u64);
     for (adapter, root) in sources {
-        let provider = adapter.id();
+        let (provider, credentials) = (adapter.id(), adapter.credential_paths());
         for (kind, rels) in adapter.shareable_paths().into_iter().filter(|(k, _)| PORTABLE_KINDS.contains(k)) {
             for rel in rels {
-                for file in walk(&root.join(rel)) {
+                let top = root.join(rel);
+                if holds_sign_in(&top, adapter.as_ref()) {
+                    continue;
+                }
+                for file in walk(&top) {
                     let size = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(u64::MAX);
                     if size > MAX_FILE || total + size > MAX_BUNDLE {
                         skipped += 1;
                         continue;
                     }
-                    let (Ok(bytes), Ok(rel_path)) = (std::fs::read(&file), file.strip_prefix(root)) else {
+                    // Import refuses sign-in paths (see bundle_target), so they are never read.
+                    let Some(rel_path) = file.strip_prefix(root).ok().filter(|r| !sharing::touches_credentials(&to_portable(r), &credentials)) else {
+                        skipped += 1;
+                        continue;
+                    };
+                    let Ok(bytes) = std::fs::read(&file) else {
                         skipped += 1;
                         continue;
                     };
@@ -372,13 +381,21 @@ fn knowledge_root(state: &AppState, adapter: &Adapter) -> PathBuf {
     }
 }
 
-/// Every regular file under `p` (or `p` itself), skipping VCS folders and dependency caches.
+/// A kind's own folder or file may be a link (a skills folder kept in a checkout), but not to a
+/// tool's home or anything above one, nor to a sign-in file.
+fn holds_sign_in(top: &Path, adapter: &dyn ProviderAdapter) -> bool {
+    let Ok(real) = top.canonicalize() else { return false };
+    let home = adapter.default_home().canonicalize();
+    home.is_ok_and(|h| h.starts_with(&real)) || adapter.credential_paths().iter().any(|c| real.ends_with(c) || real.join(c).exists())
+}
+
+/// Every regular file under `p` (or `p` itself), skipping VCS folders and dependency caches. `p`
+/// itself may be a link, but links inside it are not followed, as import never writes through one.
 fn walk(p: &Path) -> Vec<PathBuf> {
     if p.is_file() {
         return vec![p.to_path_buf()];
     }
     walkdir::WalkDir::new(p)
-        .follow_links(true)
         .into_iter()
         .filter_entry(|e| !matches!(e.file_name().to_str(), Some(".git" | "node_modules" | "__pycache__" | ".venv")))
         .filter_map(Result::ok)
@@ -772,6 +789,35 @@ mod tests {
         assert_eq!(bundle_target(&root, claude.as_ref(), &f("skills/loop/settings.json")), None);
         let instructions = BundleFile { kind: "instructions".into(), ..f("CLAUDE.md") };
         assert_eq!(bundle_target(&root, claude.as_ref(), &instructions), Some(root.join("CLAUDE.md")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_never_follows_a_link_into_a_tools_home() {
+        use std::os::unix::fs::symlink;
+        let claude = crate::providers::get(ProviderId::Claude);
+        let t = tempfile::tempdir().unwrap();
+        let (root, repo, home) = (t.path().join("shared"), t.path().join("repo"), t.path().join("home"));
+        for d in [root.join("commands"), repo.join("pdf"), home.clone()] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(home.join(".credentials.json"), "secret").unwrap();
+        std::fs::write(home.join("settings.json"), "{}").unwrap();
+        std::fs::write(repo.join("pdf").join("SKILL.md"), "skill").unwrap();
+        std::fs::write(root.join("commands").join("review.md"), "review").unwrap();
+        // A skills folder kept in a checkout is exported, but not a link inside it back to the home,
+        symlink(&repo, root.join("skills")).unwrap();
+        symlink(&home, repo.join("loop")).unwrap();
+        // a kind folder that is itself a link to the home, or a file linked to a sign-in.
+        symlink(&home, root.join("agents")).unwrap();
+        symlink(home.join(".credentials.json"), root.join("commands").join("creds.md")).unwrap();
+        symlink(home.join(".credentials.json"), root.join("CLAUDE.md")).unwrap();
+
+        let (files, _) = collect_files(&[(claude.clone(), root.clone())]);
+        let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, ["commands/review.md", "skills/pdf/SKILL.md"]);
+        assert!(files.iter().all(|f| bundle_target(&root, claude.as_ref(), f).is_some()), "import takes everything export writes");
     }
 
     #[test]
