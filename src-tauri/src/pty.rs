@@ -1,8 +1,10 @@
 //! Embedded terminals: CLIs running in a pseudo terminal (ConPTY on Windows, openpty on unix)
 //! whose output streams to the UI as events. Independent of Tauri: output goes to a [`PtySink`].
 //!
-//! Per terminal there are three threads:
+//! Per terminal there are four threads:
 //! - reader: blocking reads from the pty, forwards raw bytes to the pump;
+//! - writer: writes input to the pty in the order it was sent, so a CLI that stops reading
+//!   never blocks the caller or lets later keys overtake earlier ones;
 //! - waiter: waits for the child to exit and tells the pump the exit code;
 //! - pump: batches bytes (~16 ms / 64 KB), decodes UTF-8 across chunk boundaries, keeps the
 //!   scrollback and calls the sink. It emits the exit only after all output was delivered.
@@ -14,6 +16,7 @@ use portable_pty::{ChildKiller, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -25,6 +28,8 @@ pub const SCROLLBACK_BYTES: usize = 256 * 1024;
 const EXIT_DRAIN: Duration = Duration::from_millis(150);
 /// Give up waiting for the reader's EOF this long after the pty was closed.
 const EOF_TIMEOUT: Duration = Duration::from_secs(3);
+/// How long a closed terminal's CLI gets to exit after SIGHUP before it is killed outright.
+const KILL_GRACE: Duration = Duration::from_secs(1);
 
 /// ConPTY asks for the cursor position once at startup and blocks until it gets an answer.
 const DSR_REQUEST: &str = "\x1b[6n";
@@ -160,14 +165,15 @@ pub struct PtySpawn {
     pub rows: u16,
 }
 
-type SharedWriter = Arc<Mutex<Box<dyn Write + Send>>>;
-
 struct Session {
     info: TerminalInfo,
     /// Dropped to close the pty (on Windows that is what ends the reader).
     master: Option<Box<dyn MasterPty + Send>>,
-    writer: SharedWriter,
+    /// Feeds the writer thread.
+    input: Sender<Vec<u8>>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    /// Set by the waiter as soon as the child has exited.
+    exited: Arc<AtomicBool>,
     scrollback: Scrollback,
 }
 
@@ -260,7 +266,8 @@ impl Terminals {
             }
         };
         let reader = pair.master.try_clone_reader().map_err(|e| anyhow!("terminal reader: {e}"))?;
-        let writer: SharedWriter = Arc::new(Mutex::new(pair.master.take_writer().map_err(|e| anyhow!("terminal writer: {e}"))?));
+        let input = spawn_writer(pair.master.take_writer().map_err(|e| anyhow!("terminal writer: {e}"))?);
+        let exited = Arc::new(AtomicBool::new(false));
 
         let id = uuid::Uuid::new_v4().to_string();
         let info = TerminalInfo {
@@ -277,8 +284,9 @@ impl Terminals {
         let session = Session {
             info: info.clone(),
             master: Some(pair.master),
-            writer: writer.clone(),
+            input: input.clone(),
             killer: child.clone_killer(),
+            exited: exited.clone(),
             scrollback: Scrollback::new(SCROLLBACK_BYTES),
         };
         lock(&self.map).insert(id.clone(), session);
@@ -288,17 +296,19 @@ impl Terminals {
         let wait_tx = tx;
         std::thread::spawn(move || {
             let code = child.wait().ok().map(|s| s.exit_code() as i32);
+            exited.store(true, Ordering::SeqCst);
             let _ = wait_tx.send(Msg::Exited(code));
         });
-        let pump = Pump { id, terminals: self.clone(), sink, writer, script };
+        let pump = Pump { id, terminals: self.clone(), sink, input, script };
         std::thread::spawn(move || pump.run(rx));
         Ok(info)
     }
 
+    /// Queue input for the terminal; returns at once, the writer thread delivers it in order.
     pub fn write(&self, id: &str, data: &[u8]) -> anyhow::Result<()> {
-        let writer = lock(&self.map).get(id).map(|s| s.writer.clone()).ok_or_else(|| anyhow!("Terminal not found"))?;
-        let mut w = lock(&writer);
-        w.write_all(data).and_then(|_| w.flush()).context("writing to the terminal")
+        let map = lock(&self.map);
+        let session = map.get(id).ok_or_else(|| anyhow!("Terminal not found"))?;
+        session.input.send(data.to_vec()).map_err(|_| anyhow!("The terminal is closed"))
     }
 
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> anyhow::Result<()> {
@@ -313,15 +323,16 @@ impl Terminals {
     /// Kill the process (if still running) and forget the terminal.
     pub fn kill(&self, id: &str) -> anyhow::Result<()> {
         let session = lock(&self.map).remove(id).ok_or_else(|| anyhow!("Terminal not found"))?;
-        close_session(session);
+        if let Some(stopping) = close_session(session) {
+            std::thread::spawn(move || kill_after_grace(vec![stopping]));
+        }
         Ok(())
     }
 
+    /// On quit: waits up to KILL_GRACE for the CLIs to exit, then kills the rest.
     pub fn kill_all(&self) {
         let sessions: Vec<Session> = lock(&self.map).drain().map(|(_, s)| s).collect();
-        for s in sessions {
-            close_session(s);
-        }
+        kill_after_grace(sessions.into_iter().filter_map(close_session).collect());
     }
 
     pub fn list(&self) -> Vec<TerminalInfo> {
@@ -347,11 +358,50 @@ impl Terminals {
     }
 }
 
-fn close_session(mut s: Session) {
-    if !s.info.exited {
+/// A child that was asked to stop: its pid and whether the waiter has seen it exit.
+type Stopping = (Option<u32>, Arc<AtomicBool>);
+
+/// Ask a running child to stop (SIGHUP on unix, TerminateProcess on Windows) and close the pty.
+fn close_session(mut s: Session) -> Option<Stopping> {
+    let running = !s.exited.load(Ordering::SeqCst);
+    if running {
         let _ = s.killer.kill();
     }
     drop(s.master.take());
+    running.then(|| (s.info.pid, s.exited.clone()))
+}
+
+/// Give stopping children KILL_GRACE to exit, then SIGKILL the rest with their process groups:
+/// a CLI that traps or ignores SIGHUP would otherwise outlive its pane, still signed in.
+fn kill_after_grace(children: Vec<Stopping>) {
+    let deadline = Instant::now() + KILL_GRACE;
+    while Instant::now() < deadline && children.iter().any(|(_, exited)| !exited.load(Ordering::SeqCst)) {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    #[cfg(unix)]
+    for (pid, exited) in children {
+        // Not exited means not yet reaped by the waiter, so the pid still names our child. It leads
+        // its own session (setsid), so the pid is also its process group id.
+        if let (Some(pid), false) = (pid.and_then(|p| i32::try_from(p).ok()), exited.load(Ordering::SeqCst)) {
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+                libc::kill(pid, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+/// One thread per terminal writes its input, so chunks reach the pty in the order they were sent.
+fn spawn_writer(mut writer: Box<dyn Write + Send>) -> Sender<Vec<u8>> {
+    let (tx, rx) = mpsc::channel::<Vec<u8>>();
+    std::thread::spawn(move || {
+        for data in rx {
+            if writer.write_all(&data).and_then(|_| writer.flush()).is_err() {
+                break; // the pty is gone
+            }
+        }
+    });
+    tx
 }
 
 fn spawn_reader(mut reader: Box<dyn Read + Send>, tx: Sender<Msg>) {
@@ -377,7 +427,7 @@ struct Pump {
     id: String,
     terminals: Terminals,
     sink: Arc<dyn PtySink>,
-    writer: SharedWriter,
+    input: Sender<Vec<u8>>,
     script: Option<PathBuf>,
 }
 
@@ -440,8 +490,7 @@ impl Pump {
         if !*dsr_answered {
             if let Some(pos) = text.find(DSR_REQUEST) {
                 text.replace_range(pos..pos + DSR_REQUEST.len(), "");
-                let mut w = lock(&self.writer);
-                let _ = w.write_all(DSR_REPLY).and_then(|_| w.flush());
+                let _ = self.input.send(DSR_REPLY.to_vec());
                 *dsr_answered = true;
             }
         }
@@ -624,6 +673,48 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(20);
         while lock(&sink.exit).is_none() {
             assert!(Instant::now() < deadline, "no exit after kill");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// A CLI that is not reading its input must not make writes block (or reorder later keys).
+    #[cfg(unix)]
+    #[test]
+    fn writes_return_while_the_child_is_not_reading() {
+        let terminals = Terminals::default();
+        let sink = Arc::new(TestSink::default());
+        let spec = CommandSpec { program: "sh".into(), args: vec!["-c".into(), "stty raw -echo; echo ready; sleep 5".into()], ..Default::default() };
+        let info = terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24 }, sink.clone()).expect("spawn");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !lock(&sink.out).contains("ready") {
+            assert!(Instant::now() < deadline, "no output: {:?}", lock(&sink.out));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let started = Instant::now();
+        for _ in 0..64 {
+            terminals.write(&info.id, &[b'x'; 16 * 1024]).expect("write");
+        }
+        assert!(started.elapsed() < Duration::from_secs(2), "writes blocked for {:?}", started.elapsed());
+        terminals.kill(&info.id).expect("kill");
+    }
+
+    /// Closing a pane ends a CLI even when it ignores SIGHUP.
+    #[cfg(unix)]
+    #[test]
+    fn kill_escalates_when_hangup_is_ignored() {
+        let terminals = Terminals::default();
+        let sink = Arc::new(TestSink::default());
+        let spec = CommandSpec { program: "sh".into(), args: vec!["-c".into(), "trap '' HUP; echo ready; sleep 30".into()], ..Default::default() };
+        let info = terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24 }, sink.clone()).expect("spawn");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !lock(&sink.out).contains("ready") {
+            assert!(Instant::now() < deadline, "no output: {:?}", lock(&sink.out));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let started = Instant::now();
+        terminals.kill(&info.id).expect("kill");
+        while lock(&sink.exit).is_none() {
+            assert!(started.elapsed() < Duration::from_secs(8), "still running after kill");
             std::thread::sleep(Duration::from_millis(20));
         }
     }

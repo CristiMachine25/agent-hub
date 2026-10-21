@@ -4011,6 +4011,7 @@ dependencies = [
  "glob",
  "hex",
  "junction",
+ "libc",
  "log",
  "once_cell",
  "pbkdf2",

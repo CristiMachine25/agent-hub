@@ -151,6 +151,29 @@ function keyHandler(term: Terminal) {
   }
 }
 
+/** Sends keystrokes in order: one write in flight per terminal; input typed meanwhile goes in the next one. */
+function inputWriter(id: string): (data: string) => void {
+  let queued = ''
+  let sending = false
+  const send = () => {
+    if (sending || !queued) return
+    const data = queued
+    queued = ''
+    sending = true
+    void api.terminals
+      .write(id, data)
+      .catch(() => {})
+      .finally(() => {
+        sending = false
+        send()
+      })
+  }
+  return (data) => {
+    queued += data
+    send()
+  }
+}
+
 /** The xterm for a backend terminal, created on first use. `scrollback` seeds a re-attached terminal. */
 export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string): TermEntry {
   ensureListeners()
@@ -176,7 +199,7 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
     })
   )
   term.attachCustomKeyEventHandler(keyHandler(term))
-  term.onData((data) => void api.terminals.write(id, data).catch(() => {}))
+  term.onData(inputWriter(id))
   term.open(host)
   const entry: TermEntry = { term, fit, host, cols: term.cols, rows: term.rows }
   entries.set(id, entry)
