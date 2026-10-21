@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { AlertTriangle, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
 import type { Account, DailyActivity, ProviderId, Recommendation, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
 import { api } from '@/api'
+import { modKey } from '@/lib/platform'
 import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER, TASKS, launchVerb } from '@/lib/providers'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
@@ -18,6 +19,7 @@ export function Overview() {
   const settings = useStore((s) => s.settings)
   const now = useStore((s) => s.now)
   const setAddOpen = useStore((s) => s.setAddOpen)
+  const setPalette = useStore((s) => s.setPalette)
 
   const [history, setHistory] = useState<UsageHistoryPoint[]>([])
   const [activity, setActivity] = useState<DailyActivity[]>([])
@@ -62,7 +64,15 @@ export function Overview() {
   const act = activity.filter((d) => Date.parse(d.date + 'T23:59:59') >= activitySince)
 
   return (
-    <Page title="Overview">
+    <Page
+      title="Overview"
+      actions={
+        // The palette has no button of its own; this is where its shortcut is learned.
+        <button className="btn btn-ghost btn-sm" onClick={() => setPalette(true)} data-tip="Launch any account or jump to a screen">
+          <Search size={13} /> Find and launch <span className="kbd">{modKey(api.platform)} K</span>
+        </button>
+      }
+    >
       <UseNow />
       {alerts.length > 0 && <Alerts alerts={alerts} />}
       <Board />
@@ -124,10 +134,12 @@ export function Page({ title, actions, children }: { title: string; actions?: Re
 }
 
 /** The 56px bar at the top of a screen. It doubles as the window's title bar, so empty parts of it drag the window. */
-export function Toolbar({ title, children }: { title: React.ReactNode; children?: React.ReactNode }) {
+export function Toolbar({ title, level = 1, children }: { title: React.ReactNode; level?: 1 | 2; children?: React.ReactNode }) {
+  // A screen with its own titled side panel (Accounts) uses level 2 here, so it keeps one h1.
+  const Heading = level === 1 ? 'h1' : 'h2'
   return (
     <header data-tauri-drag-region="deep" className="flex h-14 shrink-0 items-center gap-4 border-b border-rivet px-5">
-      <h1 className="min-w-0 truncate font-serif text-lg font-semibold">{title}</h1>
+      <Heading className="min-w-0 truncate font-serif text-lg font-semibold">{title}</Heading>
       <div className="ml-auto flex shrink-0 items-center gap-2">{children}</div>
     </header>
   )
@@ -438,7 +450,7 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
           <button
             className="btn btn-sm w-[92px]"
             onClick={() => launch(a.id, 'cli')}
-            data-tip={atLimit ? 'At its limit: the CLI opens but will refuse new messages until the reset' : undefined}
+            data-tip={atLimit ? 'Limit reached: the CLI opens but will refuse new messages until the reset' : undefined}
             aria-label={`${launchVerb(a.providerId)} as ${a.label}`}
           >
             <Play size={12} fill="currentColor" /> Launch

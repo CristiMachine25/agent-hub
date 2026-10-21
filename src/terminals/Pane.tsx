@@ -9,7 +9,7 @@ import { bindingWindow, leftOf } from '@/lib/quota'
 import { formatCountdown, formatPct, windowName } from '@/lib/format'
 import { PROVIDER_META } from '@/lib/providers'
 import { Meter } from '@/components/Meter'
-import { AccountDot, ProviderMark } from '@/components/ui'
+import { AccountDot, ProviderMark, onRadioArrows } from '@/components/ui'
 import { fitTerm, getTerm } from './registry'
 import { useGrid } from './store'
 
@@ -47,9 +47,9 @@ function useAccount(id: string | undefined): Account | undefined {
 /** "Claude H2 (100% left)" style candidate text. */
 function leftText(a: Account, usage: ReturnType<typeof useStore.getState>['usage']): string {
   const b = bindingWindow(usage[a.id])
-  if (isSignedOut(a)) return 'signed out'
-  if (!b) return 'no live limits'
-  return atLimit(usage[a.id]) ? 'at its limit' : `${formatPct(leftOf(b))} left`
+  if (isSignedOut(a)) return 'Signed out'
+  if (!b) return 'No live limits'
+  return atLimit(usage[a.id]) ? 'Limit reached' : `${formatPct(leftOf(b))} left`
 }
 
 function ContinueMenu({ index, account, onDone }: { index: number; account: Account; onDone(): void }) {
@@ -236,6 +236,8 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
   const [resume, setResume] = useState(!!pane.resume)
   const chosen = accounts.find((a) => a.id === accountId)
   const prov = chosen ? providers.find((p) => p.id === chosen.providerId) : undefined
+  // The account list's one Tab stop: the chosen account, or the first one while none is.
+  const stop = chosen ? chosen.id : groups[0]?.accounts[0]?.id
 
   if (!accounts.length)
     return (
@@ -260,7 +262,7 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
         }}
       >
         <p className="picker-title font-serif text-lg">{pane.accountId ? 'Start this pane again' : 'Start an AI CLI here'}</p>
-        <div className="picker-list flex max-h-[220px] flex-col gap-2 overflow-y-auto rounded-lg border border-rivet bg-deck p-1.5" role="radiogroup" aria-label="Account">
+        <div className="picker-list flex max-h-[220px] flex-col gap-2 overflow-y-auto rounded-lg border border-rivet bg-deck p-1.5" role="radiogroup" aria-label="Account" onKeyDown={onRadioArrows}>
           {groups.map((g) => (
             <div key={g.providerId}>
               <p className="flex items-center gap-1.5 px-2 pb-1 pt-1 text-xs text-muted">
@@ -275,6 +277,7 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
                     key={a.id}
                     role="radio"
                     aria-checked={on}
+                    tabIndex={a.id === stop ? 0 : -1}
                     onClick={() => setAccountId(a.id)}
                     className={clsx('flex w-full items-center gap-2 rounded px-2 py-1.5 text-left', on ? 'bg-raised ring-1 ring-hop/60' : 'hover:bg-raised/60')}
                   >
@@ -293,13 +296,14 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded border border-rivet p-0.5" role="radiogroup" aria-label="What to run">
+          <div className="inline-flex rounded border border-rivet p-0.5" role="radiogroup" aria-label="What to run" onKeyDown={onRadioArrows}>
             {(['cli', 'login'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
                 role="radio"
                 aria-checked={target === t}
+                tabIndex={target === t ? 0 : -1}
                 onClick={() => setTarget(t)}
                 className={clsx('flex h-6 items-center gap-1 rounded-[4px] px-2 text-xs', target === t ? 'bg-raised font-semibold text-ink' : 'text-muted hover:text-ink')}
               >

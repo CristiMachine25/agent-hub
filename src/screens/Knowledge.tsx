@@ -95,8 +95,8 @@ export function Knowledge() {
     <Page
       title="Knowledge"
       actions={
-        <button className="btn" onClick={() => load()} disabled={loading} data-tip="Read the shared folders again">
-          <RefreshCw size={14} className={clsx(loading && 'animate-spin')} /> Refresh
+        <button className="btn btn-sm" onClick={() => load()} disabled={loading} data-tip="Read the shared folders again">
+          <RefreshCw size={13} className={clsx(loading && 'animate-spin')} /> Refresh
         </button>
       }
     >

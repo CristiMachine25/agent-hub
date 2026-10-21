@@ -80,7 +80,7 @@ export function Settings() {
             <Switch checked={n.enabled} onChange={(v) => setN({ enabled: v })} label="Show notifications" />
           </Row>
           <Row label="Warn when a limit is nearly used" help={`When an account has used ${n.nearlyExhaustedPercent}% of any limit.`}>
-            <Slider value={n.nearlyExhaustedPercent} min={50} max={95} step={5} unit="% used" onChange={(v) => setN({ nearlyExhaustedPercent: v })} disabled={!n.enabled} label="Nearly used threshold" />
+            <Slider value={n.nearlyExhaustedPercent} min={50} max={95} step={5} unit="% used" onChange={(v) => setN({ nearlyExhaustedPercent: v })} disabled={!n.enabled} label="Warn when a limit is nearly used" />
           </Row>
           <Row
             label="Use it or lose it"
@@ -154,7 +154,7 @@ export function Settings() {
             <Switch checked={s.minimizeToTray} onChange={(v) => save({ minimizeToTray: v })} label="Keep running in the tray" />
           </Row>
           <Row label="Start when you sign in to your computer" help="Agent Hub starts hidden in the tray, ready to warn you about limits.">
-            <Switch checked={s.launchAtLogin} onChange={(v) => save({ launchAtLogin: v })} label="Start at login" />
+            <Switch checked={s.launchAtLogin} onChange={(v) => save({ launchAtLogin: v })} label="Start when you sign in to your computer" />
           </Row>
           <Row label="Terminal font size" help="Text size in the terminal grid. Stored on this computer only.">
             <FontSize />

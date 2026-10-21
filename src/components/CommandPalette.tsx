@@ -34,12 +34,28 @@ export function CommandPalette() {
   const list = useRef<HTMLUListElement>(null)
 
   useEffect(() => {
-    if (open) {
-      setQ('')
-      setActive(0)
-      setTimeout(() => input.current?.focus(), 0)
+    if (!open) return
+    const prev = document.activeElement as HTMLElement | null
+    setQ('')
+    setActive(0)
+    setTimeout(() => input.current?.focus(), 0)
+    // Modal: Escape closes from anywhere in it, and Tab stays on the search field (the list follows the arrow keys).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        e.stopPropagation()
+        setPalette(false)
+      } else if (e.key === 'Tab') {
+        e.preventDefault()
+        input.current?.focus()
+      }
     }
-  }, [open])
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      prev?.focus?.()
+    }
+  }, [open, setPalette])
 
   const items = useMemo<Item[]>(() => {
     const close = () => setPalette(false)
@@ -141,6 +157,7 @@ export function CommandPalette() {
       ['Go to Accounts', 'accounts list', () => go('accounts')],
       ['Go to Knowledge', 'knowledge skills agents commands instructions plugins permissions shared', () => go('knowledge')],
       ['Go to Skills', 'skills explorer directory install find browse skills.sh', () => go('skills')],
+      ['Go to Terminals', 'terminals grid panes split', () => go('terminals')],
       ['Go to Notifications', 'notifications alerts', () => go('notifications')],
       ['Go to Settings', 'settings preferences', () => go('settings')],
       ['Add an account', 'add new create import find detect account', () => setAddOpen(true)],
@@ -186,8 +203,12 @@ export function CommandPalette() {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Quick launch"
-        onMouseDown={(e) => e.stopPropagation()}
+        aria-label="Command palette"
+        onMouseDown={(e) => {
+          e.stopPropagation()
+          // Clicking a row or the chrome keeps focus in the search field, so the keys keep working.
+          if (e.target !== input.current) e.preventDefault()
+        }}
         className="toast-in w-full max-w-[600px] overflow-hidden rounded-lg border border-rivet bg-deck shadow-2xl shadow-black/50"
       >
         <div className="flex items-center gap-2.5 border-b border-rivet px-4">
@@ -211,15 +232,12 @@ export function CommandPalette() {
               } else if (e.key === 'Enter') {
                 e.preventDefault()
                 filtered[active]?.run()
-              } else if (e.key === 'Escape') {
-                e.preventDefault()
-                setPalette(false)
               }
             }}
           />
           <span className="kbd">Esc</span>
         </div>
-        <ul id="palette-list" ref={list} role="listbox" className="max-h-[52vh] overflow-y-auto py-1.5">
+        <ul id="palette-list" ref={list} role="listbox" aria-label="Results" tabIndex={-1} className="max-h-[52vh] overflow-y-auto py-1.5">
           {filtered.length === 0 && <li className="px-4 py-6 text-center text-muted">Nothing matches “{q}”.</li>}
           {filtered.map((it, i) => {
             const header = it.group !== lastGroup ? it.group : null

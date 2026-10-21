@@ -78,10 +78,12 @@ export function WindowGauge({
   const reset = resetText(w.resetsAt, now)
   const reached = left <= 0.5
   return (
-    <div className={clsx('min-w-0', stale && 'opacity-60')}>
+    <div className={clsx('min-w-0', stale && '[&_[role=meter]]:opacity-60')}>
       <div className="flex items-baseline justify-between gap-2 mb-1">
-        <span className="text-xs text-muted truncate">{w.label}</span>
-        <span className={clsx('text-xs font-semibold tabular-nums', reached ? 'text-empty' : 'text-ink')}>
+        <span className="text-xs text-muted truncate" data-tip={w.label}>
+          {w.label}
+        </span>
+        <span className={clsx('shrink-0 whitespace-nowrap text-xs font-semibold tabular-nums', reached ? 'text-empty' : 'text-ink')}>
           {reached ? 'Limit reached' : `${formatPct(left)} left`}
         </span>
       </div>

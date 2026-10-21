@@ -13,3 +13,6 @@ export function useChartColors() {
 }
 
 export const axisTick = (fill: string) => ({ fill, fontSize: 11, fontFamily: 'inherit' })
+
+/** Date and hour in chart tooltips: "Oct 21, 3 PM". */
+export const tipTime = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })
