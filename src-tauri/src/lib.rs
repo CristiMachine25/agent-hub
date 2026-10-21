@@ -8,6 +8,7 @@ pub mod providers;
 pub mod pty;
 pub mod recommend;
 pub mod sharing;
+pub mod skills;
 pub mod store;
 pub mod transfer;
 pub mod usage;
