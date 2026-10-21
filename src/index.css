@@ -80,6 +80,10 @@
     @apply p-0 w-4 h-4;
     accent-color: rgb(var(--hop));
   }
+  /* The search fields draw their own clear button. */
+  input[type='search']::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+  }
   input[type='range'] {
     @apply p-0 border-0 bg-transparent;
     accent-color: rgb(var(--hop));
