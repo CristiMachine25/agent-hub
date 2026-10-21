@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { AlertTriangle, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
 import type { Account, DailyActivity, ProviderId, Recommendation, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
 import { api } from '@/api'
+import { modKey } from '@/lib/platform'
 import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER, TASKS, launchVerb } from '@/lib/providers'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
@@ -18,6 +19,7 @@ export function Overview() {
   const settings = useStore((s) => s.settings)
   const now = useStore((s) => s.now)
   const setAddOpen = useStore((s) => s.setAddOpen)
+  const setPalette = useStore((s) => s.setPalette)
 
   const [history, setHistory] = useState<UsageHistoryPoint[]>([])
   const [activity, setActivity] = useState<DailyActivity[]>([])
@@ -62,7 +64,15 @@ export function Overview() {
   const act = activity.filter((d) => Date.parse(d.date + 'T23:59:59') >= activitySince)
 
   return (
-    <Page title="Overview">
+    <Page
+      title="Overview"
+      actions={
+        // The palette has no button of its own; this is where its shortcut is learned.
+        <button className="btn btn-ghost btn-sm" onClick={() => setPalette(true)} data-tip="Launch any account or jump to a screen">
+          <Search size={13} /> Find and launch <span className="kbd">{modKey(api.platform)} K</span>
+        </button>
+      }
+    >
       <UseNow />
       {alerts.length > 0 && <Alerts alerts={alerts} />}
       <Board />
