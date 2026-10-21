@@ -381,8 +381,9 @@ fn kill_after_grace(children: Vec<Stopping>) {
     #[cfg(unix)]
     for (pid, exited) in children {
         // Not exited means not yet reaped by the waiter, so the pid still names our child. It leads
-        // its own session (setsid), so the pid is also its process group id.
-        if let (Some(pid), false) = (pid.and_then(|p| i32::try_from(p).ok()), exited.load(Ordering::SeqCst)) {
+        // its own session (setsid), so the pid is also its process group id. Never 0 or 1: kill(0)
+        // would hit our own group.
+        if let (Some(pid), false) = (pid.and_then(|p| i32::try_from(p).ok()).filter(|p| *p > 1), exited.load(Ordering::SeqCst)) {
             unsafe {
                 libc::kill(-pid, libc::SIGKILL);
                 libc::kill(pid, libc::SIGKILL);
