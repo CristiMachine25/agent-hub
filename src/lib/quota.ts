@@ -43,7 +43,7 @@ export function litCells(left: number, cells = 20): number {
 }
 
 /** Windows that only cap one model (e.g. "Weekly Opus"): running out still leaves the account usable. */
-function isModelWindow(w: Pick<UsageWindow, 'id'>): boolean {
+export function isModelWindow(w: Pick<UsageWindow, 'id'>): boolean {
   return /opus|sonnet|haiku/i.test(w.id)
 }
 
