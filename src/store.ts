@@ -206,7 +206,7 @@ export const useStore = create<State>((set, get) => ({
   async removeAccount(id, deleteHome) {
     const acc = get().accounts.find((a) => a.id === id)
     try {
-      await api.accounts.remove(id, { deleteHome })
+      const deleted = await api.accounts.remove(id, { deleteHome })
       set((s) => ({
         accounts: s.accounts.filter((a) => a.id !== id),
         selectedId: s.selectedId === id ? null : s.selectedId
@@ -214,7 +214,11 @@ export const useStore = create<State>((set, get) => ({
       get().toast({
         kind: 'success',
         title: `Removed ${acc?.label ?? 'the account'}`,
-        body: deleteHome ? 'Its profile folder was deleted too.' : 'Its profile folder was left on disk.'
+        body: deleted
+          ? 'Its profile folder was deleted too.'
+          : deleteHome
+            ? 'Its folder was left on disk: Agent Hub only deletes folders it made in its profiles folder.'
+            : 'Its profile folder was left on disk.'
       })
       void get().loadRecs()
       return true

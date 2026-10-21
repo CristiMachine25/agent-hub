@@ -369,12 +369,13 @@ pub(crate) async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &
 }
 
 #[tauri::command]
-pub async fn accounts_remove(app: AppHandle, state: St<'_>, id: String, delete_home: bool) -> Res<()> {
+/// True when the account's folder was deleted too.
+pub async fn accounts_remove(app: AppHandle, state: St<'_>, id: String, delete_home: bool) -> Res<bool> {
     let state = state.inner().clone();
     remove_account(&app, &state, &id, delete_home).await.map_err(err)
 }
 
-async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete_home: bool) -> anyhow::Result<()> {
+async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete_home: bool) -> anyhow::Result<bool> {
     let account = {
         let mut accounts = state.accounts.write().await;
         let idx = accounts.iter().position(|a| a.id == id).ok_or_else(|| anyhow!("Account not found"))?;
@@ -386,6 +387,7 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
     let _ = state.save_latest().await;
     let _ = state.save_activity().await;
 
+    let mut deleted = false;
     if delete_home {
         let adapter = state.adapter(account.provider_id)?;
         let home = PathBuf::from(&account.home_dir);
@@ -405,13 +407,14 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
             })
             .await?
             .with_context(|| format!("deleting {}", home.display()))?;
+            deleted = true;
         } else {
             log::info!("not deleting {}: outside the profiles folder or a default home", home.display());
         }
     }
     emit_accounts(app, state).await;
     crate::refresh_tray(app);
-    Ok(())
+    Ok(deleted)
 }
 
 #[tauri::command]
@@ -911,11 +914,21 @@ pub async fn system_open_url(app: AppHandle, url: String) -> Res<()> {
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// A folder Agent Hub keeps (shared folders, profiles in its data folder) or an account's folder.
+/// Never a file, which the system would open or run.
+fn openable_folder(path: &Path, data_dir: &Path, homes: &[String]) -> bool {
+    let key = util::path_key(path);
+    let ours = key.starts_with(&format!("{}/", util::path_key(data_dir)));
+    path.is_dir() && (ours || homes.iter().any(|h| util::path_key(Path::new(h)) == key))
+}
+
+/// Show one of those folders in the file manager.
 #[tauri::command]
-pub async fn system_open_path(app: AppHandle, path: String) -> Res<()> {
+pub async fn system_open_path(app: AppHandle, state: St<'_>, path: String) -> Res<()> {
     use tauri_plugin_opener::OpenerExt;
-    if !Path::new(&path).exists() {
-        return Err(format!("{path} does not exist"));
+    let homes: Vec<String> = state.accounts.read().await.iter().map(|a| a.home_dir.clone()).collect();
+    if !openable_folder(Path::new(&path), state.data_dir(), &homes) {
+        return Err(format!("{path} isn't a folder Agent Hub manages"));
     }
     app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
@@ -931,6 +944,24 @@ mod tests {
         for no in ["http://github.com/x", "https://github.com.evil.io/x", "https://evil.io/?u=https://github.com", "file:///etc/passwd", "javascript:alert(1)", "github.com/x", ""] {
             assert!(!openable(no), "{no}");
         }
+    }
+
+    #[test]
+    fn opens_only_its_own_folders_and_account_folders() {
+        let t = tempfile::tempdir().unwrap();
+        let data = t.path().join("app data");
+        let (shared, home, other) = (data.join("shared").join("claude"), t.path().join(".claude-work"), t.path().join("Documents"));
+        for d in [&shared, &home, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let file = shared.join("run.command");
+        std::fs::write(&file, "x").unwrap();
+        let homes = vec![home.to_string_lossy().into_owned()];
+        assert!(openable_folder(&shared, &data, &homes));
+        assert!(openable_folder(&home, &data, &homes));
+        assert!(!openable_folder(&other, &data, &homes), "not one of ours");
+        assert!(!openable_folder(&file, &data, &homes), "files could run");
+        assert!(!openable_folder(&data.join("missing"), &data, &homes));
     }
 
     #[test]
