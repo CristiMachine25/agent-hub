@@ -6,6 +6,9 @@
   "license": "MIT",
   "author": "Agent Hub contributors",
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
