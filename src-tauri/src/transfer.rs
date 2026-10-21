@@ -337,7 +337,7 @@ fn collect_files(sources: &[(Adapter, PathBuf)]) -> (Vec<BundleFile>, usize) {
                     total += size;
                     out.push(BundleFile {
                         provider_id: provider,
-                        kind: kind_name(kind).into(),
+                        kind: kind.key().into(),
                         path: to_portable(rel_path),
                         data: B64.encode(bytes),
                         executable: is_executable(&file),
@@ -387,15 +387,6 @@ fn walk(p: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
-fn kind_name(k: ShareKind) -> &'static str {
-    match k {
-        ShareKind::Skills => "skills",
-        ShareKind::Agents => "agents",
-        ShareKind::Instructions => "instructions",
-        _ => "other",
-    }
-}
-
 fn to_portable(rel: &Path) -> String {
     rel.components().filter_map(|c| c.as_os_str().to_str()).collect::<Vec<_>>().join("/")
 }
@@ -412,7 +403,7 @@ fn bundle_target(root: &Path, adapter: &dyn ProviderAdapter, f: &BundleFile) -> 
     let fits = adapter
         .shareable_paths()
         .into_iter()
-        .filter(|(k, _)| PORTABLE_KINDS.contains(k) && kind_name(*k) == f.kind)
+        .filter(|(k, _)| PORTABLE_KINDS.contains(k) && k.key() == f.kind)
         .flat_map(|(_, rels)| rels)
         .find(|rel| f.path == *rel || f.path.starts_with(&format!("{rel}/")))?;
     if sharing::touches_credentials(&f.path, &adapter.credential_paths()) {
