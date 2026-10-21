@@ -80,7 +80,7 @@ const ANSI: Record<'dark' | 'light', ITheme> = {
   }
 }
 
-export function terminalTheme(mode: 'dark' | 'light'): ITheme {
+function terminalTheme(mode: 'dark' | 'light'): ITheme {
   return {
     ...ANSI[mode],
     background: rgb('ground'),

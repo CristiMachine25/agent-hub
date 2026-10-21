@@ -2,7 +2,7 @@ import type { Account, AppSettings, UsageSnapshot, UsageWindow, UsageHistoryPoin
 
 export type Level = 'full' | 'half' | 'low' | 'empty'
 
-export function clampPct(n: number): number {
+function clampPct(n: number): number {
   if (!Number.isFinite(n)) return 0
   return Math.min(100, Math.max(0, n))
 }
@@ -43,7 +43,7 @@ export function litCells(left: number, cells = 20): number {
 }
 
 /** Windows that only cap one model (e.g. "Weekly Opus"): running out still leaves the account usable. */
-export function isModelWindow(w: Pick<UsageWindow, 'id'>): boolean {
+function isModelWindow(w: Pick<UsageWindow, 'id'>): boolean {
   return /opus|sonnet|haiku/i.test(w.id)
 }
 

@@ -47,7 +47,7 @@ export const LAYOUTS: Record<LayoutId, Layout> = {
   9: { id: 9, cols: 3, rows: 3, rects: uniform(3, 3), label: 'Three by three' }
 }
 
-export function isLayoutId(n: unknown): n is LayoutId {
+function isLayoutId(n: unknown): n is LayoutId {
   return typeof n === 'number' && (LAYOUT_IDS as number[]).includes(n)
 }
 
@@ -114,7 +114,7 @@ export interface Workspace {
 }
 
 let uidSeq = 0
-export function newUid(): string {
+function newUid(): string {
   uidSeq += 1
   return `p${Date.now().toString(36)}${uidSeq.toString(36)}`
 }

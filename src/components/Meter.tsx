@@ -3,7 +3,7 @@ import type { UsageWindow } from '@shared/types'
 import { leftOf, levelFor, levelWord, litCells, type Level } from '@/lib/quota'
 import { formatPct, resetText } from '@/lib/format'
 
-export const LEVEL_BG: Record<Level, string> = {
+const LEVEL_BG: Record<Level, string> = {
   full: 'bg-full',
   half: 'bg-half',
   low: 'bg-low',
