@@ -4,7 +4,7 @@ import type { NotificationKind } from '@shared/types'
 import { useStore } from '@/store'
 import { formatAgo, formatClock } from '@/lib/format'
 import { AccountDot, EmptyState, SectionTitle } from '@/components/ui'
-import { Page } from './Overview'
+import { Page } from '@/components/Page'
 
 const ICON: Record<NotificationKind, typeof Info> = {
   'limit-reached': AlertTriangle,

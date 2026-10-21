@@ -7,7 +7,7 @@ import { api, errorText } from '@/api'
 import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { AccountDot, EmptyState, ProviderMark, Segmented } from '@/components/ui'
-import { Page } from './Overview'
+import { Page } from '@/components/Page'
 
 type ModeOption<P extends ProviderId> = { id: PermissionModes[P]; label: string; title: string }
 

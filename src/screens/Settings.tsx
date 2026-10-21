@@ -6,7 +6,7 @@ import { useStore } from '@/store'
 import { SHARING_ITEMS } from '@/lib/providers'
 import { Segmented, Switch } from '@/components/ui'
 import { ExportDialog, ImportDialog } from '@/components/Transfer'
-import { Page } from './Overview'
+import { Page } from '@/components/Page'
 import { FONT_SIZE_KEY, FONT_SIZES, restyleAll, terminalFontSize } from '@/terminals/registry'
 
 const TERMINALS: Record<string, { id: string; label: string }[]> = {

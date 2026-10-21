@@ -8,7 +8,7 @@ import { PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { formatTokens } from '@/lib/format'
 import { FEATURED, featuredFor, folderOf, installState, repoUrl, skillPageUrl } from '@/lib/skills'
 import { Dialog, EmptyState, ProviderMark, SectionTitle } from '@/components/ui'
-import { Page } from './Overview'
+import { Page } from '@/components/Page'
 
 /** What a row needs: a directory result, or a featured entry before its counts are known. */
 type Listing = { id: string; name: string; source: string; installs?: number; blurb?: string }

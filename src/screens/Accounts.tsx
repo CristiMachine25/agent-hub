@@ -14,7 +14,7 @@ import { Meter, WindowGauge } from '@/components/Meter'
 import { AccountDot, Dialog, EmptyState, ProviderMark, Segmented, SectionTitle, Switch } from '@/components/ui'
 import { CopyButton } from '@/components/Toasts'
 import { DailyTokens, WindowHistory } from '@/charts/AccountCharts'
-import { Page, Toolbar } from './Overview'
+import { Page, Toolbar } from '@/components/Page'
 
 export function Accounts() {
   const accounts = useStore((s) => s.accounts)
