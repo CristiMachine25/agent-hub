@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useEffect } from 'react'
-import { Bell, Gauge, Library, PanelLeftClose, PanelLeftOpen, RefreshCw, Rocket, Settings2, SquareTerminal, Users } from 'lucide-react'
+import { Bell, Gauge, Library, PanelLeftClose, PanelLeftOpen, RefreshCw, Rocket, Settings, SquareTerminal, Users } from 'lucide-react'
 import { useStore, type Screen } from '@/store'
 import { IS_MOCK, api } from '@/api'
 import { formatAgo } from '@/lib/format'
@@ -8,14 +8,23 @@ import { detectPlatform, isTauri, modKey } from '@/lib/platform'
 import { useCollapsed } from '@/lib/collapse'
 import { Logo } from './Logo'
 
-const NAV: { id: Screen; label: string; icon: typeof Gauge; key: string }[] = [
+interface NavItem {
+  id: Screen
+  label: string
+  icon: typeof Gauge
+  key: string
+}
+
+const NAV: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: Gauge, key: '1' },
   { id: 'accounts', label: 'Accounts', icon: Users, key: '2' },
   { id: 'knowledge', label: 'Knowledge', icon: Library, key: '3' },
   { id: 'terminals', label: 'Terminals', icon: SquareTerminal, key: '4' },
-  { id: 'notifications', label: 'Notifications', icon: Bell, key: '5' },
-  { id: 'settings', label: 'Settings', icon: Settings2, key: '6' }
+  { id: 'notifications', label: 'Notifications', icon: Bell, key: '5' }
 ]
+
+/** Pinned to the bottom of the sidebar, away from the screens you switch between all day. */
+const SETTINGS: NavItem = { id: 'settings', label: 'Settings', icon: Settings, key: '6' }
 
 /** On macOS the native window buttons float over the top of the sidebar. */
 const MAC_TRAFFIC_LIGHTS = isTauri() && detectPlatform() === 'darwin'
@@ -73,35 +82,20 @@ export function Sidebar() {
         </button>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
-        {NAV.map((n) => {
-          const on = screen === n.id
-          const Icon = n.icon
-          return (
-            <li key={n.id}>
-              <button
-                onClick={() => go(n.id)}
-                aria-current={on ? 'page' : undefined}
-                title={`${n.label} (${n.key})`}
-                className={clsx(
-                  'relative flex h-9 w-full items-center gap-2.5 rounded px-2.5 text-sm transition-colors compact:justify-center',
-                  on ? 'bg-raised font-semibold text-ink' : 'text-muted hover:bg-raised/60 hover:text-ink'
-                )}
-              >
-                {on && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-hop" aria-hidden />}
-                <Icon size={17} strokeWidth={on ? 2.2 : 1.8} />
-                <span className="flex-1 text-left compact:hidden">{n.label}</span>
-                {n.id === 'notifications' && unread > 0 && (
-                  <span
-                    className="min-w-5 rounded-full bg-hop px-1.5 text-center text-[11px] font-bold leading-5 text-hop-ink compact:absolute compact:right-1 compact:top-0.5 compact:min-w-4 compact:px-1 compact:leading-4"
-                    aria-label={`${unread} unread`}
-                  >
-                    {unread}
-                  </span>
-                )}
-              </button>
-            </li>
-          )
-        })}
+        {NAV.map((n) => (
+          <li key={n.id}>
+            <NavButton item={n} on={screen === n.id} onClick={() => go(n.id)}>
+              {n.id === 'notifications' && unread > 0 && (
+                <span
+                  className="min-w-5 rounded-full bg-hop px-1.5 text-center text-[11px] font-bold leading-5 text-hop-ink compact:absolute compact:right-1 compact:top-0.5 compact:min-w-4 compact:px-1 compact:leading-4"
+                  aria-label={`${unread} unread`}
+                >
+                  {unread}
+                </span>
+              )}
+            </NavButton>
+          </li>
+        ))}
       </ul>
 
       <div className="mt-auto flex flex-col gap-2 p-3 compact:items-center compact:px-1">
@@ -132,7 +126,28 @@ export function Sidebar() {
             Browser preview with demo data. Nothing here touches your real accounts.
           </p>
         )}
+        <NavButton item={SETTINGS} on={screen === SETTINGS.id} onClick={() => go(SETTINGS.id)} />
       </div>
     </nav>
+  )
+}
+
+function NavButton({ item, on, onClick, children }: { item: NavItem; on: boolean; onClick: () => void; children?: React.ReactNode }) {
+  const Icon = item.icon
+  return (
+    <button
+      onClick={onClick}
+      aria-current={on ? 'page' : undefined}
+      title={`${item.label} (${item.key})`}
+      className={clsx(
+        'relative flex h-9 w-full items-center gap-2.5 rounded px-2.5 text-sm transition-colors compact:justify-center',
+        on ? 'bg-raised font-semibold text-ink' : 'text-muted hover:bg-raised/60 hover:text-ink'
+      )}
+    >
+      {on && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-hop" aria-hidden />}
+      <Icon size={17} strokeWidth={on ? 2.2 : 1.8} />
+      <span className="flex-1 text-left compact:hidden">{item.label}</span>
+      {children}
+    </button>
   )
 }
