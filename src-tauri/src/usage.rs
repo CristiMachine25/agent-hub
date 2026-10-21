@@ -74,7 +74,8 @@ pub async fn poll(app: &AppHandle, state: &AppState, only: Option<&str>) -> Hash
         let mut latest = state.latest.write().await;
         latest.retain(|id, _| accounts.iter().any(|a| &a.id == id));
         for f in &fetched {
-            let merged = merge_snapshot(prev.get(&f.account_id), f.snapshot.clone());
+            // Merge onto the current entry, not `prev`: a manual entry saved mid-poll must survive.
+            let merged = merge_snapshot(latest.get(&f.account_id), f.snapshot.clone());
             if merged.stale != Some(true) {
                 if let Some(p) = history_point(&merged, now) {
                     points.push(p);
@@ -242,8 +243,8 @@ pub async fn set_manual(app: &AppHandle, state: &AppState, account_id: &str, win
         error: None,
         stale: None,
     };
+    // No poll_lock: a slow poll holds it for up to a minute, and its merge keeps manual entries.
     let prev = {
-        let _guard = state.poll_lock.lock().await;
         let mut latest = state.latest.write().await;
         let prev = latest.clone();
         latest.insert(account.id.clone(), snap.clone());
