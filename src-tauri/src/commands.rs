@@ -627,10 +627,11 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Sen
     tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(err)
 }
 
+/// Not async: sync commands run one at a time on the main thread, so input keeps its order. The
+/// write only queues the bytes for the terminal's writer thread, so it never blocks.
 #[tauri::command]
-pub async fn terminal_write(terms: Terms<'_>, id: String, data: String) -> Res<()> {
-    let terms = terms.inner().clone();
-    blocking(move || terms.write(&id, data.as_bytes())).await
+pub fn terminal_write(terms: Terms<'_>, id: String, data: String) -> Res<()> {
+    terms.write(&id, data.as_bytes()).map_err(err)
 }
 
 #[tauri::command]

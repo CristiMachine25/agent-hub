@@ -19,6 +19,7 @@ tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-notification = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-log = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -29,7 +30,6 @@ dirs = "5"
 which = "6"
 uuid = { version = "1", features = ["v4"] }
 anyhow = "1"
-thiserror = "1"
 toml = "0.8"
 glob = "0.3"
 walkdir = "2"
@@ -49,6 +49,9 @@ tauri-plugin-autostart = "2"
 
 [target.'cfg(windows)'.dependencies]
 junction = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

@@ -345,7 +345,7 @@ pub async fn preview(r: &SkillRef) -> anyhow::Result<SkillPreview> {
 
 /// The skill's files from its GitHub repository, all from the commit HEAD points at now.
 pub async fn download(r: &SkillRef) -> anyhow::Result<Download> {
-    let http = util::http();
+    let http = util::download_http();
     let api = format!("https://api.github.com/repos/{}/{}", r.owner, r.repo);
     let head = http.get(format!("{api}/commits/HEAD")).header(reqwest::header::ACCEPT, "application/vnd.github.sha");
     let commit = send(head).await?.text().await?.trim().to_string();
