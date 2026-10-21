@@ -27,8 +27,11 @@ const NAV: NavItem[] = [
 /** Pinned to the bottom of the sidebar, away from the screens you switch between all day. */
 const SETTINGS: NavItem = { id: 'settings', label: 'Settings', icon: Settings, key: '7' }
 
-/** On macOS the native window buttons float over the top of the sidebar. */
-const MAC_TRAFFIC_LIGHTS = isTauri() && detectPlatform() === 'darwin'
+/**
+ * On macOS the native window buttons sit in the sidebar's top row (`trafficLightPosition` in
+ * tauri.conf.json centers them in its 56px height, x 16..76), so that row keeps them clear.
+ */
+export const MAC_TRAFFIC_LIGHTS = isTauri() && detectPlatform() === 'darwin'
 
 export function Sidebar() {
   const screen = useStore((s) => s.screen)
@@ -64,12 +67,14 @@ export function Sidebar() {
       aria-label="Main"
       className={clsx(
         'flex shrink-0 flex-col border-r border-rivet bg-deck transition-[width] duration-150',
-        collapsed ? 'sidebar-compact w-[60px]' : 'w-[208px]'
+        collapsed ? clsx('sidebar-compact', MAC_TRAFFIC_LIGHTS ? 'w-[92px]' : 'w-[60px]') : 'w-[208px]'
       )}
     >
-      {MAC_TRAFFIC_LIGHTS && <div data-tauri-drag-region className="h-7 shrink-0" />}
-      <div data-tauri-drag-region="deep" className="flex h-14 items-center gap-2.5 px-4 compact:justify-center compact:px-0">
-        <Logo size={26} />
+      <div
+        data-tauri-drag-region="deep"
+        className={clsx('flex h-14 items-center gap-2.5 px-4 compact:justify-center compact:px-0', MAC_TRAFFIC_LIGHTS && 'pl-[92px]')}
+      >
+        {!MAC_TRAFFIC_LIGHTS && <Logo size={26} />}
         <span className="flex-1 font-serif text-[19px] font-semibold compact:hidden">Agent Hub</span>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
