@@ -550,7 +550,7 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
             Keep account
           </button>
           <button
-            className="btn border-empty bg-empty font-semibold text-white hover:!bg-empty"
+            className="btn btn-destructive"
             disabled={busy}
             onClick={async () => {
               setBusy(true)
