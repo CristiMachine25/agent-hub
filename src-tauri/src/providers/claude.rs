@@ -8,7 +8,7 @@
 //! - `.claude.json` → `oauthAccount {emailAddress, organizationType, organizationRateLimitTier, ...}`.
 //!   For the default home this file is ~/.claude.json, outside ~/.claude.
 //! - `projects/**/*.jsonl` → transcripts with per-message token usage.
-use super::{CommandSpec, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -321,20 +321,30 @@ fn parse_usage(v: &Value) -> (Vec<UsageWindow>, Option<Credits>) {
 // Token refresh (Windows/Linux file credentials only)
 // ---------------------------------------------------------------------------------------------
 
-// Transient refresh failures are worded without "login"/"token"/"auth", so usage::looks_like_auth_error
-// doesn't read them as signed out (and fire a "needs you to log in" alert) while offline.
+const LOGIN_INVALID: &str = "Sign in again: the saved Claude login is no longer valid.";
 const REFRESH_OFFLINE: &str = "could not reach Anthropic (network error)";
 const REFRESH_BAD_RESPONSE: &str = "Anthropic sent an unexpected response";
 
-fn refresh_failed(e: &str) -> String {
-    format!("Could not renew the Claude session: {e}.")
+/// The refresh failure as shown on the account, keeping its kind: being offline must not read as signed out.
+fn refresh_failed(e: FetchError) -> FetchError {
+    FetchError { message: format!("Could not renew the Claude session: {}.", e.message), ..e }
+}
+
+/// The token endpoint refused the refresh without saying invalid_grant.
+fn refresh_http_error(status: u16) -> FetchError {
+    let msg = format!("Anthropic answered HTTP {status}");
+    if matches!(status, 401 | 403) {
+        FetchError::auth(msg)
+    } else {
+        FetchError::other(msg)
+    }
 }
 
 #[derive(Debug)]
 enum RefreshError {
     /// Refresh token rejected: the user has to sign in again.
     InvalidGrant,
-    Other(String),
+    Other(FetchError),
 }
 
 /// Apply a token endpoint response onto the credentials file JSON, keeping every other field.
@@ -376,7 +386,7 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
     if !creds.scopes.is_empty() {
         body["scope"] = json!(creds.scopes.join(" "));
     }
-    let resp = util::http().post(TOKEN_URL).json(&body).send().await.map_err(|_| RefreshError::Other(REFRESH_OFFLINE.into()))?;
+    let resp = util::http().post(TOKEN_URL).json(&body).send().await.map_err(|_| RefreshError::Other(FetchError::network(REFRESH_OFFLINE)))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
@@ -389,18 +399,18 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
             }
             return Err(RefreshError::InvalidGrant);
         }
-        return Err(RefreshError::Other(format!("Anthropic answered HTTP {status}")));
+        return Err(RefreshError::Other(refresh_http_error(status)));
     }
-    let token: Value = serde_json::from_str(&text).map_err(|_| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))?;
+    let token: Value = serde_json::from_str(&text).map_err(|_| RefreshError::Other(FetchError::other(REFRESH_BAD_RESPONSE)))?;
 
     let path = home.join(CREDENTIALS_FILE);
-    let mut file = util::read_json(&path).ok_or_else(|| RefreshError::Other("credentials file disappeared".into()))?;
-    apply_refresh(&mut file, &token, now_ms()).ok_or_else(|| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))?;
-    let bytes = serde_json::to_vec(&file).map_err(|e| RefreshError::Other(e.to_string()))?;
+    let mut file = util::read_json(&path).ok_or_else(|| RefreshError::Other(FetchError::auth("credentials file disappeared")))?;
+    apply_refresh(&mut file, &token, now_ms()).ok_or_else(|| RefreshError::Other(FetchError::other(REFRESH_BAD_RESPONSE)))?;
+    let bytes = serde_json::to_vec(&file).map_err(|e| RefreshError::Other(FetchError::other(e.to_string())))?;
     if let Err(e) = write_credentials_atomic(&path, &bytes) {
         log::warn!("claude: could not write refreshed credentials for {}: {e}", home.display());
     }
-    parse_creds(&file, CredSource::File).ok_or_else(|| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))
+    parse_creds(&file, CredSource::File).ok_or_else(|| RefreshError::Other(FetchError::other(REFRESH_BAD_RESPONSE)))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -550,17 +560,16 @@ fn desktop_data_dir(account: &Account, home: &Path, app: &Path) -> PathBuf {
 
 impl ClaudeAdapter {
     fn snapshot(&self, account: &Account, source: UsageSource, ident: &Identity) -> UsageSnapshot {
-        let mut s = UsageSnapshot::failed(account, source, "");
-        s.error = None;
+        let mut s = UsageSnapshot::empty(account, source);
         s.email = ident.email.clone().or_else(|| account.email.clone());
         s.plan = ident.plan.clone().or_else(|| account.plan.clone());
         s
     }
 
     /// No live data: Claude Code keeps no reliable local copy of its rate limits.
-    fn no_data(&self, account: &Account, ident: &Identity, error: impl Into<String>) -> UsageSnapshot {
+    fn no_data(&self, account: &Account, ident: &Identity, error: FetchError) -> UsageSnapshot {
         let mut s = self.snapshot(account, UsageSource::None, ident);
-        s.error = Some(error.into());
+        error.apply(&mut s);
         s
     }
 
@@ -823,19 +832,19 @@ impl ProviderAdapter for ClaudeAdapter {
 
         if !live {
             let ident = identity_from(read_file_creds(&home).as_ref(), oauth_account.as_ref(), true);
-            return self.no_data(account, &ident, "Live usage is off. Claude Code keeps no local copy of its limits.");
+            return self.no_data(account, &ident, FetchError::other("Live usage is off. Claude Code keeps no local copy of its limits."));
         }
 
         let Some(mut creds) = read_creds(&home, is_default).await else {
             let ident = identity_from(None, oauth_account.as_ref(), false);
-            return self.no_data(account, &ident, "Not signed in. Use Sign in to log this account in.");
+            return self.no_data(account, &ident, FetchError::auth("Not signed in. Use Sign in to log this account in."));
         };
         let ident = identity_from(Some(&creds), oauth_account.as_ref(), true);
 
         let mut refreshed = false;
         if creds.needs_refresh(now_ms()) {
             if creds.source == CredSource::Keychain {
-                let mut s = self.no_data(account, &ident, "Login token expired. Open Claude once to refresh the login.");
+                let mut s = self.no_data(account, &ident, FetchError::expired("Login token expired. Open Claude once to refresh the login."));
                 s.stale = Some(true);
                 return s;
             }
@@ -844,8 +853,8 @@ impl ProviderAdapter for ClaudeAdapter {
                     creds = c;
                     refreshed = true;
                 }
-                Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, "Sign in again: the saved Claude login is no longer valid."),
-                Err(RefreshError::Other(e)) => return self.no_data(account, &ident, refresh_failed(&e)),
+                Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, FetchError::auth(LOGIN_INVALID)),
+                Err(RefreshError::Other(e)) => return self.no_data(account, &ident, refresh_failed(e)),
             }
         }
 
@@ -855,7 +864,7 @@ impl ProviderAdapter for ClaudeAdapter {
         if matches!(result, Err(ApiError::Unauthorized)) && !refreshed && creds.source == CredSource::File {
             match refresh_file_creds(&home, &creds).await {
                 Ok(c) => result = fetch_usage_json(&c.access_token, &ua).await,
-                Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, "Sign in again: the saved Claude login is no longer valid."),
+                Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, FetchError::auth(LOGIN_INVALID)),
                 Err(RefreshError::Other(_)) => {}
             }
         }
@@ -865,24 +874,26 @@ impl ProviderAdapter for ClaudeAdapter {
                 let (windows, credits) = parse_usage(&v);
                 let mut s = self.snapshot(account, UsageSource::Api, &ident);
                 if windows.is_empty() && credits.is_none() {
-                    s.error = Some("The usage API returned no limits for this account.".into());
+                    FetchError::other("The usage API returned no limits for this account.").apply(&mut s);
                 }
                 s.windows = windows;
                 s.credits = credits;
                 s
             }
-            Err(ApiError::Unauthorized) => self.no_data(account, &ident, "Sign in again: Claude rejected the saved login."),
-            Err(ApiError::MissingScope) => {
-                self.no_data(account, &ident, "This login cannot read usage (missing user:profile scope). Sign in again with `claude auth login`.")
-            }
+            Err(ApiError::Unauthorized) => self.no_data(account, &ident, FetchError::auth("Sign in again: Claude rejected the saved login.")),
+            Err(ApiError::MissingScope) => self.no_data(
+                account,
+                &ident,
+                FetchError::auth("This login cannot read usage (missing user:profile scope). Sign in again with `claude auth login`."),
+            ),
             Err(ApiError::RateLimited) => {
-                let mut s = self.no_data(account, &ident, "Claude's usage API is rate-limiting requests; will retry later.");
+                let mut s = self.no_data(account, &ident, FetchError::other("Claude's usage API is rate-limiting requests; will retry later."));
                 s.stale = Some(true);
                 s
             }
-            Err(ApiError::Http(code)) => self.no_data(account, &ident, format!("Claude's usage API returned HTTP {code}.")),
-            Err(ApiError::Network(e)) => self.no_data(account, &ident, format!("Could not reach Claude's usage API ({e}).")),
-            Err(ApiError::Parse) => self.no_data(account, &ident, "Claude's usage API returned an unexpected response."),
+            Err(ApiError::Http(code)) => self.no_data(account, &ident, FetchError::other(format!("Claude's usage API returned HTTP {code}."))),
+            Err(ApiError::Network(e)) => self.no_data(account, &ident, FetchError::network(format!("Could not reach Claude's usage API ({e})."))),
+            Err(ApiError::Parse) => self.no_data(account, &ident, FetchError::other("Claude's usage API returned an unexpected response.")),
         }
     }
 
@@ -899,11 +910,13 @@ mod tests {
 
     #[test]
     fn transient_refresh_failures_do_not_read_as_signed_out() {
-        for e in [REFRESH_OFFLINE, REFRESH_BAD_RESPONSE, "Anthropic answered HTTP 503"] {
-            let msg = refresh_failed(e);
-            assert!(!crate::usage::looks_like_auth_error(&msg), "{msg}");
-        }
-        assert!(crate::usage::looks_like_auth_error(&refresh_failed("Anthropic answered HTTP 401")));
+        let offline = refresh_failed(FetchError::network(REFRESH_OFFLINE));
+        assert_eq!(offline.kind, ErrorKind::Network);
+        assert_eq!(offline.message, "Could not renew the Claude session: could not reach Anthropic (network error).");
+        assert_eq!(refresh_failed(FetchError::other(REFRESH_BAD_RESPONSE)).kind, ErrorKind::Other);
+        assert_eq!(refresh_failed(refresh_http_error(503)).kind, ErrorKind::Other);
+        assert_eq!(refresh_failed(refresh_http_error(401)).kind, ErrorKind::Auth);
+        assert_eq!(refresh_failed(refresh_http_error(403)).kind, ErrorKind::Auth);
     }
 
     const CREDS: &str = r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-AAA","refreshToken":"sk-ant-ort01-BBB",

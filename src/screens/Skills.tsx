@@ -185,7 +185,7 @@ function ToolMarks({ id, installed, tools }: { id: string; installed: InstalledS
         const tool = PROVIDER_META[p].product
         const title = state === 'installed' ? `Installed for ${tool}` : state === 'taken' ? `${tool} already has a different skill named ${folderOf(id)}` : `Not installed for ${tool}`
         return (
-          <span key={p} data-tip={title} aria-label={title} className={clsx('relative flex', state === 'absent' && 'opacity-25 grayscale')}>
+          <span key={p} role="img" data-tip={title} aria-label={title} className={clsx('relative flex', state === 'absent' && 'opacity-25 grayscale')}>
             <span className={clsx('flex', state === 'taken' && 'opacity-60')}>
               <ProviderMark id={p} size={15} />
             </span>
@@ -277,7 +277,7 @@ function SkillDialog({
           </button>
           <button className="btn btn-primary" onClick={install} disabled={!chosen.length || busy !== null}>
             {busy === 'install' && <Loader2 size={14} className="animate-spin" />}
-            {chosen.length ? `Install for ${chosen.length === 1 ? PROVIDER_META[chosen[0]].short : `${chosen.length} tools`}` : 'Install'}
+            {chosen.length ? `Install for ${chosen.length === 1 ? PROVIDER_META[chosen[0]!].short : `${chosen.length} tools`}` : 'Install'}
           </button>
         </>
       }

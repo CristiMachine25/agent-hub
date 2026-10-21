@@ -18,6 +18,7 @@ import type {
 } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
 import { recommend as rankAccounts } from '@/lib/recommend'
+import { canDeleteHome, profilesDir } from '@/lib/profiles'
 import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { FEATURED, featuredFor, folderOf } from '@/lib/skills'
 import type { Platform } from '@/lib/platform'
@@ -35,7 +36,7 @@ function importLabel(f: DetectedAccount): string {
   const dir = f.homeDir.split(/[\\/]/).pop() ?? ''
   const suffix = dir.replace(/^\.+/, '').replace(new RegExp(`^${f.providerId}`), '').replace(/^[-_.]+|[-_.]+$/g, '')
   if (!suffix) return f.email?.trim() || short
-  return `${short} ${suffix.split(/[-_.]/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}`
+  return `${short} ${suffix.split(/[-_.]/).filter(Boolean).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(' ')}`
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -204,7 +205,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
             // Like accounts_import: nothing in an existing home is linked until the user turns sharing on.
             sharedFrom: f.isDefaultHome ? undefined : `${home}${sep}.${f.providerId}`,
             sharing: { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false },
-            color: ACCOUNT_COLORS[n % ACCOUNT_COLORS.length],
+            color: ACCOUNT_COLORS[n % ACCOUNT_COLORS.length]!,
             tags: [],
             notes: f.hint,
             status: f.loggedIn ? 'ok' : 'needs-login',
@@ -243,7 +244,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
           isDefaultHome: false,
           sharedFrom: input.sharedFrom,
           sharing: input.sharing ?? { ...DEFAULT_SHARING },
-          color: input.color ?? ACCOUNT_COLORS[n % ACCOUNT_COLORS.length],
+          color: input.color ?? ACCOUNT_COLORS[n % ACCOUNT_COLORS.length]!,
           tags: input.tags ?? [],
           status: 'needs-login',
           statusMessage: 'Not signed in yet. Choose Sign in to finish setting up this account.',
@@ -271,12 +272,13 @@ export function createMockApi(platform: Platform): AgentHubApi {
       },
       async remove(id, opts) {
         await wait(300)
-        find(id)
+        const acc = find(id)
         db.accounts = db.accounts.filter((a) => a.id !== id)
         delete db.usage[id]
         accountsChanged()
         emit('usage-updated', db.usage)
-        return opts.deleteHome
+        // Like remove_account: a folder outside the profiles folder is never deleted.
+        return opts.deleteHome && canDeleteHome(acc, profilesDir(db.settings, appData), platform)
       }
     },
     usage: {
@@ -357,7 +359,8 @@ export function createMockApi(platform: Platform): AgentHubApi {
     }),
     async recommend(task, providerId) {
       await wait(90)
-      return rankAccounts(task, providerId, db.accounts, db.usage)
+      const cliMissing = db.providers.filter((p) => !p.cliInstalled).map((p) => p.id)
+      return rankAccounts(task, providerId, db.accounts, db.usage, cliMissing)
     },
     notifications: {
       async list() {
@@ -464,6 +467,9 @@ export function createMockApi(platform: Platform): AgentHubApi {
       async pickSetupFile() {
         await wait(150)
         return `${home}${sep}Downloads${sep}agent-hub-setup.agenthub`
+      },
+      async appDataDir() {
+        return appData
       }
     },
     transfer: {

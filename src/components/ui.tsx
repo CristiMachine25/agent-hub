@@ -50,13 +50,17 @@ export function Switch({
   onChange,
   label,
   disabled,
-  id
+  id,
+  ...aria
 }: {
   checked: boolean
   onChange: (v: boolean) => void
-  label: string
+  /** The name, unless aria-labelledby points at a visible label. */
+  label?: string
   disabled?: boolean
   id?: string
+  'aria-labelledby'?: string
+  'aria-describedby'?: string
 }) {
   return (
     <button
@@ -65,6 +69,7 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-label={label}
+      {...aria}
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={clsx(
@@ -93,7 +98,7 @@ export function onRadioArrows(e: ReactKeyboardEvent<HTMLElement>) {
   const i = radios.indexOf(e.target as HTMLElement)
   if (i < 0) return
   e.preventDefault()
-  const next = radios[(i + d + radios.length) % radios.length]
+  const next = radios[(i + d + radios.length) % radios.length]! // i was found, so radios is not empty
   next.focus()
   next.click()
 }
@@ -103,16 +108,19 @@ export function Segmented<T extends string>({
   options,
   onChange,
   label,
+  'aria-labelledby': labelledBy,
   size = 'md'
 }: {
   value: T
   options: { id: T; label: string; title?: string }[]
   onChange: (v: T) => void
-  label: string
+  /** The name, unless aria-labelledby points at a visible label. */
+  label?: string
+  'aria-labelledby'?: string
   size?: 'sm' | 'md'
 }) {
   return (
-    <div role="radiogroup" aria-label={label} onKeyDown={onRadioArrows} className="inline-flex flex-wrap gap-1 rounded-md bg-ground p-0.5 border border-rivet">
+    <div role="radiogroup" aria-label={label} aria-labelledby={labelledBy} onKeyDown={onRadioArrows} className="inline-flex flex-wrap gap-1 rounded-md bg-ground p-0.5 border border-rivet">
       {options.map((o) => {
         const on = o.id === value
         return (
@@ -196,8 +204,8 @@ export function Dialog({
       if (e.key === 'Tab') {
         const items = tabbables(el)
         if (!items.length) return
-        const a = items[0]
-        const z = items[items.length - 1]
+        const a = items[0]!
+        const z = items[items.length - 1]!
         if (!el.contains(document.activeElement)) {
           e.preventDefault()
           a.focus()

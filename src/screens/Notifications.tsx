@@ -84,6 +84,7 @@ export function Notifications() {
                       </span>
                       <span className="flex shrink-0 items-center gap-2 text-xs text-muted" data-tip={new Date(n.createdAt).toLocaleString()}>
                         {g.title === 'Today' ? formatClock(n.createdAt) : formatAgo(n.createdAt, now)}
+                        <span className="sr-only">, {new Date(n.createdAt).toLocaleString()}</span>
                         {!n.read && <span className="h-2 w-2 rounded-full bg-hop" aria-label="Unread" />}
                       </span>
                     </button>

@@ -22,6 +22,15 @@ impl ProviderId {
             ProviderId::Copilot => "copilot",
         }
     }
+    /// The short name people use: "Claude", "Codex"...
+    pub fn name(self) -> &'static str {
+        match self {
+            ProviderId::Claude => "Claude",
+            ProviderId::Codex => "Codex",
+            ProviderId::Gemini => "Gemini",
+            ProviderId::Copilot => "Copilot",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +79,21 @@ pub enum ShareKind {
     Settings,
     Mcp,
     History,
+}
+
+impl ShareKind {
+    /// The SharingOptions field name of a kind ("skills", "history"...), also the kind in setup files.
+    pub fn key(self) -> &'static str {
+        match self {
+            ShareKind::Skills => "skills",
+            ShareKind::Plugins => "plugins",
+            ShareKind::Agents => "agents",
+            ShareKind::Instructions => "instructions",
+            ShareKind::Settings => "settings",
+            ShareKind::Mcp => "mcp",
+            ShareKind::History => "history",
+        }
+    }
 }
 
 impl SharingOptions {
@@ -194,12 +218,29 @@ pub struct UsageSnapshot {
     pub email: Option<String>,
     pub credits: Option<Credits>,
     pub error: Option<String>,
+    /// What kind of failure `error` is. Only the poll that fetched the snapshot reads it, so it is
+    /// neither sent to the UI nor saved.
+    #[serde(skip)]
+    pub error_kind: Option<ErrorKind>,
     pub stale: Option<bool>,
 }
 
+/// Why a usage fetch failed, so account status doesn't have to be guessed from the message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    /// No sign-in, or the provider rejected it: signing in again fixes it.
+    Auth,
+    /// The sign-in lapsed: opening the tool once (or signing in again) renews it.
+    Expired,
+    /// The provider could not be reached.
+    Network,
+    Other,
+}
+
 impl UsageSnapshot {
-    /// Empty snapshot carrying an error message. Adapters return this instead of failing.
-    pub fn failed(account: &Account, source: UsageSource, error: impl Into<String>) -> Self {
+    /// A snapshot with nothing in it yet. Adapters fill it in; a failed fetch gets its error (and its
+    /// kind) from `providers::FetchError`.
+    pub fn empty(account: &Account, source: UsageSource) -> Self {
         Self {
             account_id: account.id.clone(),
             provider_id: account.provider_id,
@@ -209,7 +250,8 @@ impl UsageSnapshot {
             plan: None,
             email: None,
             credits: None,
-            error: Some(error.into()),
+            error: None,
+            error_kind: None,
             stale: None,
         }
     }
@@ -539,4 +581,310 @@ pub struct InstalledSkill {
 pub struct SkillInstallOutcome {
     pub provider_id: ProviderId,
     pub error: Option<String>,
+}
+
+/// Writes `src/shared/__fixtures__/serde.ts`: one value of every type the UI sends or receives, with
+/// every Option set, plus every enum value and every registered command. tsc checks that file against
+/// `src/shared/types.ts`, so a field or enum value that exists on one side only fails the typecheck.
+/// This test fails while the committed file is stale; `UPDATE_SERDE_FIXTURE=1 cargo test serde_fixture`
+/// rewrites it.
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+    use crate::transfer::{ExportOptions, ExportSummary, ImportChoice, ImportPreview, ImportReport, PreviewAccount, PreviewKind};
+    use serde::Serialize;
+    use serde_json::json;
+
+    const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/shared/__fixtures__/serde.ts");
+
+    /// Every variant of a fieldless enum. The match stops compiling when a variant is added and not listed.
+    macro_rules! variants {
+        ($t:ident: $($v:ident),+) => {{
+            let _exhaustive = |x: $t| match x {
+                $($t::$v)|+ => (),
+            };
+            [$($t::$v),+]
+        }};
+    }
+
+    struct Fixture(String);
+
+    impl Fixture {
+        /// A value tsc must accept as `ts` with every field present and none extra.
+        fn value(&mut self, name: &str, ts: &str, v: &impl Serialize) {
+            let json = serde_json::to_string_pretty(v).unwrap();
+            self.0 += &format!("\nexport const {name} = {json} satisfies Full<{ts}>\n");
+        }
+
+        /// Values that must be exactly the members of the TS union `ts`.
+        fn values(&mut self, name: &str, ts: &str, all: &[impl Serialize]) {
+            let json = serde_json::to_string(all).unwrap();
+            self.0 += &format!("\nexport const {name} = {json} as const\nexport const _{name}: Same<(typeof {name})[number], {ts}> = true\n");
+        }
+    }
+
+    fn s(v: &str) -> String {
+        v.into()
+    }
+
+    fn some(v: &str) -> Option<String> {
+        Some(v.into())
+    }
+
+    /// Commands registered in lib.rs's generate_handler! list, by function name.
+    fn registered_commands() -> Vec<String> {
+        let src = include_str!("lib.rs");
+        let start = src.find("generate_handler![").expect("generate_handler! in lib.rs") + "generate_handler![".len();
+        let list = &src[start..start + src[start..].find(']').unwrap()];
+        // Comments inside the list (a disabled command) are not registrations.
+        let list: String = list.lines().map(|l| l.split("//").next().unwrap_or_default()).collect::<Vec<_>>().join("\n");
+        list.split(',').map(|path| path.rsplit("::").next().unwrap().trim().to_string()).filter(|name| !name.is_empty()).collect()
+    }
+
+    #[test]
+    fn serde_fixture_matches_committed_file() {
+        let mut f = Fixture(
+            "// Generated by `cargo test` (src-tauri/src/model.rs, contract_tests) from the Rust serde shapes. Do not edit.\n\
+             // Update it with: cd src-tauri && UPDATE_SERDE_FIXTURE=1 cargo test serde_fixture\n\
+             import type * as T from '../types'\n\
+             import type { Full, Same } from './check'\n"
+                .into(),
+        );
+
+        let provider = ProviderInfo {
+            id: ProviderId::Claude,
+            name: s("Claude Code"),
+            vendor: s("Anthropic"),
+            cli_command: s("claude"),
+            cli_installed: true,
+            cli_path: some("/usr/local/bin/claude"),
+            cli_version: some("2.0.0"),
+            desktop_name: some("Claude"),
+            desktop_installed: true,
+            desktop_path: some("/Applications/Claude.app"),
+            desktop_multi_account: false,
+            home_env_var: some("CLAUDE_CONFIG_DIR"),
+            install_hint: s("npm i -g @anthropic-ai/claude-code"),
+        };
+        f.value("ProviderInfo", "T.ProviderInfo", &provider);
+
+        let account = Account {
+            id: s("acc-1"),
+            provider_id: ProviderId::Claude,
+            label: s("Work"),
+            email: some("me@example.com"),
+            plan: some("Max 20x"),
+            home_dir: s("/home/me/.claude-work"),
+            is_default_home: false,
+            shared_from: some("/home/me/.claude"),
+            sharing: SharingOptions::default(),
+            color: s("#3987E5"),
+            tags: vec![s("coding")],
+            notes: some("notes"),
+            status: AccountStatus::Ok,
+            status_message: some("signed in"),
+            created_at: s("2026-01-01T00:00:00Z"),
+            last_launched_at: some("2026-01-02T00:00:00Z"),
+            launch_count: 3,
+            monthly_cost: Some(200.0),
+            pinned: Some(true),
+        };
+        f.value("Account", "T.Account", &account);
+
+        let input = NewAccountInput {
+            provider_id: ProviderId::Codex,
+            label: s("Research"),
+            home_dir: some("/home/me/.codex-research"),
+            sharing: Some(SharingOptions::NONE),
+            shared_from: some("/home/me/.codex"),
+            color: some("#D95926"),
+            tags: Some(vec![s("research")]),
+            monthly_cost: Some(20.0),
+            plan: some("Plus"),
+        };
+        f.value("NewAccountInput", "T.NewAccountInput", &input);
+
+        let detected = DetectedAccount {
+            provider_id: ProviderId::Gemini,
+            home_dir: s("/home/me/.gemini"),
+            is_default_home: true,
+            email: some("me@example.com"),
+            plan: some("Pro"),
+            logged_in: true,
+            already_managed: false,
+            hint: some("found via ~/.local/bin/gemini-h2"),
+        };
+        f.value("DetectedAccount", "T.DetectedAccount", &detected);
+
+        let window = UsageWindow {
+            id: s("five_hour"),
+            label: s("5-hour session"),
+            used_percent: 42.5,
+            resets_at: some("2026-01-01T05:00:00Z"),
+            window_minutes: Some(300),
+        };
+        let snapshot = UsageSnapshot {
+            account_id: s("acc-1"),
+            provider_id: ProviderId::Claude,
+            fetched_at: s("2026-01-01T00:00:00Z"),
+            source: UsageSource::Api,
+            windows: vec![window.clone()],
+            plan: some("Max 20x"),
+            email: some("me@example.com"),
+            credits: Some(Credits { used: 1.5, limit: Some(10.0), unit: s("USD") }),
+            error: some("timed out"),
+            error_kind: Some(ErrorKind::Network), // never serialized
+            stale: Some(true),
+        };
+        f.value("UsageSnapshot", "T.UsageSnapshot", &snapshot);
+
+        let point = UsageHistoryPoint { account_id: s("acc-1"), t: s("2026-01-01T00:00:00Z"), windows: HashMap::from([(s("five_hour"), 42.5)]) };
+        f.value("UsageHistoryPoint", "T.UsageHistoryPoint", &point);
+
+        let activity = DailyActivity {
+            account_id: s("acc-1"),
+            date: s("2026-01-01"),
+            input_tokens: 1000,
+            output_tokens: 2000,
+            cache_tokens: 3000,
+            messages: 4,
+            sessions: 1,
+            models: HashMap::from([(s("claude-opus"), 2000)]),
+        };
+        f.value("DailyActivity", "T.DailyActivity", &activity);
+
+        let launch =
+            LaunchRequest { account_id: s("acc-1"), target: LaunchTarget::Cli, cwd: some("/work"), resume: Some(true), extra_args: Some(vec![s("--verbose")]) };
+        f.value("LaunchRequest", "T.LaunchRequest", &launch);
+        let launched = LaunchResult { ok: true, error: some("not found"), command_line: some("claude --continue"), note: some("sign in once") };
+        f.value("LaunchResult", "T.LaunchResult", &launched);
+
+        let notification = AppNotification {
+            id: s("n-1"),
+            kind: NotificationKind::LimitReset,
+            account_id: some("acc-1"),
+            title: s("Reset"),
+            body: s("Your limit reset"),
+            created_at: s("2026-01-01T00:00:00Z"),
+            read: false,
+        };
+        f.value("AppNotification", "T.AppNotification", &notification);
+
+        let pick = Recommendation { account_id: s("acc-1"), score: 80.0, reason: s("62% of weekly left") };
+        f.value("Recommendation", "T.Recommendation", &pick);
+
+        let settings = AppSettings { default_cwd: some("/work"), profiles_dir: some("/home/me/profiles"), ..AppSettings::default() };
+        f.value("AppSettings", "T.AppSettings", &settings);
+
+        let spawn = TerminalSpawnRequest {
+            account_id: s("acc-1"),
+            target: TerminalTarget::Login,
+            resume: Some(false),
+            cwd: some("/work"),
+            extra_args: Some(vec![s("--verbose")]),
+            cols: 80,
+            rows: 24,
+        };
+        f.value("TerminalSpawnRequest", "T.TerminalSpawnRequest", &spawn);
+        let terminal = TerminalInfo {
+            id: s("t-1"),
+            account_id: s("acc-1"),
+            title: s("Claude Work"),
+            command_line: s("claude"),
+            cwd: s("/work"),
+            pid: Some(1234),
+            started_at: s("2026-01-01T00:00:00Z"),
+            exited: true,
+            exit_code: Some(0),
+        };
+        f.value("TerminalInfo", "T.TerminalInfo", &terminal);
+
+        let knowledge = ProviderKnowledge {
+            provider_id: ProviderId::Claude,
+            folder: s("/home/me/profiles/shared/claude"),
+            main_folder: s("/home/me/.claude"),
+            items: vec![KnowledgeItem { kind: s("skills"), name: s("pdf"), path: s("/home/me/profiles/shared/claude/skills/pdf") }],
+            accounts: vec![KnowledgeAccount { account_id: s("acc-1"), label: s("Work"), is_default_home: false, kinds: vec![s("skills")] }],
+        };
+        f.value("ProviderKnowledge", "T.ProviderKnowledge", &knowledge);
+        f.value("ReseedResult", "Awaited<ReturnType<T.AgentHubApi['knowledge']['reseed']>>", &ReseedResult { added: 1, kept: 2 });
+
+        let skill = DirectorySkill { id: s("owner/repo/pdf"), name: s("pdf"), source: s("owner/repo"), installs: 10 };
+        f.value("DirectorySkill", "T.DirectorySkill", &skill);
+        let preview = SkillPreview { id: s("owner/repo/pdf"), name: s("pdf"), description: s("Read PDFs"), body: s("# PDF"), files: 2 };
+        f.value("SkillPreview", "T.SkillPreview", &preview);
+        let installed = InstalledSkill { provider_id: ProviderId::Codex, name: s("pdf"), id: some("owner/repo/pdf") };
+        f.value("InstalledSkill", "T.InstalledSkill", &installed);
+        let outcome = SkillInstallOutcome { provider_id: ProviderId::Codex, error: some("already there") };
+        f.value("SkillInstallOutcome", "T.SkillInstallOutcome", &outcome);
+
+        // The UI only sends these two, so Rust can't serialize them. Each JSON object must deserialize
+        // with every Option set, and the exhaustive destructuring stops compiling when Rust adds a field.
+        let export_options = json!({ "accountIds": ["acc-1"], "includeFiles": true, "includeSettings": true, "passphrase": "secret" });
+        let ExportOptions { account_ids: _, include_files: _, include_settings: _, passphrase } = serde_json::from_value(export_options.clone()).unwrap();
+        assert!(passphrase.is_some(), "ExportOptions.passphrase was not read");
+        f.value("ExportOptions", "T.ExportOptions", &export_options);
+        let import_choice = json!({ "accountKeys": ["a1"], "signIns": true, "files": true, "settings": false });
+        let ImportChoice { account_keys: _, sign_ins: _, files: _, settings: _ } = serde_json::from_value(import_choice.clone()).unwrap();
+        f.value("ImportChoice", "T.ImportChoice", &import_choice);
+
+        f.value("ExportSummary", "T.ExportSummary", &ExportSummary { accounts: 2, sign_ins: 1, files: 10, skipped_files: 0 });
+        let import_preview = ImportPreview {
+            from_os: s("macos"),
+            exported_at: s("2026-01-01T00:00:00Z"),
+            accounts: vec![PreviewAccount {
+                key: s("a1"),
+                provider_id: ProviderId::Claude,
+                label: s("Work"),
+                email: some("me@example.com"),
+                plan: some("Max 20x"),
+                has_sign_in: true,
+                already_here: some("Work"),
+                target_home: s("/home/me/profiles/claude-work"),
+            }],
+            kinds: vec![PreviewKind { provider_id: ProviderId::Claude, kind: s("skills"), files: 3, new_files: 1 }],
+            has_settings: true,
+            has_sign_ins: true,
+            sign_ins_unlocked: false,
+        };
+        f.value("ImportPreview", "T.ImportPreview", &import_preview);
+        let report = ImportReport {
+            added: vec![s("Work")],
+            skipped: vec![s("Home")],
+            sign_ins: 1,
+            files_added: 3,
+            files_kept: 1,
+            settings: true,
+            problems: vec![s("one file was unreadable")],
+        };
+        f.value("ImportReport", "T.ImportReport", &report);
+
+        f.values("ProviderId", "T.ProviderId", &variants!(ProviderId: Claude, Codex, Gemini, Copilot));
+        f.values("AccountStatus", "T.AccountStatus", &variants!(AccountStatus: Ok, NeedsLogin, Expired, Error, Unknown));
+        f.values("UsageSource", "T.UsageSnapshot['source']", &variants!(UsageSource: Api, Cli, LocalLogs, Manual, None));
+        f.values("LaunchTarget", "T.LaunchTarget", &variants!(LaunchTarget: Cli, Desktop, Login));
+        f.values(
+            "NotificationKind",
+            "T.NotificationKind",
+            &variants!(NotificationKind: LimitReached, LimitReset, NearlyExhausted, UseItOrLoseIt, SwitchSuggested, LoginRequired, Info),
+        );
+        f.values("TaskType", "T.TaskType", &variants!(TaskType: Coding, LongRefactor, QuickQuestion, Research, Review, Any));
+        f.values("Theme", "T.AppSettings['theme']", &variants!(Theme: System, Dark, Light));
+        f.values("TerminalTarget", "T.TerminalSpawnRequest['target']", &variants!(TerminalTarget: Cli, Login));
+        for p in variants!(ProviderId: Claude, Codex, Gemini, Copilot) {
+            let name = format!("PermissionModes_{}", p.as_str());
+            f.values(&name, &format!("T.PermissionModes['{}']", p.as_str()), PermissionModes::allowed(p));
+        }
+        f.values("commands", "(typeof T.COMMANDS)[keyof typeof T.COMMANDS]", &registered_commands());
+
+        let committed = std::fs::read_to_string(FIXTURE).unwrap_or_default().replace("\r\n", "\n");
+        if std::env::var_os("UPDATE_SERDE_FIXTURE").is_some() {
+            std::fs::write(FIXTURE, &f.0).unwrap();
+        } else {
+            assert!(
+                committed == f.0,
+                "src/shared/__fixtures__/serde.ts is stale. Run `UPDATE_SERDE_FIXTURE=1 cargo test serde_fixture` in src-tauri, then `npm run typecheck`."
+            );
+        }
+    }
 }

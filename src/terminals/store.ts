@@ -84,7 +84,7 @@ function load(): { sessions: Session[]; activeId: string } {
     const list = (d?.list ?? [])
       .filter((x) => typeof x?.id === 'string')
       .map((x) => ({ id: x.id as string, name: typeof x.name === 'string' && x.name.trim() ? x.name : 'Session', ws: parseWorkspace(JSON.stringify(x.ws ?? null)) }))
-    if (list.length) return { sessions: list, activeId: list.some((x) => x.id === d?.active) ? (d?.active as string) : list[0].id }
+    if (list.length) return { sessions: list, activeId: list.some((x) => x.id === d?.active) ? (d?.active as string) : list[0]!.id }
   } catch {
     /* unreadable: start fresh below */
   }
@@ -300,7 +300,7 @@ export const useGrid = create<GridState>((set, get) => {
       set((s) => ({ ws: { ...s.ws, focused: index, maximized: null } }))
       // Let the grid render so the new pane has a size to fit the terminal to.
       await new Promise((r) => requestAnimationFrame(() => r(null)))
-      if (ws.panes[index]?.terminalId) await killQuietly(ws.panes[index].terminalId)
+      if (ws.panes[index]?.terminalId) await killQuietly(ws.panes[index]?.terminalId)
       await get().start(index, { accountId, target: 'cli', cwd: opts.cwd, resume: opts.resume })
     },
 
@@ -333,7 +333,7 @@ export const useGrid = create<GridState>((set, get) => {
       await Promise.all(gone.ws.panes.map((p) => killQuietly(p.terminalId)))
       let rest = sessions.filter((x) => x.id !== id)
       if (!rest.length) rest = [{ id: newSessionId(), name: 'Session 1', ws: defaultWorkspace() }]
-      const activeId = id === get().activeId ? rest[Math.max(0, sessions.indexOf(gone) - 1)]?.id ?? rest[0].id : get().activeId
+      const activeId = id === get().activeId ? rest[Math.max(0, sessions.indexOf(gone) - 1)]?.id ?? rest[0]!.id : get().activeId
       set({ sessions: rest, activeId, ws: rest.find((x) => x.id === activeId)!.ws })
     }
   }

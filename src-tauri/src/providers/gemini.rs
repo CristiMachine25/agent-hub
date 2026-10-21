@@ -10,7 +10,7 @@
 //!
 //! Verified against @google/gemini-cli 0.64.0 (npm bundle) and steipete/CodexBar docs/gemini.md.
 use super::common::{finish_days, first_local_date, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, DayMap, VersionCache};
-use super::{CommandSpec, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -26,6 +26,7 @@ const CODE_ASSIST: &str = "https://cloudcode-pa.googleapis.com/v1internal";
 const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
 const NEED_CLI: &str = "Install Gemini CLI or launch it once to refresh the login";
+const SIGN_IN_AGAIN: &str = "Sign in to Gemini again";
 
 /// Max model windows shown per account (Pro and Flash families come first).
 const MAX_WINDOWS: usize = 4;
@@ -261,10 +262,18 @@ async fn post_code_assist(method: &str, token: &str, body: &Value) -> Result<Val
     }
 }
 
-/// A refresh that never reached Google. Worded without "login"/"token"/"auth" (and without the token URL)
-/// so usage::looks_like_auth_error doesn't read being offline as signed out.
-fn offline_refresh(e: impl std::fmt::Display) -> String {
-    format!("Could not reach Google to renew the Gemini session ({e})")
+/// A refresh that never reached Google: a network failure, so being offline doesn't read as signed out.
+fn offline_refresh(e: impl std::fmt::Display) -> FetchError {
+    FetchError::network(format!("Could not reach Google to renew the Gemini session ({e})"))
+}
+
+/// Google answers a refresh token it no longer accepts with 400 (`invalid_grant`) or 401; anything
+/// else (5xx, 429) is Google having a bad moment, not the user being signed out.
+fn refresh_refused(status: u16) -> FetchError {
+    match status {
+        400 | 401 => FetchError::auth(SIGN_IN_AGAIN),
+        _ => FetchError::other(format!("Google could not renew the Gemini session (HTTP {status}); will retry later")),
+    }
 }
 
 /// OAuth credentials file with an in-place refresh that keeps the CLI's file valid.
@@ -291,10 +300,10 @@ impl Creds {
         exp as i64 <= chrono::Utc::now().timestamp_millis() + 60_000
     }
 
-    async fn refresh(&mut self) -> Result<(), String> {
-        const AGAIN: &str = "Sign in to Gemini again";
-        let refresh = self.raw.get("refresh_token").and_then(Value::as_str).ok_or(AGAIN)?;
-        let client = oauth_client::resolve().await.ok_or(NEED_CLI)?;
+    async fn refresh(&mut self) -> Result<(), FetchError> {
+        let again = || FetchError::auth(SIGN_IN_AGAIN);
+        let refresh = self.raw.get("refresh_token").and_then(Value::as_str).ok_or_else(again)?;
+        let client = oauth_client::resolve().await.ok_or_else(|| FetchError::expired(NEED_CLI))?;
         let body = form_encode(&[("client_id", &client.id), ("client_secret", &client.secret), ("refresh_token", refresh), ("grant_type", "refresh_token")]);
         let resp = util::http()
             .post(TOKEN_URL)
@@ -303,13 +312,15 @@ impl Creds {
             .send()
             .await
             .map_err(|e| offline_refresh(e.without_url()))?;
-        if !resp.status().is_success() {
-            return Err(AGAIN.into());
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(refresh_refused(status.as_u16()));
         }
-        let v: Value = resp.json().await.map_err(|_| AGAIN.to_string())?;
-        apply_refresh(&mut self.raw, &v, chrono::Utc::now().timestamp_millis()).ok_or(AGAIN)?;
-        let bytes = serde_json::to_vec_pretty(&self.raw).map_err(|e| e.to_string())?;
-        util::write_atomic(&self.path, &bytes).map_err(|e| format!("Could not save the renewed Gemini session: {e}"))?;
+        let odd = || FetchError::other("Google sent an unexpected reply while renewing the Gemini session; will retry later");
+        let v: Value = resp.json().await.map_err(|_| odd())?;
+        apply_refresh(&mut self.raw, &v, chrono::Utc::now().timestamp_millis()).ok_or_else(odd)?;
+        let bytes = serde_json::to_vec_pretty(&self.raw).map_err(|e| FetchError::other(e.to_string()))?;
+        util::write_atomic(&self.path, &bytes).map_err(|e| FetchError::other(format!("Could not save the renewed Gemini session: {e}")))?;
         restrict_permissions(&self.path);
         Ok(())
     }
@@ -363,13 +374,13 @@ fn friendly_http(status: u16, body: &str) -> String {
 }
 
 impl GeminiAdapter {
-    async fn fetch_live(&self, account: &Account) -> Result<UsageSnapshot, String> {
+    async fn fetch_live(&self, account: &Account) -> Result<UsageSnapshot, FetchError> {
         let home = Path::new(&account.home_dir);
         let Some(mut creds) = Creds::load(home) else {
             return Err(if auth_kind(home) == AuthKind::ApiKey {
-                "API-key accounts have no subscription limits to show".into()
+                FetchError::other("API-key accounts have no subscription limits to show")
             } else {
-                "Not signed in. Launch Gemini and choose \"Sign in with Google\"".into()
+                FetchError::auth("Not signed in. Launch Gemini and choose \"Sign in with Google\"")
             });
         };
         let mut refreshed = false;
@@ -379,34 +390,34 @@ impl GeminiAdapter {
         }
         let meta = json!({"metadata": {"ideType": "IDE_UNSPECIFIED", "platform": "PLATFORM_UNSPECIFIED", "pluginType": "GEMINI"}});
         let load = loop {
-            let token = creds.access_token().ok_or("Sign in to Gemini again")?.to_string();
+            let token = creds.access_token().ok_or_else(|| FetchError::auth(SIGN_IN_AGAIN))?.to_string();
             match post_code_assist("loadCodeAssist", &token, &meta).await {
                 Ok(v) => break v,
                 Err(CallError::Unauthorized) if !refreshed => {
                     creds.refresh().await?;
                     refreshed = true;
                 }
-                Err(CallError::Unauthorized) => return Err("Sign in to Gemini again".into()),
-                Err(CallError::Http(s, body)) => return Err(friendly_http(s, &body)),
-                Err(CallError::Network(e)) => return Err(format!("Could not reach Google: {e}")),
+                Err(CallError::Unauthorized) => return Err(FetchError::auth(SIGN_IN_AGAIN)),
+                Err(CallError::Http(s, body)) => return Err(FetchError::other(friendly_http(s, &body))),
+                Err(CallError::Network(e)) => return Err(FetchError::network(format!("Could not reach Google: {e}"))),
             }
         };
         let info = parse_load_code_assist(&load);
         if info.project.is_none() {
             if let Some(reason) = info.ineligible {
-                return Err(reason);
+                return Err(FetchError::other(reason));
             }
         }
-        let token = creds.access_token().ok_or("Sign in to Gemini again")?.to_string();
+        let token = creds.access_token().ok_or_else(|| FetchError::auth(SIGN_IN_AGAIN))?.to_string();
         let body = match &info.project {
             Some(p) => json!({ "project": p }),
             None => json!({}),
         };
         let quota = match post_code_assist("retrieveUserQuota", &token, &body).await {
             Ok(v) => v,
-            Err(CallError::Unauthorized) => return Err("Sign in to Gemini again".into()),
-            Err(CallError::Http(s, body)) => return Err(friendly_http(s, &body)),
-            Err(CallError::Network(e)) => return Err(format!("Could not reach Google: {e}")),
+            Err(CallError::Unauthorized) => return Err(FetchError::auth(SIGN_IN_AGAIN)),
+            Err(CallError::Http(s, body)) => return Err(FetchError::other(friendly_http(s, &body))),
+            Err(CallError::Network(e)) => return Err(FetchError::network(format!("Could not reach Google: {e}"))),
         };
         let windows = parse_quota(&quota);
         let identity = read_identity_sync(home);
@@ -416,6 +427,7 @@ impl GeminiAdapter {
             fetched_at: util::now_iso(),
             source: UsageSource::Api,
             error: windows.is_empty().then(|| "Google returned no quota buckets for this account".to_string()),
+            error_kind: windows.is_empty().then_some(ErrorKind::Other),
             windows,
             plan: info.plan,
             email: identity.email,
@@ -830,12 +842,12 @@ impl ProviderAdapter for GeminiAdapter {
 
     async fn fetch_usage(&self, account: &Account, live: bool) -> UsageSnapshot {
         if !live {
-            return UsageSnapshot::failed(account, UsageSource::None, "Gemini CLI keeps no local record of its limits; turn on live usage to see them");
+            return FetchError::other("Gemini CLI keeps no local record of its limits; turn on live usage to see them").snapshot(account, UsageSource::None);
         }
         match self.fetch_live(account).await {
             Ok(s) => s,
             Err(e) => {
-                let mut s = UsageSnapshot::failed(account, UsageSource::Api, e);
+                let mut s = e.snapshot(account, UsageSource::Api);
                 s.email = read_identity_sync(Path::new(&account.home_dir)).email;
                 s
             }
@@ -868,8 +880,18 @@ mod tests {
 
     #[test]
     fn offline_refresh_does_not_read_as_signed_out() {
-        let msg = offline_refresh("error sending request");
-        assert!(!crate::usage::looks_like_auth_error(&msg), "{msg}");
+        let e = offline_refresh("error sending request");
+        assert_eq!(e.kind, ErrorKind::Network);
+        assert_eq!(e.message, "Could not reach Google to renew the Gemini session (error sending request)");
+    }
+
+    #[test]
+    fn only_a_refused_refresh_token_means_signed_out() {
+        assert_eq!(refresh_refused(400).kind, ErrorKind::Auth);
+        assert_eq!(refresh_refused(401).kind, ErrorKind::Auth);
+        for status in [429, 500, 503] {
+            assert_eq!(refresh_refused(status).kind, ErrorKind::Other, "{status}");
+        }
     }
 
     fn account(home: &Path) -> Account {

@@ -1,6 +1,6 @@
 //! Background usage poller, history, account status upkeep and the activity cache.
 use crate::model::*;
-use crate::providers::Identity;
+use crate::providers::{FetchError, Identity};
 use crate::store::{ActivityEntry, AppState};
 use crate::{notify, util};
 use chrono::Utc;
@@ -49,7 +49,7 @@ pub async fn poll(app: &AppHandle, state: &AppState, only: Option<&str>) -> Hash
         set.spawn(async move {
             let snapshot = tokio::time::timeout(FETCH_TIMEOUT, adapter.fetch_usage(&account, live))
                 .await
-                .unwrap_or_else(|_| UsageSnapshot::failed(&account, UsageSource::None, "Timed out fetching usage"));
+                .unwrap_or_else(|_| FetchError::network("Timed out fetching usage").snapshot(&account, UsageSource::None));
             // Identity is a cheap local read; only needed when the fetch did not tell us enough.
             let identity = if snapshot.error.is_some() || snapshot.email.is_none() {
                 tokio::time::timeout(IDENTITY_TIMEOUT, adapter.read_identity(std::path::Path::new(&account.home_dir))).await.ok()
@@ -124,6 +124,7 @@ pub fn merge_snapshot(prev: Option<&UsageSnapshot>, new: UsageSnapshot) -> Usage
             let mut m = p.clone();
             m.stale = Some(true);
             m.error = new.error;
+            m.error_kind = new.error_kind;
             m.plan = new.plan.or(m.plan);
             m.email = new.email.or(m.email);
             m
@@ -140,19 +141,6 @@ fn history_point(s: &UsageSnapshot, now: chrono::DateTime<Utc>) -> Option<UsageH
     })
 }
 
-/// A login problem, not a connectivity one: a token refresh that could not reach the server also
-/// mentions "login" or "token", but signing in again would not help.
-pub fn looks_like_auth_error(msg: &str) -> bool {
-    let m = msg.to_ascii_lowercase();
-    let network = ["could not reach", "network error", "timed out", "error sending request", "connection refused", "connection reset", "dns error"];
-    if network.iter().any(|k| m.contains(k)) {
-        return false;
-    }
-    ["log in", "login", "logged in", "not logged", "sign in", "credential", "unauthorized", "401", "403", "token", "auth", "expired"]
-        .iter()
-        .any(|k| m.contains(k))
-}
-
 /// Status from the latest fetch and offline identity.
 pub fn derive_status(snap: &UsageSnapshot, identity: Option<&Identity>) -> (AccountStatus, Option<String>) {
     if snap.error.is_none() && !snap.windows.is_empty() && snap.stale != Some(true) {
@@ -161,16 +149,16 @@ pub fn derive_status(snap: &UsageSnapshot, identity: Option<&Identity>) -> (Acco
     if identity.is_some_and(|i| !i.logged_in) {
         return (AccountStatus::NeedsLogin, Some("Not logged in".into()));
     }
-    match &snap.error {
-        Some(err) if looks_like_auth_error(err) => {
-            let status = if err.to_ascii_lowercase().contains("expired") { AccountStatus::Expired } else { AccountStatus::NeedsLogin };
-            (status, Some(err.clone()))
-        }
+    let Some(err) = &snap.error else { return (AccountStatus::Ok, None) };
+    // Every adapter error is typed (providers::FetchError); anything else is just an error.
+    let status = match snap.error_kind.unwrap_or(ErrorKind::Other) {
+        ErrorKind::Auth => AccountStatus::NeedsLogin,
+        ErrorKind::Expired => AccountStatus::Expired,
         // A transient failure with last-known numbers is still usable.
-        Some(err) if !snap.windows.is_empty() => (AccountStatus::Ok, Some(err.clone())),
-        Some(err) => (AccountStatus::Error, Some(err.clone())),
-        None => (AccountStatus::Ok, None),
-    }
+        _ if !snap.windows.is_empty() => AccountStatus::Ok,
+        _ => AccountStatus::Error,
+    };
+    (status, Some(err.clone()))
 }
 
 async fn update_accounts(app: &AppHandle, state: &AppState, fetched: &[Fetched]) {
@@ -238,6 +226,7 @@ pub async fn set_manual(app: &AppHandle, state: &AppState, account_id: &str, win
         email: account.email.clone(),
         credits: None,
         error: None,
+        error_kind: None,
         stale: None,
     };
     // No poll_lock: a slow poll holds it for up to a minute, and its merge keeps manual entries.
@@ -300,18 +289,24 @@ mod tests {
     use super::*;
     use crate::recommend::tests::{account, snap, window};
 
+    fn failed(e: FetchError) -> UsageSnapshot {
+        let mut s = snap("a", vec![]);
+        e.apply(&mut s);
+        s
+    }
+
     #[test]
     fn failed_fetch_keeps_last_good_windows_as_stale() {
         let now = Utc::now();
         let good = snap("a", vec![window("five_hour", 40.0, Some(2), 300, now)]);
-        let mut bad = snap("a", vec![]);
-        bad.error = Some("network down".into());
-        let m = merge_snapshot(Some(&good), bad);
+        let m = merge_snapshot(Some(&good), failed(FetchError::network("network down")));
         assert_eq!(m.windows.len(), 1);
         assert_eq!(m.stale, Some(true));
         assert_eq!(m.error.as_deref(), Some("network down"));
+        assert_eq!(m.error_kind, Some(ErrorKind::Network));
         let fresh = merge_snapshot(Some(&m), good.clone());
         assert_eq!(fresh.stale, None);
+        assert_eq!(fresh.error_kind, None);
     }
 
     #[test]
@@ -326,13 +321,12 @@ mod tests {
 
     #[test]
     fn status_from_errors() {
-        let mut s = snap("a", vec![]);
-        s.error = Some("Not logged in: run claude /login".into());
-        assert_eq!(derive_status(&s, None).0, AccountStatus::NeedsLogin);
-        s.error = Some("OAuth token expired".into());
-        assert_eq!(derive_status(&s, None).0, AccountStatus::Expired);
-        s.error = Some("connection reset".into());
-        assert_eq!(derive_status(&s, None).0, AccountStatus::Error);
+        let status = |e: FetchError| derive_status(&failed(e), None).0;
+        assert_eq!(status(FetchError::auth("Not signed in. Use Sign in to log this account in.")), AccountStatus::NeedsLogin);
+        assert_eq!(status(FetchError::expired("Login expired. Launch Codex once or sign in again.")), AccountStatus::Expired);
+        assert_eq!(status(FetchError::other("Claude's usage API returned HTTP 500.")), AccountStatus::Error);
+        // The kind decides, not the wording.
+        assert_eq!(status(FetchError::auth("GitHub refused the request")), AccountStatus::NeedsLogin);
         let ok = snap("a", vec![window("w", 1.0, None, 300, Utc::now())]);
         assert_eq!(derive_status(&ok, Some(&Identity::default())).0, AccountStatus::Ok);
     }
@@ -343,28 +337,21 @@ mod tests {
             // What claude::refresh_failed and gemini::offline_refresh say when offline.
             "Could not renew the Claude session: could not reach Anthropic (network error).",
             "Could not reach Google to renew the Gemini session (error sending request)",
-            // A raw client error that still names the token endpoint.
+            // Network failures that name the login or its token still aren't login problems.
             "Token refresh failed: error sending request for url (https://oauth2.googleapis.com/token)",
-            "Could not reach Claude's usage API (timed out).",
-            "Could not reach GitHub: error sending request for url (https://api.github.com/copilot_internal/user)",
+            "Could not renew the login token",
         ] {
-            assert!(!looks_like_auth_error(msg), "{msg}");
-            let mut s = snap("a", vec![]);
-            s.error = Some(msg.into());
-            assert_eq!(derive_status(&s, None).0, AccountStatus::Error, "{msg}");
+            assert_eq!(derive_status(&failed(FetchError::network(msg)), None).0, AccountStatus::Error, "{msg}");
         }
-        assert!(looks_like_auth_error("Sign in again: the saved Claude login is no longer valid."));
-        assert!(looks_like_auth_error("Login token expired. Open Claude once to refresh the login."));
     }
 
     #[test]
     fn a_failed_fetch_with_last_known_windows_keeps_the_account_usable() {
         let now = Utc::now();
         let good = snap("a", vec![window("five_hour", 40.0, Some(2), 300, now)]);
-        let mut failed = snap("a", vec![]);
-        failed.error = Some("Could not reach Claude's usage API (timed out).".into());
-        let merged = merge_snapshot(Some(&good), failed.clone());
-        let f = Fetched { account_id: "a".into(), snapshot: failed, identity: None };
+        let fetched = failed(FetchError::network("Could not reach Claude's usage API (timed out)."));
+        let merged = merge_snapshot(Some(&good), fetched.clone());
+        let f = Fetched { account_id: "a".into(), snapshot: fetched, identity: None };
         let mut a = account("a", "pro");
         apply_fetch(&mut a, &f, &merged);
         assert_eq!(a.status, AccountStatus::Ok);

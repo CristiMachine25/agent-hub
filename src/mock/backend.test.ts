@@ -30,8 +30,8 @@ describe('mock accounts behave like the real backend', () => {
     const created = await api.accounts.import(found)
     expect(created.map((a) => a.label)).toEqual(['Claude H3', 'Codex Research'])
     for (const a of created) expect(Object.values(a.sharing).every((v) => v === false)).toBe(true)
-    expect(created[0].sharedFrom).toBe('/Users/sam/.claude')
-    expect(created[1].notes).toBe('found via CODEX_HOME in your shell profile')
+    expect(created[0]!.sharedFrom).toBe('/Users/sam/.claude')
+    expect(created[1]!.notes).toBe('found via CODEX_HOME in your shell profile')
   })
 
   it('puts new profiles under the real app data folder', async () => {
@@ -42,5 +42,16 @@ describe('mock accounts behave like the real backend', () => {
     expect(linux.homeDir).toBe('/home/sam/.local/share/dev.switchyard.app/profiles/codex/x')
     const win = await createMockApi('win32').accounts.create({ providerId: 'gemini', label: 'x' })
     expect(win.homeDir).toBe('C:\\Users\\sam\\AppData\\Roaming\\dev.switchyard.app\\profiles\\gemini\\x')
+  })
+
+  it('deletes a profile folder only inside the profiles folder, like remove_account', async () => {
+    const api = createMockApi('darwin')
+    expect(await api.system.appDataDir()).toBe('/Users/sam/Library/Application Support/dev.switchyard.app')
+    const inside = await api.accounts.create({ providerId: 'claude', label: 'Side Project' })
+    expect(await api.accounts.remove(inside.id, { deleteHome: true })).toBe(true)
+    const outside = (await api.accounts.list()).find((a) => !a.isDefaultHome && !a.homeDir.includes('/profiles/'))!
+    expect(await api.accounts.remove(outside.id, { deleteHome: true })).toBe(false)
+    const kept = await api.accounts.create({ providerId: 'claude', label: 'Kept' })
+    expect(await api.accounts.remove(kept.id, { deleteHome: false })).toBe(false)
   })
 })

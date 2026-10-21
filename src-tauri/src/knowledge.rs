@@ -82,25 +82,12 @@ pub fn reseed(shared: &Path, adapter: &dyn ProviderAdapter) -> io::Result<CopyCo
     seed_from_main(shared, adapter)
 }
 
-/// The SharingOptions field name of a kind ("skills", "history"...).
-pub fn kind_key(kind: ShareKind) -> &'static str {
-    match kind {
-        ShareKind::Skills => "skills",
-        ShareKind::Plugins => "plugins",
-        ShareKind::Agents => "agents",
-        ShareKind::Instructions => "instructions",
-        ShareKind::Settings => "settings",
-        ShareKind::Mcp => "mcp",
-        ShareKind::History => "history",
-    }
-}
-
 /// Knowledge kinds an account shares. A default home links nothing, so it shares none.
 pub fn shared_kinds(account: &Account) -> Vec<String> {
     if account.is_default_home {
         return vec![];
     }
-    KNOWLEDGE_KINDS.iter().filter(|k| account.sharing.enabled(**k)).map(|k| kind_key(*k).to_string()).collect()
+    KNOWLEDGE_KINDS.iter().filter(|k| account.sharing.enabled(**k)).map(|k| k.key().to_string()).collect()
 }
 
 /// What the shared folder holds, by kind: skill folders, agent and command files, plugins,
@@ -138,7 +125,7 @@ pub fn list_items(shared: &Path, shareable: &[(ShareKind, Vec<&'static str>)], c
                 }
                 ShareKind::Instructions | ShareKind::Settings => {
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| rel.to_string());
-                    items.push(item(kind_key(*kind), name, &path));
+                    items.push(item(kind.key(), name, &path));
                 }
                 ShareKind::Mcp | ShareKind::History => {}
             }
@@ -239,7 +226,7 @@ pub async fn migrate(app: AppHandle, state: Arc<AppState>) {
             continue;
         }
         for account in mine.into_iter().filter(|a| shares_any(&a.sharing) || a.sharing.history) {
-            crate::commands::apply_sharing(&app, &state, account, adapter.clone()).await;
+            crate::accounts::apply_sharing(&app, &state, account, adapter.clone()).await;
         }
     }
 }

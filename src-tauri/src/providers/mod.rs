@@ -31,6 +31,44 @@ pub struct Identity {
     pub plan: Option<String>,
 }
 
+/// A failed usage fetch: what to tell the user, and what kind of failure it is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FetchError {
+    pub kind: ErrorKind,
+    pub message: String,
+}
+
+impl FetchError {
+    pub fn auth(message: impl Into<String>) -> Self {
+        Self { kind: ErrorKind::Auth, message: message.into() }
+    }
+
+    pub fn expired(message: impl Into<String>) -> Self {
+        Self { kind: ErrorKind::Expired, message: message.into() }
+    }
+
+    pub fn network(message: impl Into<String>) -> Self {
+        Self { kind: ErrorKind::Network, message: message.into() }
+    }
+
+    pub fn other(message: impl Into<String>) -> Self {
+        Self { kind: ErrorKind::Other, message: message.into() }
+    }
+
+    /// Put this error on a snapshot.
+    pub fn apply(self, s: &mut UsageSnapshot) {
+        s.error = Some(self.message);
+        s.error_kind = Some(self.kind);
+    }
+
+    /// Empty snapshot carrying this error.
+    pub fn snapshot(self, account: &Account, source: UsageSource) -> UsageSnapshot {
+        let mut s = UsageSnapshot::empty(account, source);
+        self.apply(&mut s);
+        s
+    }
+}
+
 #[async_trait]
 pub trait ProviderAdapter: Send + Sync {
     fn id(&self) -> ProviderId;
@@ -98,7 +136,8 @@ pub trait ProviderAdapter: Send + Sync {
     }
 
     /// Current limits. `live` = allowed to call the provider's usage API with the account's own
-    /// token. Never panic or error: return UsageSnapshot::failed(..) with a clear message instead.
+    /// token. Never panic or error: return a snapshot carrying a `FetchError` (a clear message and
+    /// its kind) instead.
     async fn fetch_usage(&self, account: &Account, live: bool) -> UsageSnapshot;
 
     /// Per-day token activity from local session logs (for charts). Empty vec if unsupported.

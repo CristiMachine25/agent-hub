@@ -116,9 +116,9 @@ describe('recommend', () => {
   it('ranks exhausted and signed-out accounts last', () => {
     const accounts = [plan('a', 'Pro'), plan('b', 'Pro'), plan('c', 'Max', { status: 'needs-login' })]
     const usage = { a: snap('a', [win('five_hour', 100, 2, 300)]), b: snap('b', [win('five_hour', 30, 2, 300)]) }
-    const r = recommend('coding', undefined, accounts, usage, NOW)
-    expect(r[0].accountId).toBe('b')
-    expect(r[0].reason.startsWith('70% of 5-hour session left')).toBe(true)
+    const r = recommend('coding', undefined, accounts, usage, [], NOW)
+    expect(r[0]!.accountId).toBe('b')
+    expect(r[0]!.reason.startsWith('70% of 5-hour session left')).toBe(true)
     expect(r.find((x) => x.accountId === 'a')?.reason).toContain('limit reached')
     expect(r.every((x) => x.score >= 0 && x.score <= 100)).toBe(true)
     // Overview's "Use now" only offers accounts scoring above 0.
@@ -128,29 +128,50 @@ describe('recommend', () => {
   it('prefers Max for a long refactor and the small account for a quick question', () => {
     const accounts = [plan('max', 'Max 20x'), plan('pro', 'Pro')]
     const usage = { max: snap('max', [win('five_hour', 20, 3, 300)]), pro: snap('pro', [win('five_hour', 60, 3, 300)]) }
-    expect(recommend('long-refactor', undefined, accounts, usage, NOW)[0].accountId).toBe('max')
-    expect(recommend('quick-question', undefined, accounts, usage, NOW)[0].accountId).toBe('pro')
+    expect(recommend('long-refactor', undefined, accounts, usage, [], NOW)[0]!.accountId).toBe('max')
+    expect(recommend('quick-question', undefined, accounts, usage, [], NOW)[0]!.accountId).toBe('pro')
   })
 
   it('pushes up a weekly window that resets soon', () => {
     const accounts = [plan('a', 'Pro'), plan('b', 'Pro')]
     const usage = { a: snap('a', [win('seven_day', 40, 10, 10080)]), b: snap('b', [win('seven_day', 40, 100, 10080)]) }
-    const r = recommend('any', undefined, accounts, usage, NOW)
-    expect(r[0].accountId).toBe('a')
-    expect(r[0].reason).toContain('Use it before it resets')
+    const r = recommend('any', undefined, accounts, usage, [], NOW)
+    expect(r[0]!.accountId).toBe('a')
+    expect(r[0]!.reason).toContain('Use it before it resets')
   })
 
   it('never scores a usable account 0', () => {
     const accounts = [plan('a', 'Max 20x'), plan('b', 'Max 20x')]
     const usage = { a: snap('a', [win('five_hour', 97, 2, 300)]), b: snap('b', [win('five_hour', 100, 2, 300)]) }
-    const r = recommend('quick-question', undefined, accounts, usage, NOW)
+    const r = recommend('quick-question', undefined, accounts, usage, [], NOW)
     expect(r.find((x) => x.accountId === 'a')?.score).toBeGreaterThanOrEqual(1)
     expect(r.find((x) => x.accountId === 'b')?.score).toBe(0)
   })
 
+  it('sorts accounts without their CLI last but keeps them usable', () => {
+    const accounts = [
+      plan('a', 'Pro'),
+      plan('b', 'Pro', { providerId: 'codex' }),
+      plan('c', 'Pro', { providerId: 'codex' }),
+      plan('d', 'Pro', { providerId: 'codex', status: 'needs-login' })
+    ]
+    const usage = {
+      a: snap('a', [win('five_hour', 30, undefined, 300)]),
+      b: snap('b', [win('five_hour', 90, undefined, 300)]),
+      c: snap('c', [win('five_hour', 10, undefined, 300)])
+    }
+    const r = recommend('any', undefined, accounts, usage, ['codex'], NOW)
+    // Still usable (its desktop app may work), so 1 and not 0; the one with more left comes first.
+    expect(r.map((x) => [x.accountId, x.score])).toEqual([['a', 45.5], ['c', 1], ['b', 1], ['d', 0]])
+    expect(r[1]!.reason).toBe("90% of 5-hour session left. The Codex CLI isn't installed on this computer.")
+    expect(r[3]!.reason).toBe('Needs login before it can be used.')
+    // Without the CLI check the same accounts rank on quota alone.
+    expect(recommend('any', undefined, accounts, usage, [], NOW)[0]!.accountId).toBe('c')
+  })
+
   it('filters by provider and rewards matching tags', () => {
     const accounts = [plan('u', 'Pro'), plan('t', 'Pro', { tags: ['Research'] }), plan('o', 'Pro', { providerId: 'codex' })]
-    const r = recommend('research', 'claude', accounts, {}, NOW)
+    const r = recommend('research', 'claude', accounts, {}, [], NOW)
     expect(r.map((x) => x.accountId)).toEqual(['t', 'u'])
     expect(tier({ plan: 'Copilot Pro+', tags: [] })).toBe(3)
     expect(tier({ plan: 'Plus', tags: [] })).toBe(1)
@@ -163,7 +184,7 @@ describe('recommend', () => {
   it('ignores a used-up model-only window', () => {
     const sonnet = { ...win('seven_day_sonnet', 100, 30, 10080), label: 'Weekly Sonnet' }
     const s = snap('a', [win('five_hour', 20, 2, 300), win('seven_day', 30, 100, 10080), sonnet])
-    const r = recommend('any', undefined, [plan('a', 'Pro')], { a: s }, NOW)[0]
+    const r = recommend('any', undefined, [plan('a', 'Pro')], { a: s }, [], NOW)[0]!
     expect(r.score).toBeGreaterThan(10)
     expect(r.reason.startsWith('70% of Weekly left')).toBe(true)
   })

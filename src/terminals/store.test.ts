@@ -32,27 +32,27 @@ describe('a spawn that finishes after its pane moved on', () => {
   it('kills the terminal when the pane was closed during the spawn', async () => {
     const started = useGrid.getState().start(0, { accountId: 'acc-1', target: 'cli' })
     await useGrid.getState().close(0)
-    spawns[0](info('t-closed'))
+    spawns[0]!(info('t-closed'))
     await started
     expect(kill).toHaveBeenCalledWith('t-closed')
     expect(registry.disposeTerm).toHaveBeenCalledWith('t-closed')
     expect(registry.getTerm).not.toHaveBeenCalled()
-    expect(useGrid.getState().ws.panes[0].terminalId).toBeUndefined()
-    expect(useGrid.getState().starting[useGrid.getState().ws.panes[0].uid]).toBe(false)
+    expect(useGrid.getState().ws.panes[0]!.terminalId).toBeUndefined()
+    expect(useGrid.getState().starting[useGrid.getState().ws.panes[0]!.uid]).toBe(false)
   })
 
   it('attaches the terminal to its pane in the session the user switched away from', async () => {
-    const uid = useGrid.getState().ws.panes[0].uid
+    const uid = useGrid.getState().ws.panes[0]!.uid
     const from = useGrid.getState().activeId
     const started = useGrid.getState().start(0, { accountId: 'acc-1', target: 'cli' })
     useGrid.getState().newSession()
-    spawns[0](info('t-elsewhere'))
+    spawns[0]!(info('t-elsewhere'))
     await started
     expect(kill).not.toHaveBeenCalled()
     expect(useGrid.getState().ws.panes.some((p) => p.terminalId)).toBe(false)
     const pane = useGrid.getState().sessions.find((x) => x.id === from)!.ws.panes.find((p) => p.uid === uid)!
     expect(pane.terminalId).toBe('t-elsewhere')
     useGrid.getState().switchSession(from)
-    expect(useGrid.getState().ws.panes[0].terminalId).toBe('t-elsewhere')
+    expect(useGrid.getState().ws.panes[0]!.terminalId).toBe('t-elsewhere')
   })
 })

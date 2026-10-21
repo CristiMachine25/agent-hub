@@ -35,9 +35,10 @@ function useGridKeys() {
       const mod = api.platform === 'darwin' ? e.metaKey : e.ctrlKey
       if (!mod || !e.shiftKey) return
       const g = useGrid.getState()
-      if (ARROWS[e.key]) {
+      const dir = ARROWS[e.key]
+      if (dir) {
         e.preventDefault()
-        g.move(ARROWS[e.key])
+        g.move(dir)
       } else if (e.key === 'Enter') {
         e.preventDefault()
         g.toggleMax()

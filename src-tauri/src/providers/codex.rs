@@ -10,7 +10,7 @@
 //! Live usage: `GET <chatgpt_base_url>/wham/usage`; fallback `codex app-server` JSON-RPC
 //! (`account/read`, `account/rateLimits/read`), which also lets Codex refresh its own tokens.
 use super::common::*;
-use super::{CommandSpec, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -485,8 +485,7 @@ fn find_desktop() -> Option<(String, Vec<String>, String)> {
 
 impl CodexAdapter {
     fn base_snapshot(&self, account: &Account, source: UsageSource, ident: &Identity) -> UsageSnapshot {
-        let mut s = UsageSnapshot::failed(account, source, "");
-        s.error = None;
+        let mut s = UsageSnapshot::empty(account, source);
         s.email = ident.email.clone().or_else(|| account.email.clone());
         s.plan = ident.plan.clone().or_else(|| account.plan.clone());
         s
@@ -503,14 +502,14 @@ impl CodexAdapter {
     }
 
     /// Last-known limits from session logs, carrying `error` (why live data is missing) if any.
-    async fn local_snapshot(&self, account: &Account, ident: &Identity, error: Option<String>) -> UsageSnapshot {
+    async fn local_snapshot(&self, account: &Account, ident: &Identity, error: Option<FetchError>) -> UsageSnapshot {
         // Walks every recent session file: keep it off the async workers.
         let home = PathBuf::from(&account.home_dir);
         let logged = tokio::task::spawn_blocking(move || latest_logged_limits(&home)).await.ok().flatten();
         let now = Utc::now();
         let Some((rl, at)) = logged else {
             let mut s = self.base_snapshot(account, UsageSource::None, ident);
-            s.error = Some(error.unwrap_or_else(|| "No recent Codex sessions to read limits from yet.".into()));
+            error.unwrap_or_else(|| FetchError::other("No recent Codex sessions to read limits from yet.")).apply(&mut s);
             return s;
         };
         let parsed = parse_log_limits(&rl, at, now);
@@ -519,7 +518,9 @@ impl CodexAdapter {
         let mut s = self.parsed_snapshot(account, UsageSource::LocalLogs, ident, parsed);
         s.fetched_at = at.to_rfc3339();
         s.stale = Some(old || error.is_some());
-        s.error = error;
+        if let Some(e) = error {
+            e.apply(&mut s);
+        }
         s
     }
 
@@ -665,15 +666,15 @@ impl ProviderAdapter for CodexAdapter {
             return self.local_snapshot(account, &ident, None).await;
         }
         let Some(auth) = auth else {
-            return self.local_snapshot(account, &ident, Some("Not signed in. Use Sign in to log this account in.".into())).await;
+            return self.local_snapshot(account, &ident, Some(FetchError::auth("Not signed in. Use Sign in to log this account in."))).await;
         };
         let Some(token) = auth.access_token.as_deref() else {
-            let msg = if auth.api_key.is_some() {
-                "Signed in with an API key: ChatGPT plan limits do not apply."
+            let error = if auth.api_key.is_some() {
+                FetchError::other("Signed in with an API key: ChatGPT plan limits do not apply.")
             } else {
-                "Not signed in. Use Sign in to log this account in."
+                FetchError::auth("Not signed in. Use Sign in to log this account in.")
             };
-            return self.local_snapshot(account, &ident, Some(msg.into())).await;
+            return self.local_snapshot(account, &ident, Some(error)).await;
         };
 
         let url = usage_url(read_config(&home).as_ref());
@@ -699,14 +700,14 @@ impl ProviderAdapter for CodexAdapter {
             }
         }
 
-        let msg = match api_error {
-            ApiError::Unauthorized => "Login expired. Launch Codex once or sign in again.".to_string(),
-            ApiError::RateLimited => "ChatGPT's usage API is rate-limiting requests; showing the last known limits.".to_string(),
-            ApiError::Http(code) => format!("ChatGPT's usage API returned HTTP {code}; showing the last known limits."),
-            ApiError::Network(e) => format!("Could not reach ChatGPT's usage API ({e}); showing the last known limits."),
-            ApiError::Parse => "ChatGPT's usage API returned an unexpected response; showing the last known limits.".to_string(),
+        let error = match api_error {
+            ApiError::Unauthorized => FetchError::expired("Login expired. Launch Codex once or sign in again."),
+            ApiError::RateLimited => FetchError::other("ChatGPT's usage API is rate-limiting requests; showing the last known limits."),
+            ApiError::Http(code) => FetchError::other(format!("ChatGPT's usage API returned HTTP {code}; showing the last known limits.")),
+            ApiError::Network(e) => FetchError::network(format!("Could not reach ChatGPT's usage API ({e}); showing the last known limits.")),
+            ApiError::Parse => FetchError::other("ChatGPT's usage API returned an unexpected response; showing the last known limits."),
         };
-        self.local_snapshot(account, &ident, Some(msg)).await
+        self.local_snapshot(account, &ident, Some(error)).await
     }
 
     async fn scan_activity(&self, account: &Account, since_days: u32) -> Vec<DailyActivity> {

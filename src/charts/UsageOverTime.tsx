@@ -39,7 +39,7 @@ export function UsageOverTime({
           const b = Math.floor(t / step)
           if (seen.has(b)) continue
           seen.add(b)
-          data.push({ t, v: p.windows[w.id] })
+          data.push({ t, v: p.windows[w.id]! }) // present: checked with `in` above
         }
         data.sort((x, y) => x.t - y.t)
         return { a, w, data }
@@ -54,7 +54,7 @@ export function UsageOverTime({
     <div role="group" aria-label="Weekly and monthly limits used over time, one strip per account">
       <ul className="space-y-1">
         {rows.map(({ a, w, data }) => {
-          const last = data[data.length - 1].v
+          const last = data[data.length - 1]!.v // rows keep two or more points
           return (
             <li key={a.id} className="grid grid-cols-[minmax(0,8.5rem)_1fr_3.25rem] items-center gap-3">
               <span className="min-w-0">
@@ -72,8 +72,8 @@ export function UsageOverTime({
                       content={({ active, payload }) =>
                         active && payload?.length ? (
                           <div className="rounded border border-rivet bg-deck px-2.5 py-1.5 text-xs shadow-lg">
-                            <span className="text-muted">{tipTime.format(Number(payload[0].payload.t))}: </span>
-                            <span className="tabular-nums">{Math.round(Number(payload[0].value))}% used</span>
+                            <span className="text-muted">{tipTime.format(Number(payload[0]!.payload.t))}: </span>
+                            <span className="tabular-nums">{Math.round(Number(payload[0]!.value))}% used</span>
                           </div>
                         ) : null
                       }
@@ -92,7 +92,7 @@ export function UsageOverTime({
                 </ResponsiveContainer>
               </div>
               <span className="text-right text-xs tabular-nums text-muted" data-tip="Used now">
-                {Math.round(last)}%
+                {Math.round(last)}%<span className="sr-only"> used now</span>
               </span>
             </li>
           )
