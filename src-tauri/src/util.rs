@@ -49,9 +49,20 @@ pub fn read_json(path: &Path) -> Option<serde_json::Value> {
 }
 
 /// Write a file atomically (temp file + rename) so a crash never leaves half a credential file.
+/// Each call gets its own temp file, so overlapping writes of one path never mix their bytes.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp-{}-{seq}", std::process::id()));
+    let result = write_and_rename(&tmp, path, bytes);
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn write_and_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -60,11 +71,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut f = opts.open(&tmp)?;
+    let mut f = opts.open(tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;
     drop(f);
-    std::fs::rename(&tmp, path)
+    std::fs::rename(tmp, path)
 }
 
 /// Normalize a path for comparisons (case-insensitive on Windows, no trailing slash).
@@ -161,6 +172,32 @@ pub fn local_clock(t: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chron
         local.format("%a %H:%M").to_string()
     } else {
         local.format("%b %-d %H:%M").to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_atomic_writes_never_mix() {
+        let t = tempfile::tempdir().unwrap();
+        let path = t.path().join("accounts.json");
+        let threads: Vec<_> = (0..8u8)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || (0..20).map(|_| write_atomic(&path, &[i; 64 * 1024]).map_err(|e| e.to_string())).collect::<Vec<_>>())
+            })
+            .collect();
+        for h in threads {
+            for r in h.join().unwrap() {
+                assert_eq!(r, Ok(()));
+            }
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes.len(), 64 * 1024);
+        assert!(bytes.iter().all(|b| *b == bytes[0]), "bytes from several writers");
+        assert_eq!(std::fs::read_dir(t.path()).unwrap().count(), 1, "temp files left behind");
     }
 }
 

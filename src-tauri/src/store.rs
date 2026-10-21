@@ -408,6 +408,26 @@ mod tests {
         assert_eq!(read_history_file(&path, None, old - chrono::Duration::days(1)).len(), 2);
     }
 
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn overlapping_saves_all_succeed_and_keep_the_newest_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = std::sync::Arc::new(AppState::load(dir.path().to_path_buf()).unwrap());
+        let tasks: Vec<_> = (1..=16u32)
+            .map(|i| {
+                let state = state.clone();
+                tokio::spawn(async move {
+                    state.settings.write().await.poll_interval_minutes = i;
+                    state.save_settings().await
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap().unwrap();
+        }
+        let saved = load_settings(&dir.path().join(SETTINGS_FILE));
+        assert_eq!(saved.poll_interval_minutes, state.settings.read().await.poll_interval_minutes);
+    }
+
     #[test]
     fn bad_account_entries_are_skipped() {
         let dir = tempfile::tempdir().unwrap();
