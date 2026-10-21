@@ -62,6 +62,7 @@ interface State {
 }
 
 let toastSeq = 1
+let settingsSeq = 0
 let subscribed = false
 
 export const useStore = create<State>((set, get) => ({
@@ -232,6 +233,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async saveSettings(patch) {
+    // Saves can overlap (sliders, toggles). Only the newest one may apply its result or roll back.
+    const seq = ++settingsSeq
     const prev = get().settings
     if (prev) {
       set({
@@ -245,9 +248,9 @@ export const useStore = create<State>((set, get) => ({
     }
     try {
       const settings = await api.settings.set(patch)
-      set({ settings })
+      if (seq === settingsSeq) set({ settings })
     } catch (e) {
-      set({ settings: prev })
+      if (seq === settingsSeq) set({ settings: prev })
       get().toast({ kind: 'error', title: "Couldn't save settings", body: errorText(e) })
     }
   },
@@ -271,6 +274,3 @@ export const useStore = create<State>((set, get) => ({
     set({ addOpen: open })
   }
 }))
-
-export const accountById = (accounts: Account[], id: string | undefined | null) =>
-  id ? accounts.find((a) => a.id === id) : undefined
