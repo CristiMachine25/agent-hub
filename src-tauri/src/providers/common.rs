@@ -1,4 +1,4 @@
-//! Helpers shared by the Claude and Codex adapters: launcher-script scanning, path expansion,
+//! Helpers shared by the provider adapters: launcher-script scanning, path expansion,
 //! JSONL log walking, local dates, version caching and credential-safe file writes.
 use crate::util;
 use std::collections::HashMap;

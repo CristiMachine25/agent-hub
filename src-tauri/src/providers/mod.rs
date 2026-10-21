@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 pub mod claude;
 pub mod codex;
+pub(crate) mod common;
 pub mod copilot;
 pub mod gemini;
 

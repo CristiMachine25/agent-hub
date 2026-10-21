@@ -9,7 +9,7 @@
 //!
 //! Live usage: `GET <chatgpt_base_url>/wham/usage`; fallback `codex app-server` JSON-RPC
 //! (`account/read`, `account/rateLimits/read`), which also lets Codex refresh its own tokens.
-use super::claude::common::*;
+use super::common::*;
 use super::{CommandSpec, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;

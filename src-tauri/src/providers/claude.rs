@@ -18,9 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[path = "claude_codex_common.rs"]
-pub(crate) mod common;
-use common::*;
+use super::common::*;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// From Claude Code's bundled OAuth config (`TOKEN_URL`, `CLIENT_ID`).
