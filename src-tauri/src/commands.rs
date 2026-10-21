@@ -19,9 +19,8 @@ fn err(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
-const PALETTE: [&str; 10] = [
-    "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#14b8a6",
-];
+/// Account identity colors: the same validated set as `ACCOUNT_COLORS` in src/lib/providers.ts (see docs/DESIGN.md).
+const PALETTE: [&str; 8] = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#9085E9", "#E66767", "#008300"];
 
 /// First palette color no account uses yet, else rotate by count.
 fn next_color(accounts: &[Account]) -> String {
@@ -941,6 +940,14 @@ mod tests {
         assert_eq!(next_color(&[]), PALETTE[0]);
         let cwd = pick_cwd(Some("/definitely/not/here".into()), None);
         assert_eq!(cwd, util::home().to_string_lossy());
+    }
+
+    #[test]
+    fn palette_matches_the_ui() {
+        let ts = include_str!("../../src/lib/providers.ts");
+        let list = ts.split("ACCOUNT_COLORS = [").nth(1).and_then(|r| r.split(']').next()).expect("ACCOUNT_COLORS in providers.ts");
+        let ui: Vec<&str> = list.split(',').map(|c| c.trim().trim_matches('\'')).filter(|c| !c.is_empty()).collect();
+        assert_eq!(ui, PALETTE);
     }
 
     #[test]
