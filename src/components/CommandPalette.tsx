@@ -140,6 +140,7 @@ export function CommandPalette() {
       ['Go to Overview', 'overview dashboard home', () => go('overview')],
       ['Go to Accounts', 'accounts list', () => go('accounts')],
       ['Go to Knowledge', 'knowledge skills agents commands instructions plugins permissions shared', () => go('knowledge')],
+      ['Go to Skills', 'skills explorer directory install find browse skills.sh', () => go('skills')],
       ['Go to Notifications', 'notifications alerts', () => go('notifications')],
       ['Go to Settings', 'settings preferences', () => go('settings')],
       ['Add an account', 'add new create import find detect account', () => setAddOpen(true)],

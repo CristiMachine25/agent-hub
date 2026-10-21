@@ -9,11 +9,12 @@ import { AddAccountDialog } from './components/AddAccountDialog'
 import { Overview } from './screens/Overview'
 import { Accounts } from './screens/Accounts'
 import { Knowledge } from './screens/Knowledge'
+import { Skills } from './screens/Skills'
 import { Notifications } from './screens/Notifications'
 import { Settings } from './screens/Settings'
 import { Terminals } from './terminals/Terminals'
 
-const SCREENS: Screen[] = ['overview', 'accounts', 'knowledge', 'terminals', 'notifications', 'settings']
+const SCREENS: Screen[] = ['overview', 'accounts', 'knowledge', 'skills', 'terminals', 'notifications', 'settings']
 
 function useTheme() {
   const pref = useStore((s) => s.settings?.theme ?? 'dark')
@@ -121,6 +122,7 @@ export function App() {
           {screen === 'overview' && <Overview />}
           {screen === 'accounts' && <Accounts />}
           {screen === 'knowledge' && <Knowledge />}
+          {screen === 'skills' && <Skills />}
           {screen === 'terminals' && <Terminals />}
           {screen === 'notifications' && <Notifications />}
           {screen === 'settings' && <Settings />}
