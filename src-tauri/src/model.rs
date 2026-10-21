@@ -72,6 +72,21 @@ pub enum ShareKind {
     History,
 }
 
+impl ShareKind {
+    /// The SharingOptions field name of a kind ("skills", "history"...), also the kind in setup files.
+    pub fn key(self) -> &'static str {
+        match self {
+            ShareKind::Skills => "skills",
+            ShareKind::Plugins => "plugins",
+            ShareKind::Agents => "agents",
+            ShareKind::Instructions => "instructions",
+            ShareKind::Settings => "settings",
+            ShareKind::Mcp => "mcp",
+            ShareKind::History => "history",
+        }
+    }
+}
+
 impl SharingOptions {
     /// Nothing shared: imported homes start like this, and removal unlinks with it.
     pub const NONE: Self = Self { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false };
