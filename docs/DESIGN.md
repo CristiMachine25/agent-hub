@@ -31,10 +31,12 @@ Anthropic's terracotta, so the app never looks like it borrows their branding.
 |---|---|---|---|
 | Charcoal / Paper | App ground, terminal background | `#1A1918` | `#F5F3EE` |
 | Panel | Sidebar, panels, pane headers | `#222120` | `#FBFAF7` |
+| Well | Side lists (accounts, terminal sessions), code previews | `#141312` | `#ECE9E2` |
 | Raised | Hover, selected rows | `#2A2826` | `#EEEBE4` |
 | Line | Borders, dividers | `#35322F` | `#DCD7CD` |
 | Text | Primary text | `#ECEAE4` | `#1F1D1A` |
 | Muted | Secondary text | `#A3A097` | `#605C54` |
+| Faint | Hints, tertiary text | `#7D7A72` | `#847F75` |
 | Periwinkle | Actions, focus ring, selection | `#9AA5FF` | `#4556D6` |
 | Quota scale | Full / Half / Low / Empty (left) | `#5EC98C` `#E2BE5C` `#EC8D4A` `#F06868` | `#16804A` `#926800` `#B6500E` `#C42E34` |
 
@@ -56,7 +58,7 @@ Claude's interface pairs a book serif for headings and answers with a plain sans
   because its tabular figures keep countdowns from jittering, and it is neutral enough next to the serif.
 - **IBM Plex Mono**: terminals and anything you could paste into one: command lines, paths, env vars.
 
-Sizes: 13px base (desktop density), 12px secondary, 17px serif section titles, 24px serif screen titles,
+Sizes: 13px base (desktop density), 12px secondary, 17px serif section titles, 20px serif screen titles,
 44px serif hero figure. Sentence case everywhere. No all-caps eyebrows.
 
 ## Icon
@@ -75,28 +77,32 @@ button; there is no red alarm. The xterm theme comes from the same tokens.
 
 ## Layout
 
-Fixed 208px sidebar (collapses to icons below 1000px), content scrolls. Comfortable at 1240×820,
+208px sidebar; the button beside Settings or Ctrl/Cmd+B collapses it to icons (60px, 92px on macOS to
+clear the window buttons), and it starts collapsed below 1000px. Every screen has a fixed 56px toolbar with
+its title (and actions such as Refresh on Knowledge); the content scrolls below it. Comfortable at 1240×820,
 usable at 900×600, never scrolls horizontally.
 
 ```
-┌────────────┬──────────────────────────────────────────────────────────────┐
-│ ◆ Agent Hub     │ Overview                                    Refresh  Ctrl K   │
-│            │ ┌ Use now ───────────────────────────────────────────────────┐│
-│ Overview   │ │ For: [Coding] Long refactor  Quick question  Research  …    ││
-│ Accounts   │ │                                                              ││
-│ Alerts  3  │ │ ● Work Max 20x        ▮▮▮▮▮▮▮▯▯▯▯▯▯▯▯▯▯▯▯▯  36% left        ││
-│ Settings   │ │ Claude · Max 20x      5-hour session · resets in 2h 14m      ││
-│            │ │ "59% of weekly left, resets in 3 days"   [Launch Claude]     ││
-│            │ │ Next best: Personal Pro (Launch) · ChatGPT Pro (Launch)      ││
-│            │ └──────────────────────────────────────────────────────────────┘│
-│            │ ⚠ Use it or lose it: H2 Max has 70% weekly left, resets in 9h  │
-│            │ All accounts                                                    │
-│            │ ● Work Max 20x   5-hour ▮▮▮▮▯▯▯  Weekly ▮▮▮▮▮▯  Opus ▮▯▯  [▶]   │
-│            │ ● Personal Pro   5-hour ▮▮▮▮▮▮▮  Weekly ▯▯▯▯▯▯ Low          [▶] │
-│            │ …                                                               │
-│ Updated 2m │ Usage over time [chart]          Most used (30 days) [bars]    │
-│ ago        │                                                                 │
-└────────────┴──────────────────────────────────────────────────────────────┘
+┌─────────────────┬──────────────────────────────────────────────────────────────────────┐
+│ ◆ Agent Hub     │ Overview                                                             │
+│                 ├──────────────────────────────────────────────────────────────────────┤
+│ Overview        │ ┌ Best account right now ──────── [Coding] Long refactor  Quick …  ┐ │
+│ Accounts        │ ├────────────────────────────────────────────┬─────────────────────┤ │
+│ Knowledge       │ │ ● Work Max 20x   Claude Code, Max 20x      │ If not that one     │ │
+│ Skills          │ │ 36%  ▮▮▮▮▮▮▮▯▯▯▯▯▯▯▯▯▯▯▯▯                  │ ● Personal Pro   ▶  │ │
+│ Terminals       │ │ left of 5-hour session, resets in 2h 14m   │ ● ChatGPT Pro    ▶  │ │
+│ Notifications 3 │ │ Weekly ▮▮▮▮▮▮▯▯▯▯  Weekly Opus ▮▮▮▮▮▮▮▮▯▯  │                     │ │
+│                 │ │ 59% of weekly left, resets in 3 days       │                     │ │
+│                 │ │ [▶ Launch Claude]  [Resume last session]   │                     │ │
+│                 │ └────────────────────────────────────────────┴─────────────────────┘ │
+│                 │ Use it or lose it: H2 Max has 70% of its weekly left, resets in 9h   │
+│                 │ All accounts                                     [+ Add account]     │
+│                 │ ● Work Max 20x   5-hour ▮▮▮▮▯▯▯  Weekly ▮▮▮▮▮▯  Opus ▮▯▯  [▶]        │
+│                 │ ● Personal Pro   5-hour ▮▮▮▮▮▮▮  Weekly ▯▯▯▯▯▯  Low       [▶]        │
+│ ↻ Usage updated │ …                                                                    │
+│   2m ago        │ Weekly and monthly limits used     Most used, last 30 days           │
+│ Settings    [«] │ [chart]                            [bars]                            │
+└─────────────────┴──────────────────────────────────────────────────────────────────────┘
 ```
 
 Accounts screen is master/detail: provider-grouped list on the left, the selected account on the right.
@@ -109,12 +115,12 @@ Adding an account is a two-step dialog (find on this computer, or create a new i
 3. **Quiet chrome.** Flat surfaces, 1px lines, one radius (6px), no gradients, no shadows except on overlays.
 4. **Show what ran.** Every launch toasts the exact command line in mono, with a copy button.
 5. **Motion only for change.** Meters animate when a value changes; nothing else moves. `prefers-reduced-motion` disables it.
-6. **Keyboard first.** Visible violet focus ring, `Ctrl/Cmd+K` palette, `1–7` jump between screens, Enter launches.
+6. **Keyboard first.** Visible periwinkle focus ring, `Ctrl/Cmd+K` palette, `1–7` jump between screens, Enter launches.
 
 ## Review against the brief (revisions made)
 
-- First draft used a near-black ground with a single green accent: that is a known template look. Moved the
-  ground to a blue-ink tone and made the accent violet, keeping green exclusively for "plenty left".
+- First draft used a near-black ground with a single green accent: that is a known template look. The ground
+  is now warm charcoal and the accent periwinkle, keeping green exclusively for "plenty left".
 - First draft had a card per account in a grid. Replaced with dense rows so ten accounts fit without scrolling
   and the windows line up in columns for comparison.
 - Dropped a planned uppercase "PROVIDER" eyebrow over groups; groups use the provider name in normal case
