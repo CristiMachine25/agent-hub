@@ -277,10 +277,6 @@ export function createMockApi(platform: Platform): AgentHubApi {
         accountsChanged()
         emit('usage-updated', db.usage)
         return opts.deleteHome
-      },
-      async applySharing(id) {
-        await wait(350)
-        return clone(find(id))
       }
     },
     usage: {

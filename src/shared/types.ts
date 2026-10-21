@@ -403,8 +403,6 @@ export interface AgentHubApi {
     update(id: string, patch: AccountPatch): Promise<Account>
     /** Resolves true when the account's folder was deleted too (only folders inside profiles are). */
     remove(id: string, opts: { deleteHome: boolean }): Promise<boolean>
-    /** Re-apply sharing links after SharingOptions changed. */
-    applySharing(id: string): Promise<Account>
   }
   usage: {
     latest(): Promise<Record<string, UsageSnapshot>>
@@ -479,7 +477,6 @@ export const COMMANDS = {
   accountsCreate: 'accounts_create', // { input }
   accountsUpdate: 'accounts_update', // { id, patch }
   accountsRemove: 'accounts_remove', // { id, deleteHome }
-  accountsApplySharing: 'accounts_apply_sharing', // { id }
   usageLatest: 'usage_latest',
   usageHistory: 'usage_history', // { accountId, days }
   usageActivity: 'usage_activity', // { accountId, days }

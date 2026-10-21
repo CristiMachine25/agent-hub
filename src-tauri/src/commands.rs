@@ -409,15 +409,6 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
     Ok(deleted)
 }
 
-#[tauri::command]
-pub async fn accounts_apply_sharing(app: AppHandle, state: St<'_>, id: String) -> Res<Account> {
-    let state = state.inner().clone();
-    let account = state.account(&id).await.ok_or("Account not found")?;
-    let adapter = state.adapter(account.provider_id).map_err(err)?;
-    apply_sharing(&app, &state, &account, adapter).await;
-    Ok(account)
-}
-
 // ---------- usage ----------
 
 #[tauri::command]

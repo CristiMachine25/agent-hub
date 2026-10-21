@@ -19,8 +19,7 @@ function createTauriApi(): AgentHubApi {
       import: (found) => call(COMMANDS.accountsImport, { found }),
       create: (input) => call(COMMANDS.accountsCreate, { input }),
       update: (id, patch) => call(COMMANDS.accountsUpdate, { id, patch }),
-      remove: (id, opts) => call(COMMANDS.accountsRemove, { id, deleteHome: opts.deleteHome }),
-      applySharing: (id) => call(COMMANDS.accountsApplySharing, { id })
+      remove: (id, opts) => call(COMMANDS.accountsRemove, { id, deleteHome: opts.deleteHome })
     },
     usage: {
       latest: () => call(COMMANDS.usageLatest),

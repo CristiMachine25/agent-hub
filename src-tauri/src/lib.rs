@@ -75,7 +75,6 @@ pub fn run() {
             commands::accounts_create,
             commands::accounts_update,
             commands::accounts_remove,
-            commands::accounts_apply_sharing,
             commands::usage_latest,
             commands::usage_history,
             commands::usage_activity,
