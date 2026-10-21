@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   Account,
+  AccountPatch,
   AppNotification,
   AppSettings,
   LaunchTarget,
@@ -50,7 +51,7 @@ interface State {
   loadRecs(): Promise<void>
   refresh(accountId?: string): Promise<void>
   launch(accountId: string, target?: LaunchTarget, opts?: { resume?: boolean; cwd?: string }): Promise<void>
-  updateAccount(id: string, patch: Partial<Account>, opts?: { applySharing?: boolean; quiet?: boolean }): Promise<boolean>
+  updateAccount(id: string, patch: AccountPatch, opts?: { applySharing?: boolean; quiet?: boolean }): Promise<boolean>
   removeAccount(id: string, deleteHome: boolean): Promise<boolean>
   markRead(id: string | 'all'): Promise<void>
   saveSettings(patch: Partial<AppSettings>): Promise<void>

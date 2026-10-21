@@ -432,9 +432,9 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       label: label.trim() || a.label,
       color,
       tags,
-      monthlyCost: cost ? Number(cost) : undefined,
-      plan: plan || undefined,
-      notes: notes.trim() || undefined
+      monthlyCost: cost ? Number(cost) : null,
+      plan: plan || null,
+      notes: notes.trim() || null
     })
     if (ok) onClose()
   }
