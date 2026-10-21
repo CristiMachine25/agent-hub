@@ -115,12 +115,23 @@ export function App() {
     )
 
   return (
-    <div className="flex h-full">
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* On macOS the screens' own 56px toolbars share the window buttons' row and drag the window. */}
-        {!MAC_TRAFFIC_LIGHTS && <TitleBar />}
-        <main className="min-h-0 flex-1 overflow-hidden" id="main">
+    <div className="flex h-full flex-col">
+      <a
+        href="#main"
+        className="btn btn-primary sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70]"
+        onClick={(e) => {
+          e.preventDefault()
+          document.getElementById('main')?.focus()
+        }}
+      >
+        Skip to content
+      </a>
+      {/* Full width, so the sidebar's top row and the screen toolbars still line up below it. On macOS the screens'
+          own 56px toolbars share the window buttons' row and drag the window instead. */}
+      {!MAC_TRAFFIC_LIGHTS && <TitleBar />}
+      <div className="flex min-h-0 flex-1">
+        <Sidebar />
+        <main className="min-h-0 min-w-0 flex-1 overflow-hidden focus-visible:outline-none" id="main" tabIndex={-1}>
           {screen === 'overview' && <Overview />}
           {screen === 'accounts' && <Accounts />}
           {screen === 'knowledge' && <Knowledge />}
