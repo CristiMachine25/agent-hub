@@ -117,7 +117,7 @@ export function App() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TitleBar />
-        <main className={screen === 'terminals' ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-y-auto'} id="main">
+        <main className="min-h-0 flex-1 overflow-hidden" id="main">
           {screen === 'overview' && <Overview />}
           {screen === 'accounts' && <Accounts />}
           {screen === 'knowledge' && <Knowledge />}
