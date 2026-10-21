@@ -193,7 +193,12 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setPicked(new Set())
     setError(null)
     void (async () => {
-      const p = await api.system.pickSetupFile()
+      let p: string | null
+      try {
+        p = await api.system.pickSetupFile()
+      } catch (e) {
+        return setError(errorText(e))
+      }
       if (!p) return onClose()
       setPath(p)
       await load(p)
@@ -214,9 +219,15 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
         settings
       })
       setReport(r)
-      // New accounts arrive through the accounts-changed event; preferences need a fresh read.
-      if (r.settings) useStore.setState({ settings: await api.settings.get() })
       toast({ kind: 'success', title: r.added.length ? `Added ${plural(r.added.length, 'account')}` : 'Nothing new to add' })
+      // New accounts arrive through the accounts-changed event; preferences need a fresh read.
+      if (r.settings) {
+        try {
+          useStore.setState({ settings: await api.settings.get() })
+        } catch {
+          /* the import itself worked; don't report it as failed */
+        }
+      }
     } catch (e) {
       setError(errorText(e))
     } finally {
