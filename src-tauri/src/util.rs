@@ -209,7 +209,7 @@ pub mod gui_path {
     use std::io::Read;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     const MARK: &str = "__SWITCHYARD_PATH__";
 
@@ -232,26 +232,33 @@ pub mod gui_path {
 
     /// `$PATH` from an interactive login shell (which reads .zprofile and .zshrc), or None if it
     /// fails or takes longer than `timeout`. Markers skip anything the rc files print.
+    /// `printenv` (not `"$PATH"`) so fish, where PATH is a list, prints it colon-separated too.
     fn login_shell_path(shell: &Path, timeout: Duration) -> Option<String> {
         let mut child = Command::new(shell)
-            .args(["-ilc", &format!("printf '%s%s%s' {MARK} \"$PATH\" {MARK}")])
+            .args(["-ilc", &format!("printf %s {MARK}; /usr/bin/printenv PATH; printf %s {MARK}")])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .ok()?;
-        let deadline = Instant::now() + timeout;
-        while child.try_wait().ok()?.is_none() {
-            if Instant::now() > deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
+        // Read on a helper thread and stop at the closing marker: a background job started by an
+        // rc file can keep the pipe open long after the shell exits, so EOF may never come.
+        let mut stdout = child.stdout.take()?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut out, mut buf) = (Vec::new(), [0u8; 4096]);
+            while let Ok(n @ 1..) = stdout.read(&mut buf) {
+                out.extend_from_slice(&buf[..n]);
+                if let Some(v) = marked_value(&String::from_utf8_lossy(&out)) {
+                    let _ = tx.send(v);
+                    return;
+                }
             }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let mut out = String::new();
-        child.stdout.take()?.read_to_string(&mut out).ok()?;
-        marked_value(&out)
+        });
+        let value = rx.recv_timeout(timeout).ok();
+        let _ = child.kill();
+        let _ = child.wait();
+        value
     }
 
     fn marked_value(out: &str) -> Option<String> {
@@ -313,6 +320,19 @@ pub mod gui_path {
             std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
             let started = std::time::Instant::now();
             assert_eq!(login_shell_path(&shell, Duration::from_millis(300)), None);
+            assert!(started.elapsed() < Duration::from_secs(5));
+        }
+
+        #[test]
+        fn a_background_job_holding_stdout_does_not_block() {
+            let t = tempfile::tempdir().unwrap();
+            let shell = t.path().join("rc-daemon-shell");
+            let script = format!("#!/bin/sh\nsleep 30 &\nprintf '%s%s%s' {MARK} /from/shell {MARK}\n");
+            std::fs::write(&shell, script).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let started = std::time::Instant::now();
+            assert_eq!(login_shell_path(&shell, Duration::from_secs(2)).as_deref(), Some("/from/shell"));
             assert!(started.elapsed() < Duration::from_secs(5));
         }
     }
