@@ -48,7 +48,7 @@ function useShortcuts() {
       const typing = t.closest('input, textarea, select, [contenteditable="true"]')
       if (typing || e.ctrlKey || e.metaKey || e.altKey || s.paletteOpen || s.addOpen || document.querySelector('[role="dialog"]')) return
       const n = Number(e.key)
-      if (n >= 1 && n <= SCREENS.length) s.go(SCREENS[n - 1])
+      if (n >= 1 && n <= SCREENS.length) s.go(SCREENS[n - 1]!)
       if (e.key === 'r' || e.key === 'R') void s.refresh()
     }
     window.addEventListener('keydown', onKey)

@@ -67,7 +67,7 @@ export function neighbor(rects: Rect[], from: number, dir: Dir): number {
   const cur = rects[from]
   if (!cur) return from
   const horizontal = dir === 'left' || dir === 'right'
-  const span = (r: Rect) => (horizontal ? [r.row, r.row + r.rowSpan] : [r.col, r.col + r.colSpan])
+  const span = (r: Rect): [number, number] => (horizontal ? [r.row, r.row + r.rowSpan] : [r.col, r.col + r.colSpan])
   const center = (r: Rect) => (horizontal ? r.row + r.rowSpan / 2 : r.col + r.colSpan / 2)
   const [a0, a1] = span(cur)
   let best = from
@@ -139,7 +139,7 @@ export function fitPanes(
   const out = [...panes]
   const removed: PaneConfig[] = []
   const lastIndex = (pred: (p: PaneConfig) => boolean) => {
-    for (let i = out.length - 1; i >= 0; i--) if (pred(out[i])) return i
+    for (let i = out.length - 1; i >= 0; i--) if (pred(out[i]!)) return i
     return -1
   }
   while (out.length > count) {
@@ -230,7 +230,7 @@ export function reattach(ws: Workspace, running: TerminalInfo[], makeUid: () => 
     for (const t of orphans) {
       const i = panes.findIndex((p) => !p.accountId)
       if (i < 0) break
-      panes[i] = { uid: panes[i].uid, target: 'cli', accountId: t.accountId, cwd: t.cwd, terminalId: t.id }
+      panes[i] = { uid: panes[i]!.uid, target: 'cli', accountId: t.accountId, cwd: t.cwd, terminalId: t.id }
     }
   }
   const clamp = (n: number | null) => (n !== null && n < panes.length ? n : null)
@@ -297,5 +297,5 @@ export function pickerGroups(accounts: Account[], recs: Recommendation[]): { pro
   }
   return [...groups.entries()]
     .map(([providerId, list]) => ({ providerId, accounts: [...list].sort((x, y) => s(y) - s(x)) }))
-    .sort((x, y) => s(y.accounts[0]) - s(x.accounts[0]))
+    .sort((x, y) => s(y.accounts[0]!) - s(x.accounts[0]!)) // every group has an account
 }

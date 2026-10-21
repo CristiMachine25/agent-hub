@@ -117,8 +117,8 @@ describe('recommend', () => {
     const accounts = [plan('a', 'Pro'), plan('b', 'Pro'), plan('c', 'Max', { status: 'needs-login' })]
     const usage = { a: snap('a', [win('five_hour', 100, 2, 300)]), b: snap('b', [win('five_hour', 30, 2, 300)]) }
     const r = recommend('coding', undefined, accounts, usage, NOW)
-    expect(r[0].accountId).toBe('b')
-    expect(r[0].reason.startsWith('70% of 5-hour session left')).toBe(true)
+    expect(r[0]!.accountId).toBe('b')
+    expect(r[0]!.reason.startsWith('70% of 5-hour session left')).toBe(true)
     expect(r.find((x) => x.accountId === 'a')?.reason).toContain('limit reached')
     expect(r.every((x) => x.score >= 0 && x.score <= 100)).toBe(true)
     // Overview's "Use now" only offers accounts scoring above 0.
@@ -128,16 +128,16 @@ describe('recommend', () => {
   it('prefers Max for a long refactor and the small account for a quick question', () => {
     const accounts = [plan('max', 'Max 20x'), plan('pro', 'Pro')]
     const usage = { max: snap('max', [win('five_hour', 20, 3, 300)]), pro: snap('pro', [win('five_hour', 60, 3, 300)]) }
-    expect(recommend('long-refactor', undefined, accounts, usage, NOW)[0].accountId).toBe('max')
-    expect(recommend('quick-question', undefined, accounts, usage, NOW)[0].accountId).toBe('pro')
+    expect(recommend('long-refactor', undefined, accounts, usage, NOW)[0]!.accountId).toBe('max')
+    expect(recommend('quick-question', undefined, accounts, usage, NOW)[0]!.accountId).toBe('pro')
   })
 
   it('pushes up a weekly window that resets soon', () => {
     const accounts = [plan('a', 'Pro'), plan('b', 'Pro')]
     const usage = { a: snap('a', [win('seven_day', 40, 10, 10080)]), b: snap('b', [win('seven_day', 40, 100, 10080)]) }
     const r = recommend('any', undefined, accounts, usage, NOW)
-    expect(r[0].accountId).toBe('a')
-    expect(r[0].reason).toContain('Use it before it resets')
+    expect(r[0]!.accountId).toBe('a')
+    expect(r[0]!.reason).toContain('Use it before it resets')
   })
 
   it('never scores a usable account 0', () => {
@@ -163,7 +163,7 @@ describe('recommend', () => {
   it('ignores a used-up model-only window', () => {
     const sonnet = { ...win('seven_day_sonnet', 100, 30, 10080), label: 'Weekly Sonnet' }
     const s = snap('a', [win('five_hour', 20, 2, 300), win('seven_day', 30, 100, 10080), sonnet])
-    const r = recommend('any', undefined, [plan('a', 'Pro')], { a: s }, NOW)[0]
+    const r = recommend('any', undefined, [plan('a', 'Pro')], { a: s }, NOW)[0]!
     expect(r.score).toBeGreaterThan(10)
     expect(r.reason.startsWith('70% of Weekly left')).toBe(true)
   })

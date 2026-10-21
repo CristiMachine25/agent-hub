@@ -19,7 +19,7 @@ export function MostUsed({ accounts, activity, metric }: { accounts: Account[]; 
   }, [accounts, activity, metric])
 
   if (!rows.length) return <p className="py-10 text-center text-muted">No activity found in local session logs yet.</p>
-  const max = rows[0].v
+  const max = rows[0]!.v
   const total = rows.reduce((s, r) => s + r.v, 0)
   return (
     <ol className="space-y-2.5">

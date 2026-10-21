@@ -136,10 +136,10 @@ export function unusedAtResets(points: UsageHistoryPoint[], windowId: string): n
   const series = points
     .filter((p) => windowId in p.windows)
     .sort((a, b) => Date.parse(a.t) - Date.parse(b.t))
-    .map((p) => p.windows[windowId])
+    .map((p) => p.windows[windowId]!) // present: filtered with `in` above
   const out: number[] = []
   for (let i = 1; i < series.length; i++) {
-    if (series[i - 1] - series[i] > 15) out.push(clampPct(100 - series[i - 1]))
+    if (series[i - 1]! - series[i]! > 15) out.push(clampPct(100 - series[i - 1]!))
   }
   return out
 }

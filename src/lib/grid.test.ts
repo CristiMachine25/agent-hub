@@ -150,8 +150,8 @@ describe('workspace persistence', () => {
     const w = parseWorkspace(raw, seq())
     expect(w.panes).toHaveLength(2)
     expect(new Set(w.panes.map((p) => p.uid)).size).toBe(2)
-    expect(w.panes[0].target).toBe('cli')
-    expect(w.panes[1].accountId).toBeUndefined()
+    expect(w.panes[0]!.target).toBe('cli')
+    expect(w.panes[1]!.accountId).toBeUndefined()
     expect(w.focused).toBe(0)
     expect(w.maximized).toBe(1)
   })
@@ -181,20 +181,20 @@ describe('reattach', () => {
 
   it('keeps live terminals and forgets missing ones without respawning', () => {
     const w = reattach(ws, [term('t1', 'x')])
-    expect(w.panes[0].terminalId).toBe('t1')
-    expect(w.panes[1].terminalId).toBeUndefined()
-    expect(w.panes[1].accountId).toBe('y')
+    expect(w.panes[0]!.terminalId).toBe('t1')
+    expect(w.panes[1]!.terminalId).toBeUndefined()
+    expect(w.panes[1]!.accountId).toBe('y')
   })
 
   it('keeps exited terminals so their output and code still show', () => {
-    expect(reattach(ws, [term('t1', 'x', true)]).panes[0].terminalId).toBe('t1')
+    expect(reattach(ws, [term('t1', 'x', true)]).panes[0]!.terminalId).toBe('t1')
   })
 
   it('places unknown running terminals into empty panes and grows the layout', () => {
     const w = reattach(ws, [term('t1', 'x'), term('t9', 'q'), term('t8', 'r'), term('dead', 's', true)], seq())
     expect(w.layout).toBe(4)
     expect(w.panes.map((p) => p.terminalId)).toEqual(['t1', undefined, 't9', 't8'])
-    expect(w.panes[2].accountId).toBe('q')
+    expect(w.panes[2]!.accountId).toBe('q')
   })
 })
 
@@ -241,8 +241,8 @@ describe('accounts in panes', () => {
       { accountId: 'h3', score: 80, reason: '' },
       { accountId: 'h2', score: 60, reason: '' }
     ]
-    expect(continueCandidates(accounts[0], accounts, usage, recs).map((a) => a.id)).toEqual(['h3', 'h2', 'out'])
-    expect(continueCandidates(accounts[1], accounts, usage, []).map((a) => a.id)).toEqual(['h3', 'h1', 'out'])
+    expect(continueCandidates(accounts[0]!, accounts, usage, recs).map((a) => a.id)).toEqual(['h3', 'h2', 'out'])
+    expect(continueCandidates(accounts[1]!, accounts, usage, []).map((a) => a.id)).toEqual(['h3', 'h1', 'out'])
   })
 
   it('knows when history is shared', () => {
@@ -262,6 +262,6 @@ describe('accounts in panes', () => {
     ]
     const g = pickerGroups(accounts, recs)
     expect(g.map((x) => x.providerId)).toEqual(['codex', 'claude'])
-    expect(g[1].accounts.map((a) => a.id)).toEqual(['h2', 'h1', 'h3', 'out'])
+    expect(g[1]!.accounts.map((a) => a.id)).toEqual(['h2', 'h1', 'h3', 'out'])
   })
 })

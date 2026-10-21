@@ -42,9 +42,9 @@ describe('saveSettings', () => {
     useStore.setState({ settings: { pollIntervalMinutes: 5 } as AppSettings })
     const first = useStore.getState().saveSettings({ pollIntervalMinutes: 10 })
     const second = useStore.getState().saveSettings({ pollIntervalMinutes: 15 })
-    sets[1].resolve({ pollIntervalMinutes: 15 } as AppSettings)
+    sets[1]!.resolve({ pollIntervalMinutes: 15 } as AppSettings)
     await second
-    sets[0].reject(new Error('disk full'))
+    sets[0]!.reject(new Error('disk full'))
     await first
     expect(useStore.getState().settings?.pollIntervalMinutes).toBe(15)
     expect(useStore.getState().toasts.at(-1)?.title).toBe("Couldn't save settings")
@@ -54,7 +54,7 @@ describe('saveSettings', () => {
     useStore.setState({ settings: { pollIntervalMinutes: 5 } as AppSettings })
     const save = useStore.getState().saveSettings({ pollIntervalMinutes: 30 })
     expect(useStore.getState().settings?.pollIntervalMinutes).toBe(30)
-    sets[0].reject(new Error('nope'))
+    sets[0]!.reject(new Error('nope'))
     await save
     expect(useStore.getState().settings?.pollIntervalMinutes).toBe(5)
   })

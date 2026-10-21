@@ -30,8 +30,8 @@ describe('mock accounts behave like the real backend', () => {
     const created = await api.accounts.import(found)
     expect(created.map((a) => a.label)).toEqual(['Claude H3', 'Codex Research'])
     for (const a of created) expect(Object.values(a.sharing).every((v) => v === false)).toBe(true)
-    expect(created[0].sharedFrom).toBe('/Users/sam/.claude')
-    expect(created[1].notes).toBe('found via CODEX_HOME in your shell profile')
+    expect(created[0]!.sharedFrom).toBe('/Users/sam/.claude')
+    expect(created[1]!.notes).toBe('found via CODEX_HOME in your shell profile')
   })
 
   it('puts new profiles under the real app data folder', async () => {
