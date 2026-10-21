@@ -4,7 +4,7 @@
 
 Runs on **Windows, macOS and Linux**. Everything stays on your computer.
 
-> Status: early development (v0.2). Website: https://cristimachine25.github.io/switchyard/. See [docs/PLAN.md](docs/PLAN.md) for the roadmap.
+> Status: early development (v0.2). Website: https://cristimachine25.github.io/agent-hub/. See [docs/PLAN.md](docs/PLAN.md) for the roadmap.
 
 ## Why
 
