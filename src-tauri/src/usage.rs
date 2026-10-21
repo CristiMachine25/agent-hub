@@ -139,8 +139,14 @@ fn history_point(s: &UsageSnapshot, now: chrono::DateTime<Utc>) -> Option<UsageH
     })
 }
 
+/// A login problem, not a connectivity one: a token refresh that could not reach the server also
+/// mentions "login" or "token", but signing in again would not help.
 pub fn looks_like_auth_error(msg: &str) -> bool {
     let m = msg.to_ascii_lowercase();
+    let network = ["could not reach", "network error", "timed out", "error sending request", "connection refused", "connection reset", "dns error"];
+    if network.iter().any(|k| m.contains(k)) {
+        return false;
+    }
     [
         "log in", "login", "logged in", "not logged", "sign in", "credential", "unauthorized", "401", "403",
         "token", "auth", "expired",
@@ -176,18 +182,7 @@ async fn update_accounts(app: &AppHandle, state: &AppState, fetched: &[Fetched])
         let mut changed = false;
         for f in fetched {
             let Some(a) = accounts.iter_mut().find(|a| a.id == f.account_id) else { continue };
-            let snap = latest.get(&f.account_id).unwrap_or(&f.snapshot);
-            let (status, message) = derive_status(&f.snapshot, f.identity.as_ref());
-            let email = f.snapshot.email.clone().or_else(|| f.identity.as_ref().and_then(|i| i.email.clone())).or_else(|| snap.email.clone());
-            let plan = f.snapshot.plan.clone().or_else(|| f.identity.as_ref().and_then(|i| i.plan.clone())).or_else(|| snap.plan.clone());
-            changed |= set_if_changed(&mut a.status, status);
-            changed |= set_if_changed(&mut a.status_message, message);
-            if email.is_some() {
-                changed |= set_if_changed(&mut a.email, email);
-            }
-            if plan.is_some() {
-                changed |= set_if_changed(&mut a.plan, plan);
-            }
+            changed |= apply_fetch(a, f, latest.get(&f.account_id).unwrap_or(&f.snapshot));
         }
         changed
     };
@@ -197,6 +192,23 @@ async fn update_accounts(app: &AppHandle, state: &AppState, fetched: &[Fetched])
         }
         let _ = app.emit("accounts-changed", &*state.accounts.read().await);
     }
+}
+
+/// Copy one fetch's status, email and plan onto its account; true when anything changed.
+/// `snap` is the merged snapshot from `latest`, so last-known windows keep a failed fetch usable.
+fn apply_fetch(a: &mut Account, f: &Fetched, snap: &UsageSnapshot) -> bool {
+    let (status, message) = derive_status(snap, f.identity.as_ref());
+    let email = f.snapshot.email.clone().or_else(|| f.identity.as_ref().and_then(|i| i.email.clone())).or_else(|| snap.email.clone());
+    let plan = f.snapshot.plan.clone().or_else(|| f.identity.as_ref().and_then(|i| i.plan.clone())).or_else(|| snap.plan.clone());
+    let mut changed = set_if_changed(&mut a.status, status);
+    changed |= set_if_changed(&mut a.status_message, message);
+    if email.is_some() {
+        changed |= set_if_changed(&mut a.email, email);
+    }
+    if plan.is_some() {
+        changed |= set_if_changed(&mut a.plan, plan);
+    }
+    changed
 }
 
 fn set_if_changed<T: PartialEq>(slot: &mut T, value: T) -> bool {
@@ -289,7 +301,7 @@ pub async fn activity(state: &AppState, account_id: Option<&str>, days: u32) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::recommend::tests::{snap, window};
+    use crate::recommend::tests::{account, snap, window};
 
     #[test]
     fn failed_fetch_keeps_last_good_windows_as_stale() {
@@ -326,5 +338,36 @@ mod tests {
         assert_eq!(derive_status(&s, None).0, AccountStatus::Error);
         let ok = snap("a", vec![window("w", 1.0, None, 300, Utc::now())]);
         assert_eq!(derive_status(&ok, Some(&Identity::default())).0, AccountStatus::Ok);
+    }
+
+    #[test]
+    fn network_failures_are_not_login_problems() {
+        for msg in [
+            "Could not refresh the Claude login: network error while refreshing the login.",
+            "Could not reach Google to refresh the Gemini login: error sending request for url (https://oauth2.googleapis.com/token)",
+            "Could not reach Claude's usage API (timed out).",
+            "Could not reach GitHub: error sending request for url (https://api.github.com/copilot_internal/user)",
+        ] {
+            assert!(!looks_like_auth_error(msg), "{msg}");
+            let mut s = snap("a", vec![]);
+            s.error = Some(msg.into());
+            assert_eq!(derive_status(&s, None).0, AccountStatus::Error, "{msg}");
+        }
+        assert!(looks_like_auth_error("Sign in again: the saved Claude login is no longer valid."));
+        assert!(looks_like_auth_error("Login token expired. Open Claude once to refresh the login."));
+    }
+
+    #[test]
+    fn a_failed_fetch_with_last_known_windows_keeps_the_account_usable() {
+        let now = Utc::now();
+        let good = snap("a", vec![window("five_hour", 40.0, Some(2), 300, now)]);
+        let mut failed = snap("a", vec![]);
+        failed.error = Some("Could not reach Claude's usage API (timed out).".into());
+        let merged = merge_snapshot(Some(&good), failed.clone());
+        let f = Fetched { account_id: "a".into(), snapshot: failed, identity: None };
+        let mut a = account("a", "pro");
+        apply_fetch(&mut a, &f, &merged);
+        assert_eq!(a.status, AccountStatus::Ok);
+        assert_eq!(a.status_message.as_deref(), Some("Could not reach Claude's usage API (timed out)."));
     }
 }
