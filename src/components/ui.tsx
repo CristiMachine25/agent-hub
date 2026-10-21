@@ -98,7 +98,7 @@ export function onRadioArrows(e: ReactKeyboardEvent<HTMLElement>) {
   const i = radios.indexOf(e.target as HTMLElement)
   if (i < 0) return
   e.preventDefault()
-  const next = radios[(i + d + radios.length) % radios.length]
+  const next = radios[(i + d + radios.length) % radios.length]! // i was found, so radios is not empty
   next.focus()
   next.click()
 }
@@ -204,8 +204,8 @@ export function Dialog({
       if (e.key === 'Tab') {
         const items = tabbables(el)
         if (!items.length) return
-        const a = items[0]
-        const z = items[items.length - 1]
+        const a = items[0]!
+        const z = items[items.length - 1]!
         if (!el.contains(document.activeElement)) {
           e.preventDefault()
           a.focus()

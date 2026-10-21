@@ -23,7 +23,7 @@ vi.stubGlobal('document', { createElement: () => ({}), documentElement: {} })
 vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }))
 
 const { disposeTerm, getTerm, prepare } = await import('./registry')
-const output = (id: string, data: string) => handlers['terminal-output']({ id, data } as never)
+const output = (id: string, data: string) => handlers['terminal-output']!({ id, data } as never)
 const written = (id: string) => (getTerm(id, 'dark').term as unknown as { written: string[] }).written
 
 describe('terminal output buffering', () => {

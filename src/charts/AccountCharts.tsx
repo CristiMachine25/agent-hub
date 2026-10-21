@@ -16,8 +16,8 @@ export function WindowHistory({ windows, history, height = 200 }: { windows: Usa
   )
   const ticks = useMemo(() => {
     if (!data.length) return []
-    const first = data[0].t
-    const last = data[data.length - 1].t
+    const first = data[0]!.t
+    const last = data[data.length - 1]!.t
     const out: number[] = []
     const d = new Date(first)
     d.setHours(0, 0, 0, 0)
@@ -100,9 +100,9 @@ export function DailyTokens({ activity, color, span, height = 160 }: { activity:
             content={({ active, payload }) =>
               active && payload?.length ? (
                 <div className="rounded border border-rivet bg-deck px-3 py-2 text-xs shadow-lg">
-                  <p className="mb-1 font-semibold">{formatDay(String(payload[0].payload.date))}</p>
-                  <p className="tabular-nums">{formatTokens(Number(payload[0].payload.tokens))} tokens</p>
-                  <p className="tabular-nums text-muted">{Number(payload[0].payload.messages).toLocaleString()} messages</p>
+                  <p className="mb-1 font-semibold">{formatDay(String(payload[0]!.payload.date))}</p>
+                  <p className="tabular-nums">{formatTokens(Number(payload[0]!.payload.tokens))} tokens</p>
+                  <p className="tabular-nums text-muted">{Number(payload[0]!.payload.messages).toLocaleString()} messages</p>
                 </div>
               ) : null
             }

@@ -472,7 +472,7 @@ function historyFor(accountId: string, windows: UsageWindow[], typicalPeak: numb
       const k = Math.floor((R - t) / P) // 0 = current period
       const end = R - k * P
       const s = end - P
-      let peak = peaks[w.id].get(k)
+      let peak = peaks[w.id]!.get(k) // every window got a map above
       if (peak === undefined) {
         const base = P <= 5 * HOUR ? 55 : typicalPeak
         peak = Math.max(4, Math.min(100, base + (r() - 0.5) * 40))
@@ -481,7 +481,7 @@ function historyFor(accountId: string, windows: UsageWindow[], typicalPeak: numb
           const dow = new Date(t).getDay()
           if (hour < 9 || hour > 22 || dow === 0 || dow === 6) peak *= 0.2
         }
-        peaks[w.id].set(k, peak)
+        peaks[w.id]!.set(k, peak)
       }
       let v: number
       if (k <= 0) {
@@ -510,7 +510,7 @@ function activityFor(accountId: string, intensity: number, models: string[], now
     models.forEach((name, i) => {
       m[name] = Math.round(output * (i === 0 ? 0.65 : 0.35 / Math.max(1, models.length - 1)))
     })
-    if (models.length === 1) m[models[0]] = output
+    if (models.length === 1) m[models[0]!] = output
     const y = day.getFullYear()
     const mo = String(day.getMonth() + 1).padStart(2, '0')
     const da = String(day.getDate()).padStart(2, '0')

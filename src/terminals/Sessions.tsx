@@ -135,7 +135,7 @@ function SessionItem({
     .filter((x) => x.account);
   const running = used.filter(
     (x) =>
-      x.p.terminalId && infos[x.p.terminalId] && !infos[x.p.terminalId].exited,
+      x.p.terminalId && infos[x.p.terminalId] && !infos[x.p.terminalId]?.exited,
   ).length;
 
   return (

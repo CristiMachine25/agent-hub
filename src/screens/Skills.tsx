@@ -277,7 +277,7 @@ function SkillDialog({
           </button>
           <button className="btn btn-primary" onClick={install} disabled={!chosen.length || busy !== null}>
             {busy === 'install' && <Loader2 size={14} className="animate-spin" />}
-            {chosen.length ? `Install for ${chosen.length === 1 ? PROVIDER_META[chosen[0]].short : `${chosen.length} tools`}` : 'Install'}
+            {chosen.length ? `Install for ${chosen.length === 1 ? PROVIDER_META[chosen[0]!].short : `${chosen.length} tools`}` : 'Install'}
           </button>
         </>
       }

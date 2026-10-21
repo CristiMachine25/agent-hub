@@ -9,7 +9,7 @@ import { ExportDialog, ImportDialog } from '@/components/Transfer'
 import { Page } from '@/components/Page'
 import { FONT_SIZE_KEY, FONT_SIZES, restyleAll, terminalFontSize } from '@/terminals/registry'
 
-const TERMINALS: Record<string, { id: string; label: string }[]> = {
+const TERMINALS: Record<typeof api.platform, { id: string; label: string }[]> = {
   win32: [
     { id: 'auto', label: 'Automatic (Windows Terminal if installed)' },
     { id: 'wt', label: 'Windows Terminal' },

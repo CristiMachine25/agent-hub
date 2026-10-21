@@ -36,7 +36,7 @@ function importLabel(f: DetectedAccount): string {
   const dir = f.homeDir.split(/[\\/]/).pop() ?? ''
   const suffix = dir.replace(/^\.+/, '').replace(new RegExp(`^${f.providerId}`), '').replace(/^[-_.]+|[-_.]+$/g, '')
   if (!suffix) return f.email?.trim() || short
-  return `${short} ${suffix.split(/[-_.]/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}`
+  return `${short} ${suffix.split(/[-_.]/).filter(Boolean).map((w) => w[0]!.toUpperCase() + w.slice(1)).join(' ')}`
 }
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -205,7 +205,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
             // Like accounts_import: nothing in an existing home is linked until the user turns sharing on.
             sharedFrom: f.isDefaultHome ? undefined : `${home}${sep}.${f.providerId}`,
             sharing: { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false },
-            color: ACCOUNT_COLORS[n % ACCOUNT_COLORS.length],
+            color: ACCOUNT_COLORS[n % ACCOUNT_COLORS.length]!,
             tags: [],
             notes: f.hint,
             status: f.loggedIn ? 'ok' : 'needs-login',
@@ -244,7 +244,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
           isDefaultHome: false,
           sharedFrom: input.sharedFrom,
           sharing: input.sharing ?? { ...DEFAULT_SHARING },
-          color: input.color ?? ACCOUNT_COLORS[n % ACCOUNT_COLORS.length],
+          color: input.color ?? ACCOUNT_COLORS[n % ACCOUNT_COLORS.length]!,
           tags: input.tags ?? [],
           status: 'needs-login',
           statusMessage: 'Not signed in yet. Choose Sign in to finish setting up this account.',
