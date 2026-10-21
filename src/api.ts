@@ -1,12 +1,12 @@
-// HopperApi: Tauri invoke/listen inside the app, an in-memory mock in a plain browser.
+// AgentHubApi: Tauri invoke/listen inside the app, an in-memory mock in a plain browser.
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AppEvents, HopperApi } from '@shared/types'
+import type { AppEvents, AgentHubApi } from '@shared/types'
 import { COMMANDS } from '@shared/types'
 import { createMockApi } from './mock/backend'
 import { detectPlatform, isTauri } from './lib/platform'
 
-function createTauriApi(): HopperApi {
+function createTauriApi(): AgentHubApi {
   const call = <T,>(cmd: string, args?: Record<string, unknown>) => invoke<T>(cmd, args)
   return {
     platform: detectPlatform(),
@@ -98,7 +98,7 @@ function createTauriApi(): HopperApi {
 
 export const IS_MOCK = !isTauri()
 
-export const api: HopperApi = IS_MOCK ? createMockApi(detectPlatform()) : createTauriApi()
+export const api: AgentHubApi = IS_MOCK ? createMockApi(detectPlatform()) : createTauriApi()
 
 /** Where the backend writes its log file (tauri-plugin-log's LogDir target). */
 const LOG_DIR = {

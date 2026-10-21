@@ -1,11 +1,11 @@
-// In-memory HopperApi used when the UI runs in a plain browser. Mutations persist for the page's lifetime.
+// In-memory AgentHubApi used when the UI runs in a plain browser. Mutations persist for the page's lifetime.
 import type {
   Account,
   AppEvents,
   AppSettings,
   DetectedAccount,
   DirectorySkill,
-  HopperApi,
+  AgentHubApi,
   InstalledSkill,
   KnowledgeItem,
   LaunchRequest,
@@ -41,7 +41,7 @@ function importLabel(f: DetectedAccount): string {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const clone = <T,>(x: T): T => structuredClone(x)
 
-export function createMockApi(platform: Platform): HopperApi {
+export function createMockApi(platform: Platform): AgentHubApi {
   const db = buildMockDb(platform)
   const listeners = new Map<keyof AppEvents, Set<Listener>>()
   const { home, sep } = homeRoot(platform)
@@ -170,7 +170,7 @@ export function createMockApi(platform: Platform): HopperApi {
   const directory = mockDirectory()
   const installedFrom = new Map<string, string>() // "<provider>/<folder>" -> directory id
 
-  const api: HopperApi = {
+  const api: AgentHubApi = {
     platform,
     providers: {
       async list() {

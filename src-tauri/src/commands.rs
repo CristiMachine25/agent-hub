@@ -1,4 +1,4 @@
-//! Tauri commands: the HopperApi from src/shared/types.ts. Names and argument names must match
+//! Tauri commands: the AgentHubApi from src/shared/types.ts. Names and argument names must match
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
 use crate::model::*;
 use crate::providers::{self, Adapter, CommandSpec};

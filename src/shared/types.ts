@@ -389,7 +389,7 @@ export interface AppEvents {
 }
 
 /** API the UI uses (src/api.ts implements it over Tauri invoke; mock mode in a plain browser). */
-export interface HopperApi {
+export interface AgentHubApi {
   platform: 'win32' | 'darwin' | 'linux'
   providers: {
     list(): Promise<ProviderInfo[]>
@@ -468,7 +468,7 @@ export interface HopperApi {
 
 /**
  * Tauri command names (Rust #[tauri::command] fns, snake_case). Arguments are passed as an object
- * with camelCase keys matching the HopperApi parameter names, e.g. invoke('accounts_update', { id, patch }).
+ * with camelCase keys matching the AgentHubApi parameter names, e.g. invoke('accounts_update', { id, patch }).
  * Events are emitted from Rust with app.emit(<AppEvents key>, payload).
  */
 export const COMMANDS = {
