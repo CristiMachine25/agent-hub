@@ -37,12 +37,13 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   useEffect(() => {
     if (!open) return
-    setPicked(new Set(accounts.map((a) => a.id)))
+    // Read the accounts once: depending on them would reset the choices on every accounts-changed.
+    setPicked(new Set(useStore.getState().accounts.map((a) => a.id)))
     setSignIns(false)
     setPass('')
     setPass2('')
     setError(null)
-  }, [open, accounts])
+  }, [open])
 
   const passProblem = !signIns ? null : pass.length < 8 ? 'At least 8 characters.' : pass !== pass2 ? "The two passphrases don't match." : null
 

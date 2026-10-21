@@ -425,7 +425,9 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       setPlan(a.plan ?? '')
       setNotes(a.notes ?? '')
     }
-  }, [open, a])
+    // Only when the dialog opens: `a` is a new object on every accounts-changed, which would wipe the edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, a.id])
   const toggleTag = (t: TaskType) => setTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])
   const save = async () => {
     const ok = await updateAccount(a.id, {
