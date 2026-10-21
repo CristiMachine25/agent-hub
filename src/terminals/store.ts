@@ -238,8 +238,21 @@ export const useGrid = create<GridState>((set, get) => {
         const { cols, rows } = estimateSize(paneBody(uid))
         const cwd = opts.cwd ?? useStore.getState().settings?.defaultCwd
         const info = await api.terminals.spawn({ accountId: opts.accountId, target: opts.target, resume: opts.resume, cwd, cols, rows })
+        // While the CLI started, the pane may have been closed or its session switched away.
+        const owns = (ws: Workspace) => ws.panes.some((p) => p.uid === uid && p.accountId === opts.accountId)
+        const here = owns(get().ws)
+        const away = here ? undefined : get().sessions.find((x) => x.id !== get().activeId && owns(x.ws))
+        if (!here && !away) {
+          void killQuietly(info.id)
+          return
+        }
         getTerm(info.id, theme())
         set((s) => ({ infos: { ...s.infos, [info.id]: info } }))
+        if (away) {
+          const panes = away.ws.panes.map((p) => (p.uid === uid ? { ...p, terminalId: info.id } : p))
+          set((s) => ({ sessions: s.sessions.map((x) => (x.id === away.id ? { ...x, ws: { ...x.ws, panes } } : x)) }))
+          return
+        }
         patchPane(uid, { terminalId: info.id })
         if (get().ws.panes[get().ws.focused]?.uid === uid) requestAnimationFrame(() => focusTerm(info.id))
       } catch (e) {
