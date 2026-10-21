@@ -890,11 +890,19 @@ pub async fn system_open_url(app: AppHandle, url: String) -> Res<()> {
 }
 
 /// A folder Agent Hub keeps (shared folders, profiles in its data folder) or an account's folder.
-/// Never a file, which the system would open or run.
+/// Never a file or an app bundle, which the system would open or run, and never a path with `..`,
+/// which would make the prefix check below meaningless.
 fn openable_folder(path: &Path, data_dir: &Path, homes: &[String]) -> bool {
+    if path.components().any(|c| c == std::path::Component::ParentDir) {
+        return false;
+    }
+    let Ok(real) = path.canonicalize() else { return false };
+    let bundle = real.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+        ["app", "bundle", "framework", "kext", "mpkg", "pkg", "plugin", "prefpane", "workflow"].contains(&e.to_ascii_lowercase().as_str())
+    });
     let key = util::path_key(path);
     let ours = key.starts_with(&format!("{}/", util::path_key(data_dir)));
-    path.is_dir() && (ours || homes.iter().any(|h| util::path_key(Path::new(h)) == key))
+    real.is_dir() && !bundle && (ours || homes.iter().any(|h| util::path_key(Path::new(h)) == key))
 }
 
 /// Show one of those folders in the file manager.
@@ -945,6 +953,19 @@ mod tests {
         assert!(!openable_folder(&other, &data, &homes), "not one of ours");
         assert!(!openable_folder(&file, &data, &homes), "files could run");
         assert!(!openable_folder(&data.join("missing"), &data, &homes));
+        assert!(!openable_folder(&data.join("..").join("Documents"), &data, &homes), "no climbing out");
+        let app = shared.join("Tool.app");
+        std::fs::create_dir_all(&app).unwrap();
+        assert!(!openable_folder(&app, &data, &homes), "opening a bundle launches it");
+        #[cfg(unix)]
+        {
+            let link = shared.join("linked-skills");
+            std::os::unix::fs::symlink(&other, &link).unwrap();
+            assert!(openable_folder(&link, &data, &homes), "a folder linked into ours still opens");
+            let app_link = shared.join("innocent");
+            std::os::unix::fs::symlink(&app, &app_link).unwrap();
+            assert!(!openable_folder(&app_link, &data, &homes), "a link to a bundle is still a bundle");
+        }
     }
 
     #[test]
