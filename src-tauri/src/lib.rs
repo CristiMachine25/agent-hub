@@ -29,6 +29,8 @@ const MAIN_WINDOW: &str = "main";
 const MINIMIZED_ARG: &str = "--minimized";
 
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    util::gui_path::fix();
     let app = tauri::Builder::default()
         // Must be the first plugin: a second launch just focuses the running window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)))

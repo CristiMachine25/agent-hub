@@ -163,3 +163,120 @@ pub fn local_clock(t: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chron
         local.format("%b %-d %H:%M").to_string()
     }
 }
+
+/// GUI apps on macOS start with launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin) when opened from
+/// Finder, the Dock or a login item, so CLIs in Homebrew, ~/.local/bin or npm's prefix look missing
+/// and `#!/usr/bin/env node` scripts cannot start.
+#[cfg(target_os = "macos")]
+pub mod gui_path {
+    use std::io::Read;
+    use std::path::{Path, PathBuf};
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    const MARK: &str = "__SWITCHYARD_PATH__";
+
+    /// Put the PATH a new terminal would get in front of ours, plus the usual install dirs.
+    /// Call first thing in main, before other threads read the environment.
+    pub fn fix() {
+        let current = std::env::var("PATH").unwrap_or_default();
+        let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
+        let from_shell = login_shell_path(Path::new(&shell), Duration::from_secs(3));
+        let home = super::home();
+        let fallbacks: Vec<PathBuf> = [home.join(".local/bin"), "/opt/homebrew/bin".into(), "/usr/local/bin".into()]
+            .into_iter()
+            .filter(|p| p.is_dir())
+            .collect();
+        let merged = merge_path(from_shell.as_deref(), &current, &fallbacks);
+        if merged != current {
+            std::env::set_var("PATH", merged);
+        }
+    }
+
+    /// `$PATH` from an interactive login shell (which reads .zprofile and .zshrc), or None if it
+    /// fails or takes longer than `timeout`. Markers skip anything the rc files print.
+    fn login_shell_path(shell: &Path, timeout: Duration) -> Option<String> {
+        let mut child = Command::new(shell)
+            .args(["-ilc", &format!("printf '%s%s%s' {MARK} \"$PATH\" {MARK}")])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .ok()?;
+        let deadline = Instant::now() + timeout;
+        while child.try_wait().ok()?.is_none() {
+            if Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let mut out = String::new();
+        child.stdout.take()?.read_to_string(&mut out).ok()?;
+        marked_value(&out)
+    }
+
+    fn marked_value(out: &str) -> Option<String> {
+        let (_, rest) = out.split_once(MARK)?;
+        let (value, _) = rest.split_once(MARK)?;
+        Some(value.trim().to_string()).filter(|v| !v.is_empty())
+    }
+
+    /// Shell entries first, then ours, then fallbacks; no duplicates or empty entries.
+    fn merge_path(shell: Option<&str>, current: &str, fallbacks: &[PathBuf]) -> String {
+        let fallbacks = fallbacks.iter().map(|p| p.to_string_lossy());
+        let mut seen = std::collections::HashSet::new();
+        let entries: Vec<String> = shell
+            .into_iter()
+            .chain(std::iter::once(current))
+            .flat_map(|p| p.split(':'))
+            .map(str::to_string)
+            .chain(fallbacks.map(|p| p.into_owned()))
+            .filter(|e| !e.is_empty() && seen.insert(e.clone()))
+            .collect();
+        entries.join(":")
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn marked_value_ignores_shell_noise() {
+            let out = format!("Welcome!\n{MARK}/opt/homebrew/bin:/usr/bin{MARK}\nbye\n");
+            assert_eq!(marked_value(&out).as_deref(), Some("/opt/homebrew/bin:/usr/bin"));
+            assert_eq!(marked_value("no markers here"), None);
+            assert_eq!(marked_value(&format!("{MARK}{MARK}")), None);
+        }
+
+        #[test]
+        fn merge_puts_shell_first_keeps_current_and_adds_fallbacks_once() {
+            let merged = merge_path(
+                Some("/opt/homebrew/bin:/usr/bin::/Users/me/.local/bin"),
+                "/usr/bin:/bin:/Applications/Thing.app/bin",
+                &[PathBuf::from("/usr/local/bin"), PathBuf::from("/opt/homebrew/bin")],
+            );
+            assert_eq!(merged, "/opt/homebrew/bin:/usr/bin:/Users/me/.local/bin:/bin:/Applications/Thing.app/bin:/usr/local/bin");
+            assert_eq!(merge_path(None, "/usr/bin:/bin", &[PathBuf::from("/opt/homebrew/bin")]), "/usr/bin:/bin:/opt/homebrew/bin");
+        }
+
+        #[test]
+        fn reads_path_from_a_login_shell() {
+            let path = login_shell_path(Path::new("/bin/zsh"), Duration::from_secs(10)).expect("zsh prints its PATH");
+            assert!(path.split(':').any(|d| d == "/usr/bin"), "{path}");
+        }
+
+        #[test]
+        fn gives_up_on_a_shell_that_hangs() {
+            let t = tempfile::tempdir().unwrap();
+            let shell = t.path().join("slow-shell");
+            std::fs::write(&shell, "#!/bin/sh\nsleep 30\n").unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let started = std::time::Instant::now();
+            assert_eq!(login_shell_path(&shell, Duration::from_millis(300)), None);
+            assert!(started.elapsed() < Duration::from_secs(5));
+        }
+    }
+}
