@@ -36,7 +36,7 @@ Anthropic's terracotta, so the app never looks like it borrows their branding.
 | Line | Borders, dividers | `#35322F` | `#DCD7CD` |
 | Text | Primary text | `#ECEAE4` | `#1F1D1A` |
 | Muted | Secondary text | `#A3A097` | `#605C54` |
-| Faint | Hints, tertiary text | `#7D7A72` | `#847F75` |
+| Faint | Hints, tertiary text | `#928F86` | `#6D6960` |
 | Periwinkle | Actions, focus ring, selection | `#9AA5FF` | `#4556D6` |
 | Quota scale | Full / Half / Low / Empty (left) | `#5EC98C` `#E2BE5C` `#EC8D4A` `#F06868` | `#16804A` `#926800` `#B6500E` `#C42E34` |
 
@@ -84,7 +84,7 @@ usable at 900×600, never scrolls horizontally.
 
 ```
 ┌─────────────────┬──────────────────────────────────────────────────────────────────────┐
-│ ◆ Agent Hub     │ Overview                                                             │
+│ ◆ Agent Hub     │ Overview                                          Find and launch ⌘K │
 │                 ├──────────────────────────────────────────────────────────────────────┤
 │ Overview        │ ┌ Best account right now ──────── [Coding] Long refactor  Quick …  ┐ │
 │ Accounts        │ ├────────────────────────────────────────────┬─────────────────────┤ │

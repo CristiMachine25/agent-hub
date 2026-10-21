@@ -73,7 +73,7 @@ src-tauri/src/
   notify.rs               Rules: nearly exhausted, limit hit, reset, use-it-or-lose-it
   recommend.rs            Score accounts for "what should I use now"
   util.rs                 Small cross-platform helpers
-  providers/{claude,codex,gemini,copilot}.rs, claude_codex_common.rs
+  providers/{claude,codex,gemini,copilot}.rs, common.rs
 site/                     Landing page, deployed to GitHub Pages
 ```
 
