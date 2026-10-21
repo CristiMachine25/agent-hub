@@ -118,6 +118,8 @@ pub fn all() -> Vec<Adapter> {
     ]
 }
 
+/// One adapter by id, for tests. The app keeps a single set in `AppState::adapters`.
+#[cfg(test)]
 pub fn get(id: ProviderId) -> Adapter {
     all().into_iter().find(|a| a.id() == id).expect("adapter registered")
 }
