@@ -164,7 +164,9 @@ impl AppState {
     pub async fn read_history(&self, account_id: Option<&str>, days: u32) -> Vec<UsageHistoryPoint> {
         let _guard = self.history_lock.lock().await;
         let since = chrono::Utc::now() - chrono::Duration::days(i64::from(days.max(1)));
-        read_history_file(&self.dir.join(HISTORY_FILE), account_id, since)
+        let (path, account_id) = (self.dir.join(HISTORY_FILE), account_id.map(str::to_string));
+        // Parsing up to 90 days of history is blocking work: keep it off the async workers.
+        tokio::task::spawn_blocking(move || read_history_file(&path, account_id.as_deref(), since)).await.unwrap_or_default()
     }
 
     pub async fn account(&self, id: &str) -> Option<Account> {
