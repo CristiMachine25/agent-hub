@@ -4,7 +4,7 @@
 //! (they carry a marker file) are ever removed.
 use crate::model::{DirectorySkill, ShareKind, SkillPreview};
 use crate::providers::ProviderAdapter;
-use crate::{sharing, util};
+use crate::{knowledge, sharing, util};
 use anyhow::{anyhow, bail, Context};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -149,7 +149,7 @@ pub struct Download {
 pub fn write_skill(skills_dir: &Path, r: &SkillRef, d: &Download) -> anyhow::Result<PathBuf> {
     let target = skills_dir.join(&r.skill);
     if fs::symlink_metadata(&target).is_ok() {
-        bail!("{} is already there", target.display());
+        bail!("A skill named {} is already in the shared folder", r.skill);
     }
     fs::create_dir_all(skills_dir).with_context(|| format!("creating {}", skills_dir.display()))?;
     let tmp = skills_dir
@@ -281,6 +281,21 @@ pub fn list_installed(skills_dir: &Path) -> Vec<(String, Option<String>)> {
         .collect();
     out.sort();
     out
+}
+
+/// Add a downloaded skill to one tool's shared folder, seeding that folder first if it never was.
+pub fn install_into(shared: &Path, adapter: &dyn ProviderAdapter, r: &SkillRef, d: &Download) -> anyhow::Result<PathBuf> {
+    knowledge::ensure_seeded(shared, adapter).with_context(|| format!("preparing {}", shared.display()))?;
+    write_skill(&tool_skills_dir(shared, adapter)?, r, d)
+}
+
+/// Remove a skill Switchyard installed from one tool's shared folder.
+pub fn remove_from(shared: &Path, adapter: &dyn ProviderAdapter, r: &SkillRef) -> anyhow::Result<()> {
+    remove_skill(&tool_skills_dir(shared, adapter)?, r)
+}
+
+fn tool_skills_dir(shared: &Path, adapter: &dyn ProviderAdapter) -> anyhow::Result<PathBuf> {
+    skills_dir(shared, adapter).ok_or_else(|| anyhow!("This tool has no skills folder"))
 }
 
 // ---------- network ----------
@@ -630,6 +645,20 @@ mod tests {
         fs::create_dir_all(t.path().join(".hidden")).unwrap();
         fs::write(t.path().join("notes.txt"), "x").unwrap();
         assert_eq!(list_installed(t.path()), [("mine".to_string(), None), ("pdf".to_string(), Some("anthropics/skills/pdf".to_string()))]);
+    }
+
+    #[test]
+    fn installs_into_and_removes_from_a_tools_shared_folder() {
+        let t = tempfile::tempdir().unwrap();
+        // Already seeded, so nothing is copied from this machine's real ~/.claude.
+        fs::write(t.path().join(crate::knowledge::SEEDED_MARKER), "x").unwrap();
+        let claude = crate::providers::get(crate::model::ProviderId::Claude);
+        let target = install_into(t.path(), claude.as_ref(), &pdf(), &download(&[("SKILL.md", "s")])).unwrap();
+        assert_eq!(target, t.path().join("skills").join("pdf"));
+        let e = install_into(t.path(), claude.as_ref(), &pdf(), &download(&[("SKILL.md", "s")])).unwrap_err();
+        assert_eq!(e.to_string(), "A skill named pdf is already in the shared folder");
+        remove_from(t.path(), claude.as_ref(), &pdf()).unwrap();
+        assert!(!target.exists());
     }
 
     /// Talks to skills.sh and GitHub: `cargo test skills::tests::live -- --ignored`.
