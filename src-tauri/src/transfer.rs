@@ -414,11 +414,16 @@ fn bundle_target(root: &Path, adapter: &dyn ProviderAdapter, f: &BundleFile) -> 
         .into_iter()
         .filter(|(k, _)| PORTABLE_KINDS.contains(k) && kind_name(*k) == f.kind)
         .flat_map(|(_, rels)| rels)
-        .any(|rel| f.path == rel || f.path.starts_with(&format!("{rel}/")));
-    if !fits || sharing::touches_credentials(&f.path, &adapter.credential_paths()) {
+        .find(|rel| f.path == *rel || f.path.starts_with(&format!("{rel}/")))?;
+    if sharing::touches_credentials(&f.path, &adapter.credential_paths()) {
         return None;
     }
-    from_portable(root, &f.path)
+    let target = from_portable(root, &f.path)?;
+    // The kind's own folder may be a link (a skills folder kept in another checkout), but a link
+    // further in could lead anywhere, such as back into the tool's home, so nothing goes through one.
+    let top = root.join(fits);
+    let through_link = target.ancestors().skip(1).take_while(|a| *a != top.as_path() && *a != root).any(sharing::is_link);
+    (!through_link).then_some(target)
 }
 
 /// An account folder named in the file, inside this computer's home: only a folder of that
@@ -756,6 +761,26 @@ mod tests {
         let g = |kind: &str, path: &str| bundle_target(root, gemini.as_ref(), &BundleFile { provider_id: ProviderId::Gemini, ..f(kind, path) });
         assert!(g("skills", ".agents/skills/x/SKILL.md").is_some());
         assert!(g("skills", ".gemini/extensions/x/gemini-extension.json").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bundle_files_never_go_through_a_link_inside_the_kind_folder() {
+        use std::os::unix::fs::symlink;
+        let claude = crate::providers::get(ProviderId::Claude);
+        let t = tempfile::tempdir().unwrap();
+        let (root, repo, home) = (t.path().join("shared"), t.path().join("repo"), t.path().join("home"));
+        for d in [&root, &repo, &home] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        // The whole skills folder kept in a checkout is fine; a link inside it back to the home is not.
+        symlink(&repo, root.join("skills")).unwrap();
+        symlink(&home, repo.join("loop")).unwrap();
+        let f = |path: &str| BundleFile { provider_id: ProviderId::Claude, kind: "skills".into(), path: path.into(), data: String::new(), executable: false };
+        assert_eq!(bundle_target(&root, claude.as_ref(), &f("skills/pdf/SKILL.md")), Some(root.join("skills/pdf/SKILL.md")));
+        assert_eq!(bundle_target(&root, claude.as_ref(), &f("skills/loop/settings.json")), None);
+        let instructions = BundleFile { kind: "instructions".into(), ..f("CLAUDE.md") };
+        assert_eq!(bundle_target(&root, claude.as_ref(), &instructions), Some(root.join("CLAUDE.md")));
     }
 
     #[test]
