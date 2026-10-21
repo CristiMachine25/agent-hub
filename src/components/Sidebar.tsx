@@ -67,7 +67,7 @@ export function Sidebar() {
       aria-label="Main"
       className={clsx(
         'flex shrink-0 flex-col border-r border-rivet bg-deck transition-[width] duration-150',
-        collapsed ? 'sidebar-compact w-[60px]' : 'w-[208px]'
+        collapsed ? clsx('sidebar-compact', MAC_TRAFFIC_LIGHTS ? 'w-[92px]' : 'w-[60px]') : 'w-[208px]'
       )}
     >
       <div
