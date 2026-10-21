@@ -3,6 +3,7 @@ import type {
   Account,
   AppEvents,
   AppSettings,
+  DetectedAccount,
   DirectorySkill,
   HopperApi,
   InstalledSkill,
@@ -17,13 +18,25 @@ import type {
 } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
 import { scoreAccounts } from '@/lib/recommend'
-import { ACCOUNT_COLORS, PROVIDER_ORDER } from '@/lib/providers'
+import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { FEATURED, featuredFor, folderOf } from '@/lib/skills'
 import type { Platform } from '@/lib/platform'
 import { buildMockDb, homeRoot } from './data'
 import { createMockTerminals } from './terminals'
 
 type Listener = (payload: never) => void
+
+const PROTECTED = ['id', 'providerId', 'createdAt', 'isDefaultHome', 'launchCount', 'lastLaunchedAt']
+
+/** Same rule as import_label in commands.rs: "Claude main" for the stock home, "Claude H2" for ~/.claude-h2. */
+function importLabel(f: DetectedAccount): string {
+  const short = PROVIDER_META[f.providerId].short
+  if (f.isDefaultHome) return `${short} main`
+  const dir = f.homeDir.split(/[\\/]/).pop() ?? ''
+  const suffix = dir.replace(/^\.+/, '').replace(new RegExp(`^${f.providerId}`), '').replace(/^[-_.]+|[-_.]+$/g, '')
+  if (!suffix) return f.email?.trim() || short
+  return `${short} ${suffix.split(/[-_.]/).filter(Boolean).map((w) => w[0].toUpperCase() + w.slice(1)).join(' ')}`
+}
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const clone = <T,>(x: T): T => structuredClone(x)
@@ -127,10 +140,10 @@ export function createMockApi(platform: Platform): HopperApi {
   // Shared profiles live under the app data folder; the main folders are the tools' stock homes.
   const appData =
     platform === 'win32'
-      ? `${home}\\AppData\\Roaming\\Switchyard`
+      ? `${home}\\AppData\\Roaming\\dev.switchyard.app`
       : platform === 'darwin'
-        ? `${home}/Library/Application Support/Switchyard`
-        : `${home}/.local/share/switchyard`
+        ? `${home}/Library/Application Support/dev.switchyard.app`
+        : `${home}/.local/share/dev.switchyard.app`
   const knowledge = mockKnowledge()
   const sharedKinds = ['skills', 'plugins', 'agents', 'instructions', 'settings', 'mcp'] as const
 
@@ -183,14 +196,17 @@ export function createMockApi(platform: Platform): HopperApi {
           const a: Account = {
             id: `acc-${slug(f.homeDir)}-${n}`,
             providerId: f.providerId,
-            label: f.email ? `${f.email.split('@')[0]} (${f.plan ?? f.providerId})` : f.homeDir.split(/[\\/]/).pop() ?? 'Imported',
+            label: importLabel(f),
             email: f.email,
             plan: f.plan,
             homeDir: f.homeDir,
             isDefaultHome: f.isDefaultHome,
-            sharing: { ...db.settings.defaultSharing },
+            // Like accounts_import: nothing in an existing home is linked until the user turns sharing on.
+            sharedFrom: f.isDefaultHome ? undefined : `${home}${sep}.${f.providerId}`,
+            sharing: { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false },
             color: ACCOUNT_COLORS[n % ACCOUNT_COLORS.length],
             tags: [],
+            notes: f.hint,
             status: f.loggedIn ? 'ok' : 'needs-login',
             statusMessage: f.loggedIn ? undefined : 'Not signed in yet. Choose Sign in to finish setting up this account.',
             createdAt: new Date().toISOString(),
@@ -215,7 +231,7 @@ export function createMockApi(platform: Platform): HopperApi {
       async create(input: NewAccountInput) {
         await wait(500)
         const n = db.accounts.length
-        const homeDir = input.homeDir ?? `${home}${sep}${platform === 'win32' ? 'AppData\\Roaming\\Switchyard\\profiles' : platform === 'darwin' ? 'Library/Application Support/Switchyard/profiles' : '.local/share/switchyard/profiles'}${sep}${input.providerId}-${slug(input.label)}`
+        const homeDir = input.homeDir ?? `${appData}${sep}profiles${sep}${input.providerId}${sep}${slug(input.label)}`
         if (db.accounts.some((a) => a.homeDir.toLowerCase() === homeDir.toLowerCase())) {
           throw new Error(`Another account already uses ${homeDir}. Pick a different folder or label.`)
         }
@@ -243,8 +259,13 @@ export function createMockApi(platform: Platform): HopperApi {
       async update(id, patch) {
         await wait(120)
         const a = find(id)
-        const { id: _ignore, ...rest } = patch
-        Object.assign(a, rest)
+        const fields = a as unknown as Record<string, unknown>
+        // Like accounts_update: protected fields are ignored, undefined is dropped (as JSON does), null clears.
+        for (const [k, v] of Object.entries(patch)) {
+          if (v === undefined || PROTECTED.includes(k)) continue
+          if (v === null) delete fields[k]
+          else fields[k] = v
+        }
         accountsChanged()
         return clone(a)
       },
