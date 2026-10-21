@@ -236,8 +236,16 @@ function Slider({
   // Show the value while dragging; save once the slider has been still for 400 ms.
   const [local, setLocal] = useState(value)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const pending = useRef<() => void>(undefined)
   useEffect(() => setLocal(value), [value])
-  useEffect(() => () => clearTimeout(timer.current), [])
+  // Leaving the screen within the 400 ms saves the value now instead of dropping it.
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current)
+      pending.current?.()
+    },
+    []
+  )
   return (
     <label className="flex items-center gap-3">
       <input
@@ -252,7 +260,11 @@ function Slider({
           const v = Number(e.target.value)
           setLocal(v)
           clearTimeout(timer.current)
-          timer.current = setTimeout(() => onChange(v), 400)
+          pending.current = () => {
+            pending.current = undefined
+            onChange(v)
+          }
+          timer.current = setTimeout(pending.current, 400)
         }}
         className="w-36"
       />
