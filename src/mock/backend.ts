@@ -248,13 +248,14 @@ export function createMockApi(platform: Platform): HopperApi {
         accountsChanged()
         return clone(a)
       },
-      async remove(id, _opts) {
+      async remove(id, opts) {
         await wait(300)
         find(id)
         db.accounts = db.accounts.filter((a) => a.id !== id)
         delete db.usage[id]
         accountsChanged()
         emit('usage-updated', db.usage)
+        return opts.deleteHome
       },
       async applySharing(id) {
         await wait(350)

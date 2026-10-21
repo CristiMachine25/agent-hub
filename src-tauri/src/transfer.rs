@@ -8,9 +8,9 @@
 
 use crate::commands;
 use crate::model::*;
-use crate::providers::Adapter;
+use crate::providers::{Adapter, ProviderAdapter};
 use crate::store::AppState;
-use crate::util;
+use crate::{sharing, util};
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::{anyhow, bail, Context};
@@ -18,7 +18,7 @@ use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::AppHandle;
 
@@ -26,11 +26,15 @@ use tauri::AppHandle;
 const FORMAT: &str = "switchyard-setup";
 const VERSION: u32 = 1;
 const KDF_ROUNDS: u32 = 310_000;
+/// Files choose their own cost; more than this only stalls the import.
+const MAX_KDF_ROUNDS: u32 = 2_000_000;
 /// Skill files larger than this are left out; the whole bundle is capped too.
 const MAX_FILE: u64 = 5 * 1024 * 1024;
 const MAX_BUNDLE: u64 = 100 * 1024 * 1024;
 /// Sharing categories that are plain files worth carrying over (no logins, history or plugin state).
 const PORTABLE_KINDS: [ShareKind; 3] = [ShareKind::Skills, ShareKind::Agents, ShareKind::Instructions];
+/// The settings export writes, and the only ones import takes.
+const PORTABLE_SETTINGS: [&str; 6] = ["pollIntervalMinutes", "notifications", "defaultSharing", "minimizeToTray", "theme", "liveUsage"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,6 +93,9 @@ struct BundleFile {
     /// Relative to the tool's shared folder, `/` separators.
     path: String,
     data: String,
+    /// A script to run (unix exec bit). Absent in files from older versions.
+    #[serde(default)]
+    executable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,7 +241,12 @@ pub async fn export(state: &AppState, path: &Path, opts: ExportOptions) -> anyho
         });
     }
 
-    let (files, skipped_files) = if opts.include_files { collect_files(state, &accounts)? } else { (Vec::new(), 0) };
+    let (files, skipped_files) = if opts.include_files {
+        let sources = file_sources(state, &accounts)?;
+        tokio::task::spawn_blocking(move || collect_files(&sources)).await?
+    } else {
+        (Vec::new(), 0)
+    };
     let settings = if opts.include_settings { Some(portable_settings(&state.settings.read().await.clone())) } else { None };
     let sealed = match (passphrase, sign_ins.is_empty()) {
         (Some(p), false) => Some(seal(p, &serde_json::to_vec(&sign_ins)?)?),
@@ -270,7 +282,8 @@ fn home_ref(home: &Path, is_default: bool, local_roots: &[PathBuf]) -> HomeRef {
     }
 }
 
-/// Settings that mean the same on any computer (no paths, no terminal program).
+/// Settings that mean the same on any computer (no paths, no terminal program). Keep the keys in
+/// step with PORTABLE_SETTINGS.
 fn portable_settings(s: &AppSettings) -> serde_json::Value {
     serde_json::json!({
         "pollIntervalMinutes": s.poll_interval_minutes,
@@ -282,15 +295,33 @@ fn portable_settings(s: &AppSettings) -> serde_json::Value {
     })
 }
 
-/// Skills, agents and instructions from the shared folder of every tool the exported accounts use.
-fn collect_files(state: &AppState, accounts: &[Account]) -> anyhow::Result<(Vec<BundleFile>, usize)> {
+/// Only the settings a setup file is meant to carry: a crafted file can't switch on bypass modes
+/// or point the profiles folder (the guard on deleting folders) somewhere else.
+fn portable_only(settings: serde_json::Value) -> serde_json::Value {
+    let serde_json::Value::Object(map) = settings else { return serde_json::json!({}) };
+    serde_json::Value::Object(map.into_iter().filter(|(k, _)| PORTABLE_SETTINGS.contains(&k.as_str())).collect())
+}
+
+/// The tool and the folder to take files from, for every tool the exported accounts use.
+fn file_sources(state: &AppState, accounts: &[Account]) -> anyhow::Result<Vec<(Adapter, PathBuf)>> {
     let mut providers: Vec<ProviderId> = accounts.iter().map(|a| a.provider_id).collect();
     providers.sort_by_key(|p| p.as_str());
     providers.dedup();
+    providers
+        .into_iter()
+        .map(|p| {
+            let adapter = state.adapter(p)?;
+            let root = knowledge_root(state, &adapter);
+            Ok((adapter, root))
+        })
+        .collect()
+}
+
+/// Skills, agents and instructions from each tool's folder.
+fn collect_files(sources: &[(Adapter, PathBuf)]) -> (Vec<BundleFile>, usize) {
     let (mut out, mut skipped, mut total) = (Vec::new(), 0, 0u64);
-    for provider in providers {
-        let adapter = state.adapter(provider)?;
-        let root = knowledge_root(state, &adapter);
+    for (adapter, root) in sources {
+        let provider = adapter.id();
         for (kind, rels) in adapter.shareable_paths().into_iter().filter(|(k, _)| PORTABLE_KINDS.contains(k)) {
             for rel in rels {
                 for file in walk(&root.join(rel)) {
@@ -299,17 +330,36 @@ fn collect_files(state: &AppState, accounts: &[Account]) -> anyhow::Result<(Vec<
                         skipped += 1;
                         continue;
                     }
-                    let (Ok(bytes), Ok(rel_path)) = (std::fs::read(&file), file.strip_prefix(&root)) else {
+                    let (Ok(bytes), Ok(rel_path)) = (std::fs::read(&file), file.strip_prefix(root)) else {
                         skipped += 1;
                         continue;
                     };
                     total += size;
-                    out.push(BundleFile { provider_id: provider, kind: kind_name(kind).into(), path: to_portable(rel_path), data: B64.encode(bytes) });
+                    out.push(BundleFile {
+                        provider_id: provider,
+                        kind: kind_name(kind).into(),
+                        path: to_portable(rel_path),
+                        data: B64.encode(bytes),
+                        executable: is_executable(&file),
+                    });
                 }
             }
         }
     }
-    Ok((out, skipped))
+    (out, skipped)
+}
+
+fn is_executable(p: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(p).is_ok_and(|m| m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = p;
+        false
+    }
 }
 
 /// The shared knowledge folder all accounts link to, or the tool's main folder before one exists.
@@ -352,11 +402,50 @@ fn to_portable(rel: &Path) -> String {
 
 /// A relative `/` path from the file, refusing anything that could escape the target folder.
 fn from_portable(base: &Path, rel: &str) -> Option<PathBuf> {
-    let rel = Path::new(rel);
-    if rel.components().any(|c| !matches!(c, Component::Normal(_))) || rel.as_os_str().is_empty() {
+    sharing::is_safe_rel(rel).then(|| base.join(rel))
+}
+
+/// Where a bundled file goes in the tool's shared folder: only inside a path of the portable kind
+/// the file says it is, and never a sign-in file. Anything else (a skill that is really
+/// `settings.json`, hooks, extensions) is refused.
+fn bundle_target(root: &Path, adapter: &dyn ProviderAdapter, f: &BundleFile) -> Option<PathBuf> {
+    let fits = adapter
+        .shareable_paths()
+        .into_iter()
+        .filter(|(k, _)| PORTABLE_KINDS.contains(k) && kind_name(*k) == f.kind)
+        .flat_map(|(_, rels)| rels)
+        .any(|rel| f.path == rel || f.path.starts_with(&format!("{rel}/")));
+    if !fits || sharing::touches_credentials(&f.path, &adapter.credential_paths()) {
         return None;
     }
-    Some(base.join(rel))
+    from_portable(root, &f.path)
+}
+
+/// An account folder named in the file, inside this computer's home: only a folder of that
+/// tool's own (`.codex`, `.codex-work`...), never any other folder of the user's.
+fn in_home(provider: ProviderId, path: &str) -> Option<PathBuf> {
+    let first = path.split('/').next()?;
+    let tool = format!(".{}", provider.as_str());
+    let own = (first == tool && !path.contains('/')) || first.strip_prefix(&tool).is_some_and(|rest| rest.starts_with('-'));
+    own.then(|| from_portable(&util::home(), path)).flatten()
+}
+
+/// A new file with ordinary permissions (scripts stay runnable). Fails when something is there.
+fn write_new(path: &Path, bytes: &[u8], executable: bool) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(if executable { 0o755 } else { 0o644 });
+    }
+    #[cfg(not(unix))]
+    let _ = executable;
+    let mut file = opts.open(path)?;
+    file.write_all(bytes).inspect_err(|_| {
+        let _ = std::fs::remove_file(path);
+    })
 }
 
 // ---------- encryption ----------
@@ -377,11 +466,15 @@ fn seal(passphrase: &str, plain: &[u8]) -> anyhow::Result<Sealed> {
     Ok(Sealed { salt: B64.encode(salt), nonce: B64.encode(nonce), rounds: KDF_ROUNDS, data: B64.encode(data) })
 }
 
+fn kdf_rounds(from_file: u32) -> u32 {
+    from_file.clamp(1, MAX_KDF_ROUNDS)
+}
+
 fn open(passphrase: &str, s: &Sealed) -> Option<Vec<u8>> {
     let salt = B64.decode(&s.salt).ok()?;
     let nonce = B64.decode(&s.nonce).ok().filter(|n| n.len() == 12)?;
     let data = B64.decode(&s.data).ok()?;
-    let cipher = Aes256Gcm::new_from_slice(&key_from(passphrase, &salt, s.rounds.clamp(1, 10_000_000))).ok()?;
+    let cipher = Aes256Gcm::new_from_slice(&key_from(passphrase, &salt, kdf_rounds(s.rounds))).ok()?;
     cipher.decrypt(Nonce::from_slice(&nonce), data.as_ref()).ok()
 }
 
@@ -399,8 +492,10 @@ fn read_file(path: &Path) -> anyhow::Result<SetupFile> {
     Ok(file)
 }
 
-fn unlock(file: &SetupFile, passphrase: Option<&str>) -> Option<SignIns> {
-    let plain = open(passphrase?.trim(), file.sign_ins.as_ref()?)?;
+/// The sign-ins, when the passphrase opens them. Key stretching takes a while: off the async workers.
+async fn unlock(file: &SetupFile, passphrase: Option<&str>) -> Option<SignIns> {
+    let (passphrase, sealed) = (passphrase?.trim().to_string(), file.sign_ins.clone()?);
+    let plain = tokio::task::spawn_blocking(move || open(&passphrase, &sealed)).await.ok()??;
     serde_json::from_slice(&plain).ok()
 }
 
@@ -417,7 +512,8 @@ async fn plan_account(state: &Arc<AppState>, a: &ExportedAccount) -> anyhow::Res
     let default_home = adapter.default_home();
     let (home, is_default) = match &a.home {
         HomeRef::Default => (default_home.clone(), true),
-        HomeRef::InHome { path } => (from_portable(&util::home(), path).unwrap_or_else(|| default_home.clone()), false),
+        // Somewhere that isn't the tool's own kind of folder gets a fresh one, as Elsewhere does.
+        HomeRef::InHome { path } => (in_home(a.provider_id, path).unwrap_or_default(), false),
         HomeRef::Elsewhere => (PathBuf::new(), false),
     };
     let accounts = state.accounts.read().await;
@@ -436,7 +532,7 @@ async fn plan_account(state: &Arc<AppState>, a: &ExportedAccount) -> anyhow::Res
 
 pub async fn preview(state: &Arc<AppState>, path: &Path, passphrase: Option<String>) -> anyhow::Result<ImportPreview> {
     let file = read_file(path)?;
-    let unlocked = unlock(&file, passphrase.as_deref()).is_some();
+    let unlocked = unlock(&file, passphrase.as_deref()).await.is_some();
     let mut accounts = Vec::new();
     for a in &file.accounts {
         let plan = plan_account(state, a).await?;
@@ -453,8 +549,9 @@ pub async fn preview(state: &Arc<AppState>, path: &Path, passphrase: Option<Stri
     }
     let mut kinds: BTreeMap<(String, String), PreviewKind> = BTreeMap::new();
     for f in &file.files {
-        let root = state.shared_dir(f.provider_id);
-        let new = from_portable(&root, &f.path).is_some_and(|p| !p.exists());
+        let Ok(adapter) = state.adapter(f.provider_id) else { continue };
+        let Some(target) = bundle_target(&state.shared_dir(f.provider_id), adapter.as_ref(), f) else { continue };
+        let new = !target.exists();
         let k = kinds.entry((f.provider_id.as_str().into(), f.kind.clone())).or_insert(PreviewKind {
             provider_id: f.provider_id,
             kind: f.kind.clone(),
@@ -478,7 +575,7 @@ pub async fn preview(state: &Arc<AppState>, path: &Path, passphrase: Option<Stri
 pub async fn apply(app: &AppHandle, state: &Arc<AppState>, path: &Path, passphrase: Option<String>, choice: ImportChoice) -> anyhow::Result<ImportReport> {
     let file = read_file(path)?;
     let sign_ins = if choice.sign_ins {
-        match (file.sign_ins.is_some(), unlock(&file, passphrase.as_deref())) {
+        match (file.sign_ins.is_some(), unlock(&file, passphrase.as_deref()).await) {
             (true, None) => bail!("That passphrase doesn't open the sign-ins in this file"),
             (_, s) => s.unwrap_or_default(),
         }
@@ -487,13 +584,23 @@ pub async fn apply(app: &AppHandle, state: &Arc<AppState>, path: &Path, passphra
     };
     let mut report = ImportReport::default();
 
+    // A failure is noted and the rest goes on, so the report still shows what was added.
     for a in file.accounts.iter().filter(|a| choice.account_keys.contains(&a.key)) {
-        let plan = plan_account(state, a).await?;
+        let plan = match plan_account(state, a).await {
+            Ok(plan) => plan,
+            Err(e) => {
+                report.problems.push(format!("{}: {e:#}", a.label));
+                continue;
+            }
+        };
         if let Some(here) = &plan.already_here {
             report.skipped.push(format!("{} (already here as {here})", a.label));
             continue;
         }
-        std::fs::create_dir_all(&plan.home).with_context(|| format!("creating {}", plan.home.display()))?;
+        if let Err(e) = std::fs::create_dir_all(&plan.home) {
+            report.problems.push(format!("{}: couldn't create {} ({e})", a.label, plan.home.display()));
+            continue;
+        }
         if let Some(files) = sign_ins.get(&a.key) {
             let decoded: Vec<(String, Vec<u8>)> = files.iter().filter_map(|(p, b)| Some((p.clone(), B64.decode(b).ok()?))).collect();
             match plan.adapter.import_sign_in(&plan.home, plan.is_default, &decoded).await {
@@ -525,38 +632,44 @@ pub async fn apply(app: &AppHandle, state: &Arc<AppState>, path: &Path, passphra
     }
 
     if choice.files {
-        let mut roots: HashMap<ProviderId, PathBuf> = HashMap::new();
+        let mut roots: HashMap<ProviderId, (Adapter, PathBuf)> = HashMap::new();
         for f in &file.files {
-            let root = match roots.get(&f.provider_id) {
+            let (adapter, root) = match roots.get(&f.provider_id) {
                 Some(r) => r.clone(),
                 None => {
-                    let adapter = state.adapter(f.provider_id)?;
+                    let Ok(adapter) = state.adapter(f.provider_id) else { continue };
                     let r = state.shared_dir(f.provider_id);
                     // Start from this computer's own main folder before adding what came in the file.
                     if let Err(e) = crate::knowledge::ensure_seeded(&r, adapter.as_ref()) {
                         report.problems.push(format!("Preparing the shared {} folder: {e}", f.provider_id.as_str()));
                     }
-                    roots.insert(f.provider_id, r.clone());
-                    r
+                    roots.insert(f.provider_id, (adapter.clone(), r.clone()));
+                    (adapter, r)
                 }
             };
-            let Some(target) = from_portable(&root, &f.path) else { continue };
+            let Some(target) = bundle_target(&root, adapter.as_ref(), f) else { continue };
             if target.exists() {
                 report.files_kept += 1;
                 continue;
             }
             let Ok(bytes) = B64.decode(&f.data) else { continue };
-            if let Some(parent) = target.parent() {
-                std::fs::create_dir_all(parent)?;
+            let written = match target.parent() {
+                Some(parent) => std::fs::create_dir_all(parent),
+                None => Ok(()),
             }
-            util::write_atomic(&target, &bytes)?;
-            report.files_added += 1;
+            .and_then(|_| write_new(&target, &bytes, f.executable));
+            match written {
+                Ok(()) => report.files_added += 1,
+                Err(e) => report.problems.push(format!("{}: {e}", f.path)),
+            }
         }
     }
 
     if let (true, Some(settings)) = (choice.settings, file.settings.clone()) {
-        commands::apply_settings_patch(app, state, settings).await?;
-        report.settings = true;
+        match commands::apply_settings_patch(app, state, portable_only(settings)).await {
+            Ok(_) => report.settings = true,
+            Err(e) => report.problems.push(format!("Preferences: {e:#}")),
+        }
     }
     Ok(report)
 }
@@ -598,6 +711,90 @@ mod tests {
         // App data folders differ per OS, so those profiles get a new folder on the other computer.
         assert!(matches!(home_ref(&roots[0].join("dev.switchyard.app").join("profiles").join("h12"), false, &roots), HomeRef::Elsewhere));
         assert!(matches!(home_ref(Path::new("/elsewhere/claude"), false, &roots), HomeRef::Elsewhere));
+    }
+
+    #[test]
+    fn only_portable_settings_are_imported() {
+        let exported = portable_settings(&AppSettings::default());
+        assert_eq!(portable_only(exported.clone()), exported, "everything export writes comes back");
+        let crafted = serde_json::json!({
+            "theme": "light",
+            "permissionModes": { "claude": "bypassPermissions", "codex": "bypass" },
+            "profilesDir": "/",
+            "terminal": "evil",
+            "defaultCwd": "/tmp",
+            "launchAtLogin": true
+        });
+        assert_eq!(portable_only(crafted), serde_json::json!({ "theme": "light" }));
+        assert_eq!(portable_only(serde_json::json!("not an object")), serde_json::json!({}));
+    }
+
+    #[test]
+    fn bundle_files_only_land_in_their_own_kind() {
+        let claude = crate::providers::get(ProviderId::Claude);
+        let gemini = crate::providers::get(ProviderId::Gemini);
+        let root = Path::new("/shared/claude");
+        let f = |kind: &str, path: &str| BundleFile { provider_id: ProviderId::Claude, kind: kind.into(), path: path.into(), data: String::new(), executable: false };
+        assert_eq!(bundle_target(root, claude.as_ref(), &f("skills", "skills/pdf/SKILL.md")), Some(root.join("skills/pdf/SKILL.md")));
+        assert_eq!(bundle_target(root, claude.as_ref(), &f("agents", "commands/review.md")), Some(root.join("commands/review.md")));
+        assert_eq!(bundle_target(root, claude.as_ref(), &f("instructions", "CLAUDE.md")), Some(root.join("CLAUDE.md")));
+        for (kind, path) in [
+            ("skills", "settings.json"),       // a settings file named as a skill
+            ("settings", "settings.json"),     // settings are never carried
+            ("skills", "CLAUDE.md"),           // the wrong kind for that path
+            ("skills", "skillsx/a.md"),        // only inside the folder itself
+            ("skills", "skills/../settings.json"),
+            ("instructions", ".credentials.json"),
+            ("other", "plugins/x/plugin.json"),
+        ] {
+            assert_eq!(bundle_target(root, claude.as_ref(), &f(kind, path)), None, "{kind} {path}");
+        }
+        let g = |kind: &str, path: &str| bundle_target(root, gemini.as_ref(), &BundleFile { provider_id: ProviderId::Gemini, ..f(kind, path) });
+        assert!(g("skills", ".agents/skills/x/SKILL.md").is_some());
+        assert!(g("skills", ".gemini/extensions/x/gemini-extension.json").is_none());
+    }
+
+    #[test]
+    fn imported_homes_stay_in_that_tools_own_folders() {
+        let home = util::home();
+        assert_eq!(in_home(ProviderId::Claude, ".claude-work"), Some(home.join(".claude-work")));
+        assert_eq!(in_home(ProviderId::Codex, ".codex-team/x"), Some(home.join(".codex-team").join("x")));
+        assert_eq!(in_home(ProviderId::Gemini, ".gemini-alt"), Some(home.join(".gemini-alt")));
+        for (p, path) in [
+            (ProviderId::Codex, "src/myrepo"),
+            (ProviderId::Codex, "Documents/x"),
+            (ProviderId::Codex, ".claude-work"),
+            (ProviderId::Claude, ".claudette"),
+            (ProviderId::Claude, ".claude/skills"),
+            (ProviderId::Claude, "../.claude-x"),
+            (ProviderId::Claude, ""),
+        ] {
+            assert_eq!(in_home(p, path), None, "{path}");
+        }
+    }
+
+    #[test]
+    fn kdf_cost_from_a_file_is_capped() {
+        assert_eq!(kdf_rounds(10_000_000), MAX_KDF_ROUNDS);
+        assert_eq!(kdf_rounds(0), 1);
+        assert_eq!(kdf_rounds(KDF_ROUNDS), KDF_ROUNDS);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn imported_files_keep_their_exec_bit() {
+        use std::os::unix::fs::PermissionsExt;
+        let t = tempfile::tempdir().unwrap();
+        let (script, doc) = (t.path().join("run.sh"), t.path().join("SKILL.md"));
+        write_new(&script, b"echo", true).unwrap();
+        write_new(&doc, b"doc", false).unwrap();
+        assert_eq!(std::fs::metadata(&script).unwrap().permissions().mode() & 0o111, 0o111);
+        let mode = std::fs::metadata(&doc).unwrap().permissions().mode();
+        assert_eq!(mode & 0o111, 0);
+        assert_eq!(mode & 0o400, 0o400, "readable, not private like a sign-in");
+        assert!(write_new(&doc, b"other", false).is_err(), "never overwrites");
+        assert_eq!(std::fs::read_to_string(&doc).unwrap(), "doc");
+        assert!(is_executable(&script) && !is_executable(&doc));
     }
 
     #[test]

@@ -397,7 +397,8 @@ export interface HopperApi {
     import(found: DetectedAccount[]): Promise<Account[]>
     create(input: NewAccountInput): Promise<Account>
     update(id: string, patch: Partial<Account>): Promise<Account>
-    remove(id: string, opts: { deleteHome: boolean }): Promise<void>
+    /** Resolves true when the account's folder was deleted too (only folders inside profiles are). */
+    remove(id: string, opts: { deleteHome: boolean }): Promise<boolean>
     /** Re-apply sharing links after SharingOptions changed. */
     applySharing(id: string): Promise<Account>
   }
