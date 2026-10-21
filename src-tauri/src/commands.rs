@@ -314,10 +314,15 @@ pub async fn terminal_scrollback(terms: Terms<'_>, id: String) -> Res<String> {
 pub async fn recommend(state: St<'_>, task: TaskType, provider_id: Option<ProviderId>) -> Res<Vec<Recommendation>> {
     let accounts = state.accounts.read().await.clone();
     let latest = state.latest.read().await.clone();
+    // Each probe may run `<cli> --version` (cached for a minute), so ask all tools at once.
+    let mut probes = tokio::task::JoinSet::new();
+    for a in state.adapters.clone() {
+        probes.spawn(async move { (a.id(), a.info().await.cli_installed) });
+    }
     let mut cli_missing = Vec::new();
-    for a in &state.adapters {
-        if !a.info().await.cli_installed {
-            cli_missing.push(a.id());
+    while let Some(probe) = probes.join_next().await {
+        if let Ok((id, false)) = probe {
+            cli_missing.push(id);
         }
     }
     Ok(recommend::recommend(task, provider_id, &accounts, &latest, &cli_missing, chrono::Utc::now()))
