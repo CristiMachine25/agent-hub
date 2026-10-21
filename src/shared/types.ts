@@ -75,6 +75,9 @@ export interface Account {
   pinned?: boolean
 }
 
+/** Fields to change on an account. JSON drops `undefined`, so a cleared field is sent as `null`. */
+export type AccountPatch = { [K in keyof Account]?: Account[K] | null }
+
 export interface NewAccountInput {
   providerId: ProviderId
   label: string
@@ -396,7 +399,8 @@ export interface HopperApi {
     detect(): Promise<DetectedAccount[]>
     import(found: DetectedAccount[]): Promise<Account[]>
     create(input: NewAccountInput): Promise<Account>
-    update(id: string, patch: Partial<Account>): Promise<Account>
+    /** `null` clears a field; a missing (or undefined) key leaves it as it is. */
+    update(id: string, patch: AccountPatch): Promise<Account>
     /** Resolves true when the account's folder was deleted too (only folders inside profiles are). */
     remove(id: string, opts: { deleteHome: boolean }): Promise<boolean>
     /** Re-apply sharing links after SharingOptions changed. */

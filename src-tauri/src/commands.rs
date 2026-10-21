@@ -327,9 +327,7 @@ pub(crate) async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &
         let mut accounts = state.accounts.write().await;
         let idx = accounts.iter().position(|a| a.id == id).ok_or_else(|| anyhow!("Account not found"))?;
         let old = accounts[idx].clone();
-        let mut v = serde_json::to_value(&old)?;
-        util::merge_json(&mut v, &patch);
-        let mut new: Account = serde_json::from_value(v).context("invalid account fields")?;
+        let mut new = merge_account(&old, &patch)?;
 
         new.label = new.label.trim().to_string();
         if new.label.is_empty() {
@@ -360,6 +358,13 @@ pub(crate) async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &
     emit_accounts(app, state).await;
     crate::refresh_tray(app); // labels appear in the tray menu
     Ok(updated)
+}
+
+/// The account with `patch` merged over it. A `null` clears an optional field; a missing key keeps it.
+fn merge_account(old: &Account, patch: &serde_json::Value) -> anyhow::Result<Account> {
+    let mut v = serde_json::to_value(old)?;
+    util::merge_json(&mut v, patch);
+    serde_json::from_value(v).context("invalid account fields")
 }
 
 #[tauri::command]
@@ -975,6 +980,21 @@ mod tests {
         let list = ts.split("ACCOUNT_COLORS = [").nth(1).and_then(|r| r.split(']').next()).expect("ACCOUNT_COLORS in providers.ts");
         let ui: Vec<&str> = list.split(',').map(|c| c.trim().trim_matches('\'')).filter(|c| !c.is_empty()).collect();
         assert_eq!(ui, PALETTE);
+    }
+
+    #[test]
+    fn account_patch_clears_null_fields_and_keeps_missing_ones() {
+        let mut old = crate::recommend::tests::account("a", "Max 5x");
+        old.notes = Some("keep me".into());
+        old.monthly_cost = Some(100.0);
+        let new = merge_account(&old, &serde_json::json!({ "monthlyCost": null, "plan": null, "label": "Renamed" })).unwrap();
+        assert_eq!(new.monthly_cost, None);
+        assert_eq!(new.plan, None);
+        assert_eq!(new.notes.as_deref(), Some("keep me"));
+        assert_eq!(new.label, "Renamed");
+        let new = merge_account(&new, &serde_json::json!({ "notes": null })).unwrap();
+        assert_eq!(new.notes, None);
+        assert!(merge_account(&old, &serde_json::json!({ "label": null })).is_err());
     }
 
     #[test]

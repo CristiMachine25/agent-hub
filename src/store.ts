@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   Account,
+  AccountPatch,
   AppNotification,
   AppSettings,
   LaunchTarget,
@@ -50,7 +51,7 @@ interface State {
   loadRecs(): Promise<void>
   refresh(accountId?: string): Promise<void>
   launch(accountId: string, target?: LaunchTarget, opts?: { resume?: boolean; cwd?: string }): Promise<void>
-  updateAccount(id: string, patch: Partial<Account>, opts?: { applySharing?: boolean; quiet?: boolean }): Promise<boolean>
+  updateAccount(id: string, patch: AccountPatch, opts?: { quiet?: boolean }): Promise<boolean>
   removeAccount(id: string, deleteHome: boolean): Promise<boolean>
   markRead(id: string | 'all'): Promise<void>
   saveSettings(patch: Partial<AppSettings>): Promise<void>
@@ -61,6 +62,7 @@ interface State {
 }
 
 let toastSeq = 1
+let settingsSeq = 0
 let subscribed = false
 
 export const useStore = create<State>((set, get) => ({
@@ -190,11 +192,8 @@ export const useStore = create<State>((set, get) => ({
   async updateAccount(id, patch, opts = {}) {
     try {
       const updated = await api.accounts.update(id, patch)
+      // accounts_update re-applies sharing itself when the sharing options changed.
       set((s) => ({ accounts: s.accounts.map((a) => (a.id === id ? updated : a)) }))
-      if (opts.applySharing) {
-        const applied = await api.accounts.applySharing(id)
-        set((s) => ({ accounts: s.accounts.map((a) => (a.id === id ? applied : a)) }))
-      }
       if (!opts.quiet) get().toast({ kind: 'success', title: 'Saved' })
       return true
     } catch (e) {
@@ -238,6 +237,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async saveSettings(patch) {
+    // Saves can overlap (sliders, toggles). Only the newest one may apply its result or roll back.
+    const seq = ++settingsSeq
     const prev = get().settings
     if (prev) {
       set({
@@ -251,9 +252,9 @@ export const useStore = create<State>((set, get) => ({
     }
     try {
       const settings = await api.settings.set(patch)
-      set({ settings })
+      if (seq === settingsSeq) set({ settings })
     } catch (e) {
-      set({ settings: prev })
+      if (seq === settingsSeq) set({ settings: prev })
       get().toast({ kind: 'error', title: "Couldn't save settings", body: errorText(e) })
     }
   },
@@ -277,6 +278,3 @@ export const useStore = create<State>((set, get) => ({
     set({ addOpen: open })
   }
 }))
-
-export const accountById = (accounts: Account[], id: string | undefined | null) =>
-  id ? accounts.find((a) => a.id === id) : undefined

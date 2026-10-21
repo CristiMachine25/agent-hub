@@ -136,9 +136,12 @@ function AccountDetail({ account: a }: { account: Account }) {
   const topModel = [...models.entries()].sort((x, y) => y[1] - x[1])[0]?.[0]
 
   const setSharing = (key: keyof SharingOptions, v: boolean) =>
-    updateAccount(a.id, { sharing: { ...a.sharing, [key]: v } }, { applySharing: true, quiet: true }).then((ok) => {
+    updateAccount(a.id, { sharing: { ...a.sharing, [key]: v } }, { quiet: true }).then((ok) => {
       if (ok) useStore.getState().toast({ kind: 'success', title: `${SHARING_ITEMS.find((s) => s.key === key)!.label} ${v ? 'now shared' : 'now private'} for ${a.label}` })
     })
+
+  const openFolder = () =>
+    api.system.openPath(a.homeDir).catch((e) => useStore.getState().toast({ kind: 'error', title: "Couldn't open the folder", body: errorText(e) }))
 
   return (
     <>
@@ -297,7 +300,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 {a.homeDir}
               </code>
               <CopyButton text={a.homeDir} label="Copy path" />
-              <button className="btn btn-sm" onClick={() => api.system.openPath(a.homeDir)}>
+              <button className="btn btn-sm" onClick={openFolder}>
                 <FolderOpen size={13} /> Open folder
               </button>
             </div>
@@ -425,16 +428,18 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       setPlan(a.plan ?? '')
       setNotes(a.notes ?? '')
     }
-  }, [open, a])
+    // Only when the dialog opens: `a` is a new object on every accounts-changed, which would wipe the edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, a.id])
   const toggleTag = (t: TaskType) => setTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])
   const save = async () => {
     const ok = await updateAccount(a.id, {
       label: label.trim() || a.label,
       color,
       tags,
-      monthlyCost: cost ? Number(cost) : undefined,
-      plan: plan || undefined,
-      notes: notes.trim() || undefined
+      monthlyCost: cost ? Number(cost) : null,
+      plan: plan || null,
+      notes: notes.trim() || null
     })
     if (ok) onClose()
   }

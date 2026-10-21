@@ -9,7 +9,9 @@ import { formatAgo, plural } from '@/lib/format'
 import { AccountDot, Dialog, ProviderMark } from './ui'
 
 const OS_NAMES: Record<string, string> = { windows: 'Windows', macos: 'macOS', linux: 'Linux' }
-const KIND_NAMES = { skills: 'Skills', agents: 'Agents and commands', instructions: 'Instructions' } as const
+const KIND_NAMES: Record<string, string> = { skills: 'Skills', agents: 'Agents and commands', instructions: 'Instructions' }
+/** The kind comes from the import file, so an unknown one is shown as it is instead of crashing the dialog. */
+export const kindName = (kind: string) => (KIND_NAMES[kind] ?? kind).toLowerCase()
 
 function Check({ checked, onChange, disabled, children }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; children: React.ReactNode }) {
   return (
@@ -35,12 +37,13 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   useEffect(() => {
     if (!open) return
-    setPicked(new Set(accounts.map((a) => a.id)))
+    // Read the accounts once: depending on them would reset the choices on every accounts-changed.
+    setPicked(new Set(useStore.getState().accounts.map((a) => a.id)))
     setSignIns(false)
     setPass('')
     setPass2('')
     setError(null)
-  }, [open, accounts])
+  }, [open])
 
   const passProblem = !signIns ? null : pass.length < 8 ? 'At least 8 characters.' : pass !== pass2 ? "The two passphrases don't match." : null
 
@@ -190,7 +193,12 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
     setPicked(new Set())
     setError(null)
     void (async () => {
-      const p = await api.system.pickSetupFile()
+      let p: string | null
+      try {
+        p = await api.system.pickSetupFile()
+      } catch (e) {
+        return setError(errorText(e))
+      }
       if (!p) return onClose()
       setPath(p)
       await load(p)
@@ -211,9 +219,15 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
         settings
       })
       setReport(r)
-      // New accounts arrive through the accounts-changed event; preferences need a fresh read.
-      if (r.settings) useStore.setState({ settings: await api.settings.get() })
       toast({ kind: 'success', title: r.added.length ? `Added ${plural(r.added.length, 'account')}` : 'Nothing new to add' })
+      // New accounts arrive through the accounts-changed event; preferences need a fresh read.
+      if (r.settings) {
+        try {
+          useStore.setState({ settings: await api.settings.get() })
+        } catch {
+          /* the import itself worked; don't report it as failed */
+        }
+      }
     } catch (e) {
       setError(errorText(e))
     } finally {
@@ -316,7 +330,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
               <span className="block">Skills, agents and instructions</span>
               <span className="block text-xs text-muted">
                 {preview.kinds
-                  .map((k) => `${PROVIDER_META[k.providerId].short} ${KIND_NAMES[k.kind].toLowerCase()}: ${k.newFiles} new of ${k.files}`)
+                  .map((k) => `${PROVIDER_META[k.providerId].short} ${kindName(k.kind)}: ${k.newFiles} new of ${k.files}`)
                   .join(' · ')}
                 . Files already here are kept.
               </span>

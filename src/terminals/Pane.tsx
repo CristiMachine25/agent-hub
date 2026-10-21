@@ -106,7 +106,7 @@ function ContinueMenu({ index, account, onDone }: { index: number; account: Acco
                 onClick={async () => {
                   for (const x of [account, a]) {
                     if (!x.isDefaultHome && !x.sharing.history)
-                      await updateAccount(x.id, { sharing: { ...x.sharing, history: true } }, { applySharing: true, quiet: true })
+                      await updateAccount(x.id, { sharing: { ...x.sharing, history: true } }, { quiet: true })
                   }
                   useStore.getState().toast({ kind: 'success', title: 'Chat history is now shared', body: `${account.label} and ${a.label} see the same chats.` })
                 }}
