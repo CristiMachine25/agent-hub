@@ -63,7 +63,7 @@ impl FetchError {
 
     /// Empty snapshot carrying this error.
     pub fn snapshot(self, account: &Account, source: UsageSource) -> UsageSnapshot {
-        let mut s = UsageSnapshot::failed(account, source, "");
+        let mut s = UsageSnapshot::empty(account, source);
         self.apply(&mut s);
         s
     }

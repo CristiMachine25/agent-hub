@@ -238,8 +238,9 @@ pub enum ErrorKind {
 }
 
 impl UsageSnapshot {
-    /// Empty snapshot carrying an error message. Adapters return this instead of failing.
-    pub fn failed(account: &Account, source: UsageSource, error: impl Into<String>) -> Self {
+    /// A snapshot with nothing in it yet. Adapters fill it in; a failed fetch gets its error (and its
+    /// kind) from `providers::FetchError`.
+    pub fn empty(account: &Account, source: UsageSource) -> Self {
         Self {
             account_id: account.id.clone(),
             provider_id: account.provider_id,
@@ -249,7 +250,7 @@ impl UsageSnapshot {
             plan: None,
             email: None,
             credits: None,
-            error: Some(error.into()),
+            error: None,
             error_kind: None,
             stale: None,
         }

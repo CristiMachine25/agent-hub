@@ -485,8 +485,7 @@ fn find_desktop() -> Option<(String, Vec<String>, String)> {
 
 impl CodexAdapter {
     fn base_snapshot(&self, account: &Account, source: UsageSource, ident: &Identity) -> UsageSnapshot {
-        let mut s = UsageSnapshot::failed(account, source, "");
-        s.error = None;
+        let mut s = UsageSnapshot::empty(account, source);
         s.email = ident.email.clone().or_else(|| account.email.clone());
         s.plan = ident.plan.clone().or_else(|| account.plan.clone());
         s

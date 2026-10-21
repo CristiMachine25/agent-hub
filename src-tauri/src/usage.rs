@@ -141,24 +141,6 @@ fn history_point(s: &UsageSnapshot, now: chrono::DateTime<Utc>) -> Option<UsageH
     })
 }
 
-/// Fallback for an error the adapter didn't type: read the kind from the wording. A token refresh
-/// that could not reach the server also mentions "login" or "token", so network phrases win.
-fn guess_kind(msg: &str) -> ErrorKind {
-    let m = msg.to_ascii_lowercase();
-    let network = ["could not reach", "network error", "timed out", "error sending request", "connection refused", "connection reset", "dns error"];
-    if network.iter().any(|k| m.contains(k)) {
-        return ErrorKind::Network;
-    }
-    let auth = ["log in", "login", "logged in", "not logged", "sign in", "credential", "unauthorized", "401", "403", "token", "auth"];
-    if m.contains("expired") {
-        ErrorKind::Expired
-    } else if auth.iter().any(|k| m.contains(k)) {
-        ErrorKind::Auth
-    } else {
-        ErrorKind::Other
-    }
-}
-
 /// Status from the latest fetch and offline identity.
 pub fn derive_status(snap: &UsageSnapshot, identity: Option<&Identity>) -> (AccountStatus, Option<String>) {
     if snap.error.is_none() && !snap.windows.is_empty() && snap.stale != Some(true) {
@@ -168,7 +150,8 @@ pub fn derive_status(snap: &UsageSnapshot, identity: Option<&Identity>) -> (Acco
         return (AccountStatus::NeedsLogin, Some("Not logged in".into()));
     }
     let Some(err) = &snap.error else { return (AccountStatus::Ok, None) };
-    let status = match snap.error_kind.unwrap_or_else(|| guess_kind(err)) {
+    // Every adapter error is typed (providers::FetchError); anything else is just an error.
+    let status = match snap.error_kind.unwrap_or(ErrorKind::Other) {
         ErrorKind::Auth => AccountStatus::NeedsLogin,
         ErrorKind::Expired => AccountStatus::Expired,
         // A transient failure with last-known numbers is still usable.
@@ -360,25 +343,6 @@ mod tests {
         ] {
             assert_eq!(derive_status(&failed(FetchError::network(msg)), None).0, AccountStatus::Error, "{msg}");
         }
-    }
-
-    #[test]
-    fn untyped_errors_fall_back_to_the_wording() {
-        for (msg, kind) in [
-            ("Could not reach Google to renew the Gemini session (error sending request)", ErrorKind::Network),
-            ("Token refresh failed: error sending request for url (https://oauth2.googleapis.com/token)", ErrorKind::Network),
-            ("Could not reach Claude's usage API (timed out).", ErrorKind::Network),
-            ("Sign in again: the saved Claude login is no longer valid.", ErrorKind::Auth),
-            ("Login token expired. Open Claude once to refresh the login.", ErrorKind::Expired),
-            ("Google returned no quota buckets for this account", ErrorKind::Other),
-        ] {
-            assert_eq!(guess_kind(msg), kind, "{msg}");
-        }
-        let mut s = snap("a", vec![]);
-        s.error = Some("Not logged in: run claude /login".into());
-        assert_eq!(derive_status(&s, None).0, AccountStatus::NeedsLogin);
-        s.error = Some("connection reset".into());
-        assert_eq!(derive_status(&s, None).0, AccountStatus::Error);
     }
 
     #[test]
