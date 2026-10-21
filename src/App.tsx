@@ -4,6 +4,7 @@ import { useStore, type Screen } from './store'
 import { Sidebar } from './components/Sidebar'
 import { Toasts } from './components/Toasts'
 import { TitleBar } from './components/TitleBar'
+import { Tooltip } from './components/Tooltip'
 import { CommandPalette } from './components/CommandPalette'
 import { AddAccountDialog } from './components/AddAccountDialog'
 import { Overview } from './screens/Overview'
@@ -131,6 +132,7 @@ export function App() {
       <CommandPalette />
       <AddAccountDialog />
       <Toasts />
+      <Tooltip />
     </div>
   )
 }
