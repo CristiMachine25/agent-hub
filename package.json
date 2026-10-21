@@ -44,9 +44,5 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.5"
-  },
-  "allowScripts": {
-    "electron-winstaller@5.4.0": true,
-    "electron@44.9.1": true
   }
 }
