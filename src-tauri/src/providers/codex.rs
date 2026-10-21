@@ -511,10 +511,12 @@ impl CodexAdapter {
     }
 
     /// Last-known limits from session logs, carrying `error` (why live data is missing) if any.
-    fn local_snapshot(&self, account: &Account, ident: &Identity, error: Option<String>) -> UsageSnapshot {
-        let home = Path::new(&account.home_dir);
+    async fn local_snapshot(&self, account: &Account, ident: &Identity, error: Option<String>) -> UsageSnapshot {
+        // Walks every recent session file: keep it off the async workers.
+        let home = PathBuf::from(&account.home_dir);
+        let logged = tokio::task::spawn_blocking(move || latest_logged_limits(&home)).await.ok().flatten();
         let now = Utc::now();
-        let Some((rl, at)) = latest_logged_limits(home) else {
+        let Some((rl, at)) = logged else {
             let mut s = self.base_snapshot(account, UsageSource::None, ident);
             s.error = Some(error.unwrap_or_else(|| "No recent Codex sessions to read limits from yet.".into()));
             return s;
@@ -668,10 +670,10 @@ impl ProviderAdapter for CodexAdapter {
         let auth = read_auth(&home);
         let ident = identity_from_auth(auth.as_ref());
         if !live {
-            return self.local_snapshot(account, &ident, None);
+            return self.local_snapshot(account, &ident, None).await;
         }
         let Some(auth) = auth else {
-            return self.local_snapshot(account, &ident, Some("Not signed in. Use Sign in to log this account in.".into()));
+            return self.local_snapshot(account, &ident, Some("Not signed in. Use Sign in to log this account in.".into())).await;
         };
         let Some(token) = auth.access_token.as_deref() else {
             let msg = if auth.api_key.is_some() {
@@ -679,7 +681,7 @@ impl ProviderAdapter for CodexAdapter {
             } else {
                 "Not signed in. Use Sign in to log this account in."
             };
-            return self.local_snapshot(account, &ident, Some(msg.into()));
+            return self.local_snapshot(account, &ident, Some(msg.into())).await;
         };
 
         let url = usage_url(read_config(&home).as_ref());
@@ -712,7 +714,7 @@ impl ProviderAdapter for CodexAdapter {
             ApiError::Network(e) => format!("Could not reach ChatGPT's usage API ({e}); showing the last known limits."),
             ApiError::Parse => "ChatGPT's usage API returned an unexpected response; showing the last known limits.".to_string(),
         };
-        self.local_snapshot(account, &ident, Some(msg))
+        self.local_snapshot(account, &ident, Some(msg)).await
     }
 
     async fn scan_activity(&self, account: &Account, since_days: u32) -> Vec<DailyActivity> {
