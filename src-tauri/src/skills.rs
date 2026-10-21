@@ -79,20 +79,27 @@ pub struct TreeFile {
     pub link: bool,
 }
 
-/// Where `skill` lives in a repository: the folder whose SKILL.md sits in a folder named after it
-/// (the skill spec asks for that). Folders under skills/ win, then the shallowest. A repository
-/// that is itself one skill has its SKILL.md at the top, given as "".
+/// The SKILL.md files of a repository, best first: under skills/, then the shallowest.
+pub fn skill_md_files(files: &[TreeFile]) -> Vec<&TreeFile> {
+    let mut found: Vec<&TreeFile> = files.iter().filter(|f| !f.link && is_skill_md(&f.path)).collect();
+    found.sort_by_key(|f| (!f.path.starts_with("skills/"), f.path.matches('/').count(), f.path.as_str()));
+    found
+}
+
+/// The folder of the first SKILL.md whose name is `skill` as a slug. `read` pairs each folder
+/// ("" for the top of the repository) with its SKILL.md.
+pub fn pick_by_name(read: &[(String, String)], skill: &str) -> Option<String> {
+    read.iter().find(|(_, md)| front_matter(md).0.is_some_and(|name| skill_slug(&name) == skill)).map(|(dir, _)| dir.clone())
+}
+
+/// Where `skill` lives in a repository: the best folder named after it, as the skill spec asks.
+/// When none is, the directory named the skill after its SKILL.md: see pick_by_name.
 pub fn pick_folder(files: &[TreeFile], skill: &str) -> Option<String> {
-    let skill_mds = || files.iter().filter(|f| !f.link && is_skill_md(&f.path));
-    let mut found: Vec<&str> = skill_mds()
+    skill_md_files(files)
+        .into_iter()
         .filter_map(|f| f.path.rsplit_once('/').map(|(dir, _)| dir))
-        .filter(|dir| dir.rsplit('/').next().is_some_and(|name| skill_slug(name) == skill))
-        .collect();
-    found.sort_by_key(|d| (!d.starts_with("skills/"), d.matches('/').count(), *d));
-    match found.first() {
-        Some(dir) => Some(dir.to_string()),
-        None => skill_mds().any(|f| !f.path.contains('/')).then(String::new),
-    }
+        .find(|dir| dir.rsplit('/').next().is_some_and(|name| skill_slug(name) == skill))
+        .map(str::to_string)
 }
 
 fn is_skill_md(path: &str) -> bool {
@@ -305,6 +312,9 @@ const DIRECTORY: &str = "https://skills.sh";
 /// Files downloaded at the same time.
 const PARALLEL: usize = 8;
 
+/// Most SKILL.md files read to find a skill by its name.
+const MAX_NAME_LOOKUPS: usize = 200;
+
 /// The directory's search, best matches first. Queries need at least two characters.
 pub async fn search(query: &str) -> anyhow::Result<Vec<DirectorySkill>> {
     let url = reqwest::Url::parse_with_params(&format!("{DIRECTORY}/api/search"), &[("q", query), ("limit", "50")])?;
@@ -344,14 +354,31 @@ pub async fn download(r: &SkillRef) -> anyhow::Result<Download> {
     }
     let listing = http.get(format!("{api}/git/trees/{commit}?recursive=1")).header(reqwest::header::ACCEPT, "application/vnd.github+json");
     let files = parse_tree(&send(listing).await?.json().await?)?;
-    let folder = pick_folder(&files, &r.skill).ok_or_else(|| anyhow!("{} has no skill named {}", r.source(), r.skill))?;
-    let mut pending = plan_files(&files, &folder)?.into_iter();
+    let folder = match pick_folder(&files, &r.skill) {
+        Some(folder) => folder,
+        None => {
+            let mds: Vec<TreeFile> = skill_md_files(&files).into_iter().take(MAX_NAME_LOOKUPS).cloned().collect();
+            let read = fetch_all(&http, r, &commit, "", mds).await?;
+            let read: Vec<(String, String)> = read
+                .into_iter()
+                .map(|(f, bytes)| (f.path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string(), String::from_utf8_lossy(&bytes).into_owned()))
+                .collect();
+            pick_by_name(&read, &r.skill).ok_or_else(|| anyhow!("{} has no skill named {}", r.source(), r.skill))?
+        }
+    };
+    let got = fetch_all(&http, r, &commit, &folder, plan_files(&files, &folder)?).await?;
+    Ok(Download { commit, folder, files: got })
+}
+
+/// Download `files` (relative to `folder`) at `commit`, a few at a time, sorted by path.
+async fn fetch_all(http: &reqwest::Client, r: &SkillRef, commit: &str, folder: &str, files: Vec<TreeFile>) -> anyhow::Result<Vec<(TreeFile, Vec<u8>)>> {
+    let mut pending = files.into_iter();
     let mut running = tokio::task::JoinSet::new();
     let mut got = Vec::new();
     loop {
         while running.len() < PARALLEL {
             let Some(f) = pending.next() else { break };
-            running.spawn(fetch_raw(http.clone(), r.clone(), commit.clone(), folder.clone(), f));
+            running.spawn(fetch_raw(http.clone(), r.clone(), commit.to_string(), folder.to_string(), f));
         }
         match running.join_next().await {
             Some(done) => got.push(done??),
@@ -359,7 +386,7 @@ pub async fn download(r: &SkillRef) -> anyhow::Result<Download> {
         }
     }
     got.sort_by(|a: &(TreeFile, Vec<u8>), b| a.0.path.cmp(&b.0.path));
-    Ok(Download { commit, folder, files: got })
+    Ok(got)
 }
 
 async fn fetch_raw(http: reqwest::Client, r: SkillRef, commit: String, folder: String, f: TreeFile) -> anyhow::Result<(TreeFile, Vec<u8>)> {
@@ -464,9 +491,25 @@ mod tests {
     }
 
     #[test]
-    fn a_repository_that_is_one_skill_uses_its_top_level_skill_md() {
+    fn falls_back_to_the_name_in_skill_md() {
+        // vercel-labs/agent-skills keeps vercel-react-best-practices in skills/react-best-practices.
+        let tree = [file("skills/react-best-practices/SKILL.md", 10), file("skills/x/skill.md", 10), file("README.md", 1)];
+        assert_eq!(pick_folder(&tree, "vercel-react-best-practices"), None);
+        let mds: Vec<&str> = skill_md_files(&tree).iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(mds, ["skills/react-best-practices/SKILL.md", "skills/x/skill.md"]);
+        let read = [
+            ("skills/x".to_string(), "---\nname: other\n---\n".to_string()),
+            ("skills/react-best-practices".to_string(), "---\nname: Vercel React Best Practices\ndescription: d\n---\n".to_string()),
+        ];
+        assert_eq!(pick_by_name(&read, "vercel-react-best-practices").as_deref(), Some("skills/react-best-practices"));
+        assert_eq!(pick_by_name(&read, "missing"), None);
+    }
+
+    #[test]
+    fn a_repository_that_is_one_skill_is_found_by_its_name() {
         let tree = [file("SKILL.md", 10), file("src/main.rs", 10)];
-        assert_eq!(pick_folder(&tree, "anything").as_deref(), Some(""));
+        assert_eq!(pick_folder(&tree, "my-tool"), None, "a top-level SKILL.md has no folder name to match");
+        assert_eq!(pick_by_name(&[(String::new(), "---\nname: my_tool\n---".into())], "my-tool").as_deref(), Some(""));
         let plan = plan_files(&tree, "").unwrap();
         assert_eq!(plan.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["SKILL.md"], "not the whole repository");
     }
@@ -672,6 +715,8 @@ mod tests {
         assert!(!shown.description.is_empty() && shown.files > 1);
         let d = super::download(&pdf()).await.unwrap();
         assert_eq!(d.folder, "skills/pdf");
+        let renamed = SkillRef::parse("vercel-labs/agent-skills/vercel-react-best-practices").unwrap();
+        assert_eq!(super::download(&renamed).await.unwrap().folder, "skills/react-best-practices");
         let t = tempfile::tempdir().unwrap();
         let target = write_skill(t.path(), &pdf(), &d).unwrap();
         assert!(target.join("SKILL.md").is_file());
