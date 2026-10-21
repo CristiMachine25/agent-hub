@@ -284,6 +284,12 @@ async fn post_code_assist(method: &str, token: &str, body: &Value) -> Result<Val
     }
 }
 
+/// A refresh that never reached Google. Worded without "login"/"token"/"auth" (and without the token URL)
+/// so usage::looks_like_auth_error doesn't read being offline as signed out.
+fn offline_refresh(e: impl std::fmt::Display) -> String {
+    format!("Could not reach Google to renew the Gemini session ({e})")
+}
+
 /// OAuth credentials file with an in-place refresh that keeps the CLI's file valid.
 struct Creds {
     path: PathBuf,
@@ -324,14 +330,14 @@ impl Creds {
             .body(body)
             .send()
             .await
-            .map_err(|e| format!("Could not reach Google to refresh the Gemini login: {e}"))?;
+            .map_err(|e| offline_refresh(e.without_url()))?;
         if !resp.status().is_success() {
             return Err(AGAIN.into());
         }
         let v: Value = resp.json().await.map_err(|_| AGAIN.to_string())?;
         apply_refresh(&mut self.raw, &v, chrono::Utc::now().timestamp_millis()).ok_or(AGAIN)?;
         let bytes = serde_json::to_vec_pretty(&self.raw).map_err(|e| e.to_string())?;
-        util::write_atomic(&self.path, &bytes).map_err(|e| format!("Could not save the refreshed Gemini token: {e}"))?;
+        util::write_atomic(&self.path, &bytes).map_err(|e| format!("Could not save the renewed Gemini session: {e}"))?;
         restrict_permissions(&self.path);
         Ok(())
     }
@@ -893,6 +899,12 @@ fn base_command(account: &Account) -> CommandSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offline_refresh_does_not_read_as_signed_out() {
+        let msg = offline_refresh("error sending request");
+        assert!(!crate::usage::looks_like_auth_error(&msg), "{msg}");
+    }
 
     fn account(home: &Path) -> Account {
         Account {
