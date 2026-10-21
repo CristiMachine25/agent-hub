@@ -143,8 +143,10 @@ export function recommend(
       const missing = cliMissing.includes(a.providerId)
       const raw = r.score
       if (missing && raw > 0) {
+        // Keep what is left first; the task-fit advice doesn't apply without the CLI.
+        const left = r.reason.split('. ')[0]!.replace(/\.?$/, '.')
         r.score = 1
-        r.reason = `The ${PROVIDER_META[a.providerId].short} CLI isn't installed on this computer. ${r.reason}`
+        r.reason = `${left} The ${PROVIDER_META[a.providerId].short} CLI isn't installed on this computer.`
       }
       return { r, missing, raw, label: a.label }
     })

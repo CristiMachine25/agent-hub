@@ -177,7 +177,7 @@ pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchR
     let result = if req.target == LaunchTarget::Desktop {
         let spec = match adapter.desktop_command(&account).await {
             Ok(Some(spec)) => spec,
-            Ok(None) => return Ok(failed(format!("{} has no desktop app that can run with a separate account", notify::provider_name(account.provider_id)))),
+            Ok(None) => return Ok(failed(format!("{} has no desktop app that can run with a separate account", account.provider_id.name()))),
             Err(e) => return Ok(failed(format!("{e:#}"))),
         };
         tokio::task::spawn_blocking(move || launcher::launch_desktop(&spec)).await?

@@ -163,7 +163,7 @@ describe('recommend', () => {
     const r = recommend('any', undefined, accounts, usage, ['codex'], NOW)
     // Still usable (its desktop app may work), so 1 and not 0; the one with more left comes first.
     expect(r.map((x) => [x.accountId, x.score])).toEqual([['a', 45.5], ['c', 1], ['b', 1], ['d', 0]])
-    expect(r[1]!.reason).toBe("The Codex CLI isn't installed on this computer. 90% of 5-hour session left.")
+    expect(r[1]!.reason).toBe("90% of 5-hour session left. The Codex CLI isn't installed on this computer.")
     expect(r[3]!.reason).toBe('Needs login before it can be used.')
     // Without the CLI check the same accounts rank on quota alone.
     expect(recommend('any', undefined, accounts, usage, [], NOW)[0]!.accountId).toBe('c')

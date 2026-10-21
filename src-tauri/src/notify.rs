@@ -28,18 +28,9 @@ fn key(kind: &str, account: &str, window: &str) -> String {
     format!("{kind}|{account}|{window}")
 }
 
-pub fn provider_name(p: ProviderId) -> &'static str {
-    match p {
-        ProviderId::Claude => "Claude",
-        ProviderId::Codex => "Codex",
-        ProviderId::Gemini => "Gemini",
-        ProviderId::Copilot => "Copilot",
-    }
-}
-
 /// "Work Max (Claude)"
 pub fn display_name(a: &Account) -> String {
-    format!("{} ({})", a.label, provider_name(a.provider_id))
+    format!("{} ({})", a.label, a.provider_id.name())
 }
 
 fn note(kind: NotificationKind, account: &Account, title: String, body: String, now: DateTime<Utc>) -> AppNotification {

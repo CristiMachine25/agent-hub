@@ -77,7 +77,7 @@ fn refresh_later(app: &AppHandle, state: &Arc<AppState>, id: Option<String>) {
 /// Short, readable name for an imported home: "Claude main" for the stock home,
 /// "Claude H2" for ~/.claude-h2. The email stays visible next to it in the UI.
 fn import_label(d: &DetectedAccount) -> String {
-    let short = notify::provider_name(d.provider_id);
+    let short = d.provider_id.name();
     if d.is_default_home {
         return format!("{short} main");
     }

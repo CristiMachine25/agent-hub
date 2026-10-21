@@ -22,6 +22,15 @@ impl ProviderId {
             ProviderId::Copilot => "copilot",
         }
     }
+    /// The short name people use: "Claude", "Codex"...
+    pub fn name(self) -> &'static str {
+        match self {
+            ProviderId::Claude => "Claude",
+            ProviderId::Codex => "Codex",
+            ProviderId::Gemini => "Gemini",
+            ProviderId::Copilot => "Copilot",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

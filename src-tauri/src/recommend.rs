@@ -1,7 +1,7 @@
 //! Scores accounts 0..100 for "what should I use now", with a plain-language reason.
 //! 0 means it can't be used right now (signed out or at a limit); the UI never offers those.
 use crate::model::*;
-use crate::{notify, util};
+use crate::util;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
@@ -90,8 +90,10 @@ pub fn recommend(
             let mut r = score_account(a, task, latest.get(&a.id), now);
             let (missing, raw) = (cli_missing.contains(&a.provider_id), r.score);
             if missing && raw > 0.0 {
+                // Keep what is left first; the task-fit advice doesn't apply without the CLI.
+                let left = r.reason.split_inclusive(". ").next().unwrap_or_default().trim_end().to_string();
                 r.score = 1.0;
-                r.reason = format!("The {} CLI isn't installed on this computer. {}", notify::provider_name(a.provider_id), r.reason);
+                r.reason = format!("{left} The {} CLI isn't installed on this computer.", a.provider_id.name());
             }
             (r, missing, raw, a.label.as_str())
         })
@@ -332,7 +334,7 @@ pub(crate) mod tests {
         let order: Vec<_> = r.iter().map(|x| (x.account_id.as_str(), x.score)).collect();
         // Still usable (its desktop app may work), so 1 and not 0; the one with more left comes first.
         assert_eq!(order, [("a", 45.5), ("c", 1.0), ("b", 1.0), ("d", 0.0)]);
-        assert_eq!(r[1].reason, "The Codex CLI isn't installed on this computer. 90% of 5-hour session left.");
+        assert_eq!(r[1].reason, "90% of 5-hour session left. The Codex CLI isn't installed on this computer.");
         assert_eq!(r[3].reason, "Needs login before it can be used.");
         // Without the CLI check the same accounts rank on quota alone.
         assert_eq!(recommend(TaskType::Any, None, &accts, &latest, &[], now)[0].account_id, "c");
