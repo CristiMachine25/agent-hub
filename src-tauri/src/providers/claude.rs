@@ -1157,6 +1157,8 @@ mod tests {
         assert!(env.contains_key("CLAUDE_CODE_CHILD_SESSION") && env["CLAUDE_CODE_CHILD_SESSION"].is_none());
     }
 
+    // Store builds and their AppData redirection exist only on Windows.
+    #[cfg(windows)]
     #[test]
     fn desktop_data_stays_out_of_redirected_appdata_for_store_builds() {
         let store = Path::new(r"C:\Program Files\WindowsApps\Claude_3.1_x64__abc\app\Claude.exe");
