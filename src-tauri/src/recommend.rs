@@ -219,6 +219,7 @@ pub(crate) mod tests {
             email: None,
             credits: None,
             error: None,
+            error_kind: None,
             stale: None,
         }
     }
