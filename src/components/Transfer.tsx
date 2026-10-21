@@ -9,7 +9,9 @@ import { formatAgo, plural } from '@/lib/format'
 import { AccountDot, Dialog, ProviderMark } from './ui'
 
 const OS_NAMES: Record<string, string> = { windows: 'Windows', macos: 'macOS', linux: 'Linux' }
-const KIND_NAMES = { skills: 'Skills', agents: 'Agents and commands', instructions: 'Instructions' } as const
+const KIND_NAMES: Record<string, string> = { skills: 'Skills', agents: 'Agents and commands', instructions: 'Instructions' }
+/** The kind comes from the import file, so an unknown one is shown as it is instead of crashing the dialog. */
+export const kindName = (kind: string) => (KIND_NAMES[kind] ?? kind).toLowerCase()
 
 function Check({ checked, onChange, disabled, children }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; children: React.ReactNode }) {
   return (
@@ -316,7 +318,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
               <span className="block">Skills, agents and instructions</span>
               <span className="block text-xs text-muted">
                 {preview.kinds
-                  .map((k) => `${PROVIDER_META[k.providerId].short} ${KIND_NAMES[k.kind].toLowerCase()}: ${k.newFiles} new of ${k.files}`)
+                  .map((k) => `${PROVIDER_META[k.providerId].short} ${kindName(k.kind)}: ${k.newFiles} new of ${k.files}`)
                   .join(' · ')}
                 . Files already here are kept.
               </span>
