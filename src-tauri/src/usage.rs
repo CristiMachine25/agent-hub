@@ -340,8 +340,11 @@ mod tests {
     #[test]
     fn network_failures_are_not_login_problems() {
         for msg in [
-            "Could not refresh the Claude login: network error while refreshing the login.",
-            "Could not reach Google to refresh the Gemini login: error sending request for url (https://oauth2.googleapis.com/token)",
+            // What claude::refresh_failed and gemini::offline_refresh say when offline.
+            "Could not renew the Claude session: could not reach Anthropic (network error).",
+            "Could not reach Google to renew the Gemini session (error sending request)",
+            // A raw client error that still names the token endpoint.
+            "Token refresh failed: error sending request for url (https://oauth2.googleapis.com/token)",
             "Could not reach Claude's usage API (timed out).",
             "Could not reach GitHub: error sending request for url (https://api.github.com/copilot_internal/user)",
         ] {
