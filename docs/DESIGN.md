@@ -109,7 +109,7 @@ Adding an account is a two-step dialog (find on this computer, or create a new i
 3. **Quiet chrome.** Flat surfaces, 1px lines, one radius (6px), no gradients, no shadows except on overlays.
 4. **Show what ran.** Every launch toasts the exact command line in mono, with a copy button.
 5. **Motion only for change.** Meters animate when a value changes; nothing else moves. `prefers-reduced-motion` disables it.
-6. **Keyboard first.** Visible violet focus ring, `Ctrl/Cmd+K` palette, `1–6` jump between screens, Enter launches.
+6. **Keyboard first.** Visible violet focus ring, `Ctrl/Cmd+K` palette, `1–7` jump between screens, Enter launches.
 
 ## Review against the brief (revisions made)
 
