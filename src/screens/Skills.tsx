@@ -140,7 +140,7 @@ function SkillList({ items, installed, tools, onOpen }: { items: Listing[]; inst
     <ul className="grid grid-cols-1 overflow-hidden rounded-lg border border-rivet min-[1100px]:grid-cols-2">
       {items.map((it) => (
         <li key={it.id} className="border-b border-rivet last:border-b-0 min-[1100px]:[&:nth-child(odd):not(:last-child)]:border-r min-[1100px]:[&:nth-last-child(2):nth-child(odd)]:border-b-0">
-          <button className="flex h-full w-full items-start gap-3 bg-deck px-4 py-3 text-left hover:bg-raised" onClick={() => onOpen(it)} title={`Read ${it.name} before installing`}>
+          <button className="flex h-full w-full items-start gap-3 bg-deck px-4 py-3 text-left hover:bg-raised" onClick={() => onOpen(it)} data-tip={`Read ${it.name} before installing`}>
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-baseline gap-2">
                 <span className="truncate font-semibold">{it.name}</span>
@@ -167,7 +167,7 @@ function ToolMarks({ id, installed, tools }: { id: string; installed: InstalledS
         const tool = PROVIDER_META[p].product
         const title = state === 'installed' ? `Installed for ${tool}` : state === 'taken' ? `${tool} already has a different skill named ${folderOf(id)}` : `Not installed for ${tool}`
         return (
-          <span key={p} title={title} aria-label={title} className={clsx('flex', state === 'absent' && 'opacity-25 grayscale', state === 'taken' && 'opacity-60')}>
+          <span key={p} data-tip={title} aria-label={title} className={clsx('flex', state === 'absent' && 'opacity-25 grayscale', state === 'taken' && 'opacity-60')}>
             <ProviderMark id={p} size={15} />
           </span>
         )
@@ -246,10 +246,10 @@ function SkillDialog({
       width={760}
       footer={
         <>
-          <button className="btn mr-auto" onClick={() => openUrl(repoUrl(listing.source))} title={repoUrl(listing.source)}>
+          <button className="btn mr-auto" onClick={() => openUrl(repoUrl(listing.source))} data-tip={repoUrl(listing.source)}>
             <ExternalLink size={14} /> GitHub
           </button>
-          <button className="btn" onClick={() => openUrl(skillPageUrl(listing.id))} title={skillPageUrl(listing.id)}>
+          <button className="btn" onClick={() => openUrl(skillPageUrl(listing.id))} data-tip={skillPageUrl(listing.id)}>
             <ExternalLink size={14} /> skills.sh
           </button>
           <button className="btn btn-primary" onClick={install} disabled={!chosen.length || busy !== null}>

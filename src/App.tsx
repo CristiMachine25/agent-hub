@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useStore, type Screen } from './store'
-import { Sidebar } from './components/Sidebar'
+import { MAC_TRAFFIC_LIGHTS, Sidebar } from './components/Sidebar'
 import { Toasts } from './components/Toasts'
 import { TitleBar } from './components/TitleBar'
+import { Tooltip } from './components/Tooltip'
 import { CommandPalette } from './components/CommandPalette'
 import { AddAccountDialog } from './components/AddAccountDialog'
 import { Overview } from './screens/Overview'
@@ -117,7 +118,8 @@ export function App() {
     <div className="flex h-full">
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
-        <TitleBar />
+        {/* On macOS the screens' own 56px toolbars share the window buttons' row and drag the window. */}
+        {!MAC_TRAFFIC_LIGHTS && <TitleBar />}
         <main className="min-h-0 flex-1 overflow-hidden" id="main">
           {screen === 'overview' && <Overview />}
           {screen === 'accounts' && <Accounts />}
@@ -131,6 +133,7 @@ export function App() {
       <CommandPalette />
       <AddAccountDialog />
       <Toasts />
+      <Tooltip />
     </div>
   )
 }

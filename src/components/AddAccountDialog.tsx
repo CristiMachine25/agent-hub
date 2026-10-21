@@ -339,7 +339,7 @@ function CreateStep({
               >
                 <input type="radio" name="provider" className="sr-only" checked={on} onChange={() => pickProvider(id)} />
                 <ProviderMark id={id} />
-                <span className="min-w-0 flex-1" title={p?.cliInstalled && p.cliVersion ? `Version ${p.cliVersion}` : undefined}>
+                <span className="min-w-0 flex-1" data-tip={p?.cliInstalled && p.cliVersion ? `Version ${p.cliVersion}` : undefined}>
                   <span className="block truncate font-medium">{PROVIDER_META[id].short}</span>
                   <span className={clsx('block truncate text-xs', p?.cliInstalled ? 'text-muted' : 'text-low')}>
                     {p?.cliInstalled ? (p.cliVersion ? `v${p.cliVersion}` : 'Installed') : 'Not installed'}
@@ -410,7 +410,7 @@ function CreateStep({
             </label>
           ))}
         </div>
-        <p className="mt-1.5 text-xs text-faint" title={`You can change ${SHARING_ITEMS.map((s) => s.label.toLowerCase()).join(', ')} later.`}>
+        <p className="mt-1.5 text-xs text-faint" data-tip={`You can change ${SHARING_ITEMS.map((s) => s.label.toLowerCase()).join(', ')} later.`}>
           Sign-in tokens are never shared. Change any of this later in the account's settings.
         </p>
       </fieldset>

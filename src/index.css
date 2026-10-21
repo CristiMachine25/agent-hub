@@ -181,6 +181,16 @@
   animation: toast-in 160ms ease-out;
 }
 
+/* Tooltips show at once; the fade only softens the pop. */
+@keyframes tip-in {
+  from {
+    opacity: 0;
+  }
+}
+.tip-in {
+  animation: tip-in 70ms ease-out;
+}
+
 /* Terminal grid panes adapt to their own size, not the window's. */
 .pane-head {
   container-type: inline-size;

@@ -30,7 +30,8 @@ export function SessionsPanel() {
         <button
           className="side-icon-btn"
           onClick={() => setCollapsed(false)}
-          title={toggle}
+          data-tip={toggle}
+          data-tip-side="right"
           aria-label={toggle}
           aria-expanded={false}
         >
@@ -40,7 +41,8 @@ export function SessionsPanel() {
           <button
             key={x.id}
             onClick={() => switchSession(x.id)}
-            title={x.name}
+            data-tip={x.name}
+            data-tip-side="right"
             aria-label={x.name}
             aria-current={x.id === activeId ? "true" : undefined}
             className={clsx(
@@ -56,7 +58,8 @@ export function SessionsPanel() {
         <button
           className="side-icon-btn"
           onClick={newSession}
-          title="New session"
+          data-tip="New session"
+          data-tip-side="right"
           aria-label="New session"
         >
           <Plus size={16} />
@@ -69,14 +72,14 @@ export function SessionsPanel() {
       aria-label="Sessions"
       className="flex w-[216px] shrink-0 flex-col border-r border-rivet bg-well"
     >
-      <div className="flex h-14 shrink-0 items-center gap-1 border-b border-rivet pl-3 pr-1.5">
+      <div data-tauri-drag-region="deep" className="flex h-14 shrink-0 items-center gap-1 border-b border-rivet pl-3 pr-1.5">
         <span className="flex-1 text-xs font-semibold text-muted">
           Sessions
         </span>
         <button
           className="side-icon-btn"
           onClick={newSession}
-          title="New session"
+          data-tip="New session"
           aria-label="New session"
         >
           <Plus size={16} />
@@ -84,7 +87,7 @@ export function SessionsPanel() {
         <button
           className="side-icon-btn"
           onClick={() => setCollapsed(true)}
-          title={toggle}
+          data-tip={toggle}
           aria-label={toggle}
           aria-expanded
         >
@@ -166,7 +169,7 @@ function SessionItem({
             className="min-w-0 flex-1 truncate text-left"
             onClick={() => switchSession(session.id)}
             onDoubleClick={() => setEditing(true)}
-            title="Double-click to rename"
+            data-tip="Double-click to rename"
             aria-current={active ? "true" : undefined}
           >
             {session.name}
@@ -174,7 +177,7 @@ function SessionItem({
         )}
         <span
           className="shrink-0 text-xs font-normal tabular-nums text-faint"
-          title={`${running} running`}
+          data-tip={`${running} running`}
         >
           {running || ""}
         </span>
@@ -184,7 +187,7 @@ function SessionItem({
             className="h-6 shrink-0 rounded bg-empty/15 px-1.5 text-xs font-semibold text-empty hover:bg-empty/25"
             onClick={() => void closeSession(session.id)}
             onBlur={() => setConfirming(false)}
-            title={`Close ${session.name} and stop its terminals`}
+            data-tip={`Close ${session.name} and stop its terminals`}
           >
             Stop {running}
           </button>
@@ -194,7 +197,7 @@ function SessionItem({
             onClick={() =>
               running ? setConfirming(true) : void closeSession(session.id)
             }
-            title="Close session"
+            data-tip="Close session"
             aria-label={`Close ${session.name}`}
           >
             <X size={13} />
@@ -219,7 +222,7 @@ function SessionItem({
                       ? "bg-raised/70 text-ink"
                       : "text-muted hover:bg-raised/50 hover:text-ink",
                   )}
-                  title={`${account!.label}: ${live ? "running" : info ? "exited" : "not running"}`}
+                  data-tip={`${account!.label}: ${live ? "running" : info ? "exited" : "not running"}`}
                 >
                   <AccountDot account={account!} size={7} />
                   <ProviderMark id={account!.providerId} size={12} />

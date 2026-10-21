@@ -93,7 +93,7 @@ export function UsageOverTime({
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-              <span className="text-right text-xs tabular-nums text-muted" title="Used now">
+              <span className="text-right text-xs tabular-nums text-muted" data-tip="Used now">
                 {Math.round(last)}%
               </span>
             </li>

@@ -2,7 +2,7 @@
 name = "switchyard"
 version = "0.2.0"
 description = "Manage all your AI subscriptions and launch any CLI with the right account"
-authors = ["Switchyard contributors"]
+authors = ["Agent Hub contributors"]
 license = "MIT"
 edition = "2021"
 rust-version = "1.82"

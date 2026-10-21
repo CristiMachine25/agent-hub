@@ -1,4 +1,5 @@
-//! Moving a Switchyard setup to another computer, on any OS. Export writes one `.switchyard` file.
+//! Moving an Agent Hub setup to another computer, on any OS. Export writes one `.agenthub` file;
+//! import also opens the `.switchyard` files saved before the rename, which have the same format.
 //! Import only adds: accounts that are already here, files that already exist and sign-ins already
 //! present are left exactly as they are, and nothing is ever deleted.
 //!
@@ -21,6 +22,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use tauri::AppHandle;
 
+/// Kept from before the rename: it is inside every setup file already saved.
 const FORMAT: &str = "switchyard-setup";
 const VERSION: u32 = 1;
 const KDF_ROUNDS: u32 = 310_000;
@@ -596,5 +598,20 @@ mod tests {
         // App data folders differ per OS, so those profiles get a new folder on the other computer.
         assert!(matches!(home_ref(&roots[0].join("dev.switchyard.app").join("profiles").join("h12"), false, &roots), HomeRef::Elsewhere));
         assert!(matches!(home_ref(Path::new("/elsewhere/claude"), false, &roots), HomeRef::Elsewhere));
+    }
+
+    #[test]
+    fn setup_files_open_by_content_whatever_their_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let text = r#"{"format":"switchyard-setup","version":1,"exportedAt":"2026-10-01T00:00:00Z","fromOs":"macos","appVersion":"0.2.0","accounts":[]}"#;
+        // Files saved before the rename end in .switchyard and carry the same format id.
+        for name in ["old.switchyard", "new.agenthub", "copy.json"] {
+            let p = dir.path().join(name);
+            std::fs::write(&p, text).unwrap();
+            assert_eq!(read_file(&p).unwrap().format, FORMAT, "{name}");
+        }
+        let p = dir.path().join("other.agenthub");
+        std::fs::write(&p, text.replace("switchyard-setup", "something-else")).unwrap();
+        assert!(read_file(&p).is_err());
     }
 }

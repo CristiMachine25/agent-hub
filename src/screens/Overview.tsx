@@ -252,7 +252,7 @@ function AltRow({ rec, account, snap }: { rec: Recommendation; account: Account;
           <span className="shrink-0 text-xs tabular-nums text-muted">{formatPct(left)} left</span>
         </div>
         <Meter left={left} cells={20} size="xs" label={`${account.label} quota left`} className="mt-1" />
-        <p className="mt-1 line-clamp-2 text-xs text-muted" title={rec.reason}>
+        <p className="mt-1 line-clamp-2 text-xs text-muted" data-tip={rec.reason}>
           {rec.reason}
         </p>
       </div>
@@ -402,7 +402,7 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
   const atLimit = bind ? leftOf(bind) <= 0.5 : false
   return (
     <li className="grid grid-cols-[minmax(150px,1fr)_minmax(0,2.4fr)_auto] items-center gap-5 px-4 py-3 hover:bg-deck">
-      <button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => go('accounts', a.id)} title="Show details">
+      <button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => go('accounts', a.id)} data-tip="Show details">
         <AccountDot account={a} />
         <span className="min-w-0">
           <span className="block truncate font-semibold">{a.label}</span>
@@ -438,7 +438,7 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
           <button
             className="btn btn-sm w-[92px]"
             onClick={() => launch(a.id, 'cli')}
-            title={atLimit ? 'At its limit: the CLI opens but will refuse new messages until the reset' : undefined}
+            data-tip={atLimit ? 'At its limit: the CLI opens but will refuse new messages until the reset' : undefined}
             aria-label={`${launchVerb(a.providerId)} as ${a.label}`}
           >
             <Play size={12} fill="currentColor" /> Launch

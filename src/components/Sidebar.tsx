@@ -27,8 +27,11 @@ const NAV: NavItem[] = [
 /** Pinned to the bottom of the sidebar, away from the screens you switch between all day. */
 const SETTINGS: NavItem = { id: 'settings', label: 'Settings', icon: Settings, key: '7' }
 
-/** On macOS the native window buttons float over the top of the sidebar. */
-const MAC_TRAFFIC_LIGHTS = isTauri() && detectPlatform() === 'darwin'
+/**
+ * On macOS the native window buttons sit in the sidebar's top row (`trafficLightPosition` in
+ * tauri.conf.json centers them in its 56px height, x 16..76), so that row keeps them clear.
+ */
+export const MAC_TRAFFIC_LIGHTS = isTauri() && detectPlatform() === 'darwin'
 
 export function Sidebar() {
   const screen = useStore((s) => s.screen)
@@ -64,12 +67,14 @@ export function Sidebar() {
       aria-label="Main"
       className={clsx(
         'flex shrink-0 flex-col border-r border-rivet bg-deck transition-[width] duration-150',
-        collapsed ? 'sidebar-compact w-[60px]' : 'w-[208px]'
+        collapsed ? clsx('sidebar-compact', MAC_TRAFFIC_LIGHTS ? 'w-[92px]' : 'w-[60px]') : 'w-[208px]'
       )}
     >
-      {MAC_TRAFFIC_LIGHTS && <div data-tauri-drag-region className="h-7 shrink-0" />}
-      <div data-tauri-drag-region="deep" className="flex h-14 items-center gap-2.5 px-4 compact:justify-center compact:px-0">
-        <Logo size={26} />
+      <div
+        data-tauri-drag-region="deep"
+        className={clsx('flex h-14 items-center gap-2.5 px-4 compact:justify-center compact:px-0', MAC_TRAFFIC_LIGHTS && 'pl-[92px]')}
+      >
+        {!MAC_TRAFFIC_LIGHTS && <Logo size={26} />}
         <span className="flex-1 font-serif text-[19px] font-semibold compact:hidden">Agent Hub</span>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
@@ -94,7 +99,9 @@ export function Sidebar() {
           onClick={() => refresh()}
           disabled={refreshing}
           className="flex items-center gap-2 rounded px-1 py-1 text-xs text-muted hover:text-ink compact:justify-center"
-          title="Refresh usage for every account"
+          data-tip="Refresh usage for every account"
+          data-tip-side="right"
+          aria-label={collapsed ? 'Refresh usage for every account' : undefined}
         >
           <RefreshCw size={13} className={clsx(refreshing && 'animate-spin')} />
           <span className="compact:hidden">
@@ -111,7 +118,8 @@ export function Sidebar() {
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink"
-            title={toggleLabel}
+            data-tip={toggleLabel}
+            data-tip-side="right"
             aria-label={toggleLabel}
             aria-expanded={!collapsed}
           >
@@ -129,7 +137,8 @@ function NavButton({ item, on, onClick, children }: { item: NavItem; on: boolean
     <button
       onClick={onClick}
       aria-current={on ? 'page' : undefined}
-      title={`${item.label} (${item.key})`}
+      data-tip={`${item.label} (${item.key})`}
+      data-tip-side="right"
       className={clsx(
         'relative flex h-9 w-full items-center gap-2.5 rounded px-2.5 text-sm transition-colors compact:justify-center',
         on ? 'bg-raised font-semibold text-ink' : 'text-muted hover:bg-raised/60 hover:text-ink'
@@ -137,7 +146,7 @@ function NavButton({ item, on, onClick, children }: { item: NavItem; on: boolean
     >
       {on && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-hop" aria-hidden />}
       <Icon size={17} strokeWidth={on ? 2.2 : 1.8} />
-      <span className="flex-1 text-left compact:hidden">{item.label}</span>
+      <span className="flex-1 text-left compact:sr-only">{item.label}</span>
       {children}
     </button>
   )
