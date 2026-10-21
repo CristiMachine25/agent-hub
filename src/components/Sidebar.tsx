@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useEffect } from 'react'
-import { Bell, Gauge, Library, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, SquareTerminal, Users } from 'lucide-react'
+import { Bell, Blocks, Gauge, Library, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, SquareTerminal, Users } from 'lucide-react'
 import { useStore, type Screen } from '@/store'
 import { IS_MOCK, api } from '@/api'
 import { formatAgo } from '@/lib/format'
@@ -19,12 +19,13 @@ const NAV: NavItem[] = [
   { id: 'overview', label: 'Overview', icon: Gauge, key: '1' },
   { id: 'accounts', label: 'Accounts', icon: Users, key: '2' },
   { id: 'knowledge', label: 'Knowledge', icon: Library, key: '3' },
-  { id: 'terminals', label: 'Terminals', icon: SquareTerminal, key: '4' },
-  { id: 'notifications', label: 'Notifications', icon: Bell, key: '5' }
+  { id: 'skills', label: 'Skills', icon: Blocks, key: '4' },
+  { id: 'terminals', label: 'Terminals', icon: SquareTerminal, key: '5' },
+  { id: 'notifications', label: 'Notifications', icon: Bell, key: '6' }
 ]
 
 /** Pinned to the bottom of the sidebar, away from the screens you switch between all day. */
-const SETTINGS: NavItem = { id: 'settings', label: 'Settings', icon: Settings, key: '6' }
+const SETTINGS: NavItem = { id: 'settings', label: 'Settings', icon: Settings, key: '7' }
 
 /** On macOS the native window buttons float over the top of the sidebar. */
 const MAC_TRAFFIC_LIGHTS = isTauri() && detectPlatform() === 'darwin'

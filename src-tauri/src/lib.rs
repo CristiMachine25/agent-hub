@@ -8,6 +8,7 @@ pub mod providers;
 pub mod pty;
 pub mod recommend;
 pub mod sharing;
+pub mod skills;
 pub mod store;
 pub mod transfer;
 pub mod usage;
@@ -95,6 +96,12 @@ pub fn run() {
             commands::system_open_path,
             commands::knowledge_get,
             commands::knowledge_reseed,
+            commands::skills_search,
+            commands::skills_preview,
+            commands::skills_installed,
+            commands::skills_install,
+            commands::skills_remove,
+            commands::system_open_url,
         ])
         .build(tauri::generate_context!());
     match app {

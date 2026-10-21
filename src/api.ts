@@ -51,8 +51,16 @@ function createTauriApi(): HopperApi {
       get: () => call(COMMANDS.knowledgeGet),
       reseed: (providerId) => call(COMMANDS.knowledgeReseed, { providerId })
     },
+    skills: {
+      search: (query) => call(COMMANDS.skillsSearch, { query }),
+      preview: (id) => call(COMMANDS.skillsPreview, { id }),
+      installed: () => call(COMMANDS.skillsInstalled),
+      install: (id, providerIds) => call(COMMANDS.skillsInstall, { id, providerIds }),
+      remove: (id, providerId) => call(COMMANDS.skillsRemove, { id, providerId })
+    },
     system: {
       openPath: (path) => call(COMMANDS.systemOpenPath, { path }),
+      openUrl: (url) => call(COMMANDS.systemOpenUrl, { url }),
       async pickDirectory() {
         const { open } = await import('@tauri-apps/plugin-dialog')
         const picked = await open({ directory: true, multiple: false })
