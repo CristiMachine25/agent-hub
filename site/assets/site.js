@@ -1,4 +1,4 @@
-// Switchyard landing page: segmented meters, the hero handoff demo, and the screen tour tabs.
+// Agent Hub landing page: segmented meters, the hero handoff demo, and the screen tour tabs.
 (function () {
   "use strict";
 
