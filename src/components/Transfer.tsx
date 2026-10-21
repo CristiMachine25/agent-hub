@@ -47,7 +47,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const run = async () => {
     setError(null)
     const date = new Date().toISOString().slice(0, 10)
-    const path = await api.system.pickSavePath(`switchyard-setup-${date}.switchyard`)
+    const path = await api.system.pickSavePath(`agent-hub-setup-${date}.agenthub`)
     if (!path) return
     setBusy(true)
     try {
@@ -244,7 +244,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
       ) : !preview ? (
         <div className="flex items-center gap-2 py-6 text-muted" role="status">
           {busy ? <Loader2 size={16} className="animate-spin" /> : null}
-          {error ?? (busy ? 'Reading the file…' : 'Choose a .switchyard file…')}
+          {error ?? (busy ? 'Reading the file…' : 'Choose an .agenthub file…')}
         </div>
       ) : (
         <div className="space-y-3">

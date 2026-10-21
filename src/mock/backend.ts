@@ -446,7 +446,7 @@ export function createMockApi(platform: Platform): HopperApi {
       },
       async pickSetupFile() {
         await wait(150)
-        return `${home}${sep}Downloads${sep}switchyard-setup.switchyard`
+        return `${home}${sep}Downloads${sep}agent-hub-setup.agenthub`
       }
     },
     transfer: {
