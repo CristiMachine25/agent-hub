@@ -1,6 +1,7 @@
 // AgentHubApi: Tauri invoke/listen inside the app, an in-memory mock in a plain browser.
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
+import { appDataDir } from '@tauri-apps/api/path'
 import type { AppEvents, AgentHubApi } from '@shared/types'
 import { COMMANDS } from '@shared/types'
 import { createMockApi } from './mock/backend'
@@ -73,7 +74,8 @@ function createTauriApi(): AgentHubApi {
         const { open } = await import('@tauri-apps/plugin-dialog')
         const picked = await open({ multiple: false, filters: [{ name: 'Agent Hub setup', extensions: ['agenthub', 'switchyard', 'json'] }] })
         return typeof picked === 'string' ? picked : null
-      }
+      },
+      appDataDir
     },
     transfer: {
       export: (path, opts) => call(COMMANDS.transferExport, { path, opts }),
