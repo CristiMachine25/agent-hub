@@ -35,6 +35,9 @@ pub fn run() {
     let app = tauri::Builder::default()
         // Must be the first plugin: a second launch just focuses the running window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)))
+        // Warnings go to stdout and to "Agent Hub.log" in the OS log folder (on macOS
+        // ~/Library/Logs/dev.switchyard.app, elsewhere <local app data>/dev.switchyard.app/logs).
+        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).max_file_size(1_000_000).build())
         .plugin(tauri_plugin_autostart::Builder::new().arg(MINIMIZED_ARG).build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())

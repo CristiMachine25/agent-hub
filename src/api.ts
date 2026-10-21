@@ -100,10 +100,17 @@ export const IS_MOCK = !isTauri()
 
 export const api: HopperApi = IS_MOCK ? createMockApi(detectPlatform()) : createTauriApi()
 
+/** Where the backend writes its log file (tauri-plugin-log's LogDir target). */
+const LOG_DIR = {
+  darwin: '~/Library/Logs/dev.switchyard.app',
+  win32: '%LOCALAPPDATA%\\dev.switchyard.app\\logs',
+  linux: '~/.local/share/dev.switchyard.app/logs'
+} as const
+
 /** Turn any thrown value (Tauri returns plain strings) into a readable message. */
 export function errorText(e: unknown): string {
   if (typeof e === 'string') return e
   if (e instanceof Error) return e.message
   if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message)
-  return 'Something went wrong. Try again, and check the app log if it keeps happening.'
+  return `Something went wrong. Try again; if it keeps happening, check Agent Hub.log in ${LOG_DIR[detectPlatform()]}.`
 }
