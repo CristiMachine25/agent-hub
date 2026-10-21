@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { X } from 'lucide-react'
 import type { Account, ProviderId } from '@shared/types'
@@ -83,6 +83,22 @@ export function Switch({
   )
 }
 
+/**
+ * Arrow keys for a radiogroup with a single Tab stop: they focus and check the next or previous radio.
+ * Put it on the group, and give the checked radio (or the first one, if none is) tabIndex 0 and the rest -1.
+ */
+export function onRadioArrows(e: ReactKeyboardEvent<HTMLElement>) {
+  const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+  if (!d) return
+  const radios = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]:not(:disabled)')]
+  const i = radios.indexOf(e.target as HTMLElement)
+  if (i < 0) return
+  e.preventDefault()
+  const next = radios[(i + d + radios.length) % radios.length]
+  next.focus()
+  next.click()
+}
+
 export function Segmented<T extends string>({
   value,
   options,
@@ -96,31 +112,19 @@ export function Segmented<T extends string>({
   label: string
   size?: 'sm' | 'md'
 }) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([])
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap gap-1 rounded-md bg-ground p-0.5 border border-rivet">
-      {options.map((o, i) => {
+    <div role="radiogroup" aria-label={label} onKeyDown={onRadioArrows} className="inline-flex flex-wrap gap-1 rounded-md bg-ground p-0.5 border border-rivet">
+      {options.map((o) => {
         const on = o.id === value
         return (
           <button
             key={o.id}
-            ref={(el) => {
-              refs.current[i] = el
-            }}
             type="button"
             role="radio"
             aria-checked={on}
             data-tip={o.title}
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(o.id)}
-            onKeyDown={(e) => {
-              const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
-              if (!d) return
-              e.preventDefault()
-              const n = (i + d + options.length) % options.length
-              onChange(options[n].id)
-              refs.current[n]?.focus()
-            }}
             className={clsx(
               'rounded-[5px] px-2.5 transition-colors whitespace-nowrap',
               size === 'sm' ? 'h-6 text-xs' : 'h-7 text-sm',

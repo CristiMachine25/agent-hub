@@ -9,6 +9,7 @@ import { restyleAll } from './registry'
 import { useGrid } from './store'
 import { Pane } from './Pane'
 import { SessionsPanel } from './Sessions'
+import { onRadioArrows } from '@/components/ui'
 
 /** Tiny picture of a layout preset, drawn from the same rects the grid uses. */
 function LayoutIcon({ id }: { id: LayoutId }) {
@@ -74,12 +75,13 @@ export function Terminals() {
           <p className="hidden text-xs text-muted min-[1100px]:block">
             Each pane runs on its own account. {mod}+Shift+arrows move between panes, {mod}+Shift+Enter maximizes.
           </p>
-          <div className="ml-auto inline-flex rounded border border-rivet bg-deck p-0.5" role="radiogroup" aria-label="Layout">
+          <div className="ml-auto inline-flex rounded border border-rivet bg-deck p-0.5" role="radiogroup" aria-label="Layout" onKeyDown={onRadioArrows}>
             {LAYOUT_IDS.map((id) => (
               <button
                 key={id}
                 role="radio"
                 aria-checked={ws.layout === id}
+                tabIndex={ws.layout === id ? 0 : -1}
                 data-tip={LAYOUTS[id].label}
                 aria-label={LAYOUTS[id].label}
                 onClick={() => setLayout(id)}
