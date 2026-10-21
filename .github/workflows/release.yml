@@ -42,6 +42,10 @@ jobs:
         with:
           workspaces: src-tauri
       - run: npm ci
+      - run: npm test
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test --locked
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
