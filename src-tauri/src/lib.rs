@@ -98,12 +98,16 @@ pub fn run() {
         ])
         .build(tauri::generate_context!());
     match app {
-        Ok(app) => app.run(|app, event| {
-            if let RunEvent::Exit = event {
+        Ok(app) => app.run(|app, event| match event {
+            RunEvent::Exit => {
                 if let Some(terms) = app.try_state::<pty::Terminals>() {
                     terms.kill_all();
                 }
             }
+            // Dock icon clicked while the window is hidden in the tray.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { has_visible_windows: false, .. } => show_main_window(app),
+            _ => {}
         }),
         Err(e) => {
             eprintln!("{APP_NAME} failed to start: {e}");
