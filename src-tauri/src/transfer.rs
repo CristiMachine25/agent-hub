@@ -6,7 +6,7 @@
 //! Sign-ins are optional and always encrypted (AES-256-GCM, key from a passphrase via PBKDF2-SHA256).
 //! Everything else in the file is plain JSON with no secrets in it.
 
-use crate::commands;
+use crate::accounts;
 use crate::model::*;
 use crate::providers::{Adapter, ProviderAdapter};
 use crate::store::AppState;
@@ -529,7 +529,7 @@ async fn plan_account(state: &Arc<AppState>, a: &ExportedAccount) -> anyhow::Res
     let same_name = |x: &&Account| x.provider_id == a.provider_id && x.label.trim().eq_ignore_ascii_case(a.label.trim());
     let already_here = accounts.iter().find(|x| same_login(x) || same_folder(x) || same_name(x)).map(|x| x.label.clone());
     drop(accounts);
-    let home = if home.as_os_str().is_empty() { commands::new_home_dir(state, a.provider_id, &a.label).await } else { home };
+    let home = if home.as_os_str().is_empty() { accounts::new_home_dir(state, a.provider_id, &a.label).await } else { home };
     Ok(Plan { adapter, home, is_default, already_here })
 }
 
@@ -623,10 +623,10 @@ pub async fn apply(app: &AppHandle, state: &Arc<AppState>, path: &Path, passphra
             monthly_cost: a.monthly_cost,
             plan: a.plan.clone(),
         };
-        match commands::create_account(app, state, input).await {
+        match accounts::create_account(app, state, input).await {
             Ok(created) => {
                 if let Some(notes) = a.notes.as_deref().filter(|n| !n.trim().is_empty()) {
-                    let _ = commands::update_account(app, state, &created.id, serde_json::json!({ "notes": notes })).await;
+                    let _ = accounts::update_account(app, state, &created.id, serde_json::json!({ "notes": notes })).await;
                 }
                 report.added.push(a.label.clone());
             }
@@ -669,7 +669,7 @@ pub async fn apply(app: &AppHandle, state: &Arc<AppState>, path: &Path, passphra
     }
 
     if let (true, Some(settings)) = (choice.settings, file.settings.clone()) {
-        match commands::apply_settings_patch(app, state, portable_only(settings)).await {
+        match crate::settings::apply_settings_patch(app, state, portable_only(settings)).await {
             Ok(_) => report.settings = true,
             Err(e) => report.problems.push(format!("Preferences: {e:#}")),
         }

@@ -1,4 +1,5 @@
 //! App setup: plugins, state, commands, background poller and the system tray.
+pub mod accounts;
 pub mod commands;
 pub mod knowledge;
 pub mod launcher;
@@ -7,6 +8,7 @@ pub mod notify;
 pub mod providers;
 pub mod pty;
 pub mod recommend;
+pub mod settings;
 pub mod sharing;
 pub mod skills;
 pub mod store;

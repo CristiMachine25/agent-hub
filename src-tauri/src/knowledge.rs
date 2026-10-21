@@ -239,7 +239,7 @@ pub async fn migrate(app: AppHandle, state: Arc<AppState>) {
             continue;
         }
         for account in mine.into_iter().filter(|a| shares_any(&a.sharing) || a.sharing.history) {
-            crate::commands::apply_sharing(&app, &state, account, adapter.clone()).await;
+            crate::accounts::apply_sharing(&app, &state, account, adapter.clone()).await;
         }
     }
 }
