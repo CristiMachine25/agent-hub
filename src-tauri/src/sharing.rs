@@ -221,6 +221,8 @@ pub fn is_link(p: &Path) -> bool {
     }
 }
 
+// The closure does real work on Windows; elsewhere it is just `None`.
+#[allow(clippy::unnecessary_lazy_evaluations)]
 fn link_target(link: &Path) -> Option<PathBuf> {
     fs::read_link(link).ok().or_else(|| {
         #[cfg(windows)]
