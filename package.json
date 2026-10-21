@@ -5,6 +5,7 @@
   "description": "Manage all your AI subscriptions (Claude, ChatGPT/Codex, Gemini, Copilot) in one place: see usage limits, get reset alerts, and launch any CLI or desktop app with the right account.",
   "license": "MIT",
   "author": "Agent Hub contributors",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
