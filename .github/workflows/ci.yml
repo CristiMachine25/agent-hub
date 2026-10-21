@@ -46,7 +46,8 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      # Pinned so a new Rust release's lints can't turn CI red without a code change.
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
           components: rustfmt, clippy
       - uses: swatinem/rust-cache@v2
