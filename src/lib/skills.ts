@@ -79,7 +79,7 @@ export function folderOf(id: string): string {
 }
 
 /**
- * Where a skill stands in one tool's shared folder: installed by Switchyard from this id, a
+ * Where a skill stands in one tool's shared folder: installed by Agent Hub from this id, a
  * different skill already using its folder name (copied from the main folder, added by hand or
  * from another repo), or not there.
  */

@@ -95,7 +95,7 @@ impl AppState {
         &self.dir
     }
 
-    /// The shared profile Switchyard owns for a tool: <app data>/shared/<provider>.
+    /// The shared profile Agent Hub owns for a tool: <app data>/shared/<provider>.
     pub fn shared_dir(&self, p: ProviderId) -> PathBuf {
         self.dir.join("shared").join(p.as_str())
     }
