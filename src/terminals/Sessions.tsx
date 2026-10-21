@@ -180,6 +180,7 @@ function SessionItem({
           data-tip={`${running} running`}
         >
           {running || ""}
+          {running > 0 && <span className="sr-only"> running</span>}
         </span>
         {confirming ? (
           <button
