@@ -1,8 +1,8 @@
 //! App settings: merging a partial patch from the UI or a setup file, then saving and applying it.
-use crate::accounts::non_empty;
 use crate::model::*;
 use crate::store::AppState;
 use crate::util;
+use crate::util::non_empty;
 use anyhow::anyhow;
 use tauri::AppHandle;
 

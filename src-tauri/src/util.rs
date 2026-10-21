@@ -88,6 +88,11 @@ fn write_and_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()
     std::fs::rename(tmp, path)
 }
 
+/// The trimmed text, or None when there is none.
+pub fn non_empty(s: Option<String>) -> Option<String> {
+    s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+}
+
 /// Normalize a path for comparisons (case-insensitive on Windows, no trailing slash).
 pub fn path_key(p: &Path) -> String {
     let s = p.to_string_lossy().trim_end_matches(['/', '\\']).replace('\\', "/");

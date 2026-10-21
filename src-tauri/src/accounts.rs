@@ -32,11 +32,7 @@ fn clean_tags(tags: Vec<String>) -> Vec<String> {
     out
 }
 
-pub(crate) fn non_empty(s: Option<String>) -> Option<String> {
-    s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
-}
-
-pub async fn emit_accounts(app: &AppHandle, state: &AppState) {
+pub(crate) async fn emit_accounts(app: &AppHandle, state: &AppState) {
     let _ = app.emit("accounts-changed", &*state.accounts.read().await);
 }
 
@@ -84,7 +80,7 @@ fn import_label(d: &DetectedAccount) -> String {
     let dir = Path::new(&d.home_dir).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
     let suffix = dir.trim_start_matches('.').trim_start_matches(d.provider_id.as_str()).trim_matches(|c: char| c == '-' || c == '_' || c == '.');
     if suffix.is_empty() {
-        return non_empty(d.email.clone()).unwrap_or_else(|| short.to_string());
+        return util::non_empty(d.email.clone()).unwrap_or_else(|| short.to_string());
     }
     let pretty: Vec<String> = suffix
         .split(['-', '_', '.'])
@@ -196,7 +192,7 @@ pub(crate) async fn create_account(app: &AppHandle, state: &Arc<AppState>, input
         return Err(anyhow!("Give the account a name"));
     }
     let adapter = state.adapter(input.provider_id)?;
-    let home = match non_empty(input.home_dir.clone()) {
+    let home = match util::non_empty(input.home_dir.clone()) {
         Some(h) => PathBuf::from(h),
         None => new_home_dir(state, input.provider_id, &label).await,
     };
@@ -210,7 +206,7 @@ pub(crate) async fn create_account(app: &AppHandle, state: &Arc<AppState>, input
     let default_home = adapter.default_home();
     let is_default = util::path_key(&default_home) == key;
     let shared_from =
-        non_empty(input.shared_from.clone()).or_else(|| (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()));
+        util::non_empty(input.shared_from.clone()).or_else(|| (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()));
     let identity = adapter.read_identity(&home).await;
     let default_sharing = state.settings.read().await.default_sharing;
 
@@ -221,12 +217,12 @@ pub(crate) async fn create_account(app: &AppHandle, state: &Arc<AppState>, input
             provider_id: input.provider_id,
             label,
             email: identity.email,
-            plan: identity.plan.or_else(|| non_empty(input.plan.clone())),
+            plan: identity.plan.or_else(|| util::non_empty(input.plan.clone())),
             home_dir: home.to_string_lossy().into_owned(),
             is_default_home: is_default,
             shared_from,
             sharing: input.sharing.unwrap_or(default_sharing),
-            color: non_empty(input.color).filter(|c| is_hex_color(c)).unwrap_or_else(|| next_color(&accounts)),
+            color: util::non_empty(input.color).filter(|c| is_hex_color(c)).unwrap_or_else(|| next_color(&accounts)),
             tags: clean_tags(input.tags.unwrap_or_default()),
             notes: None,
             status: if identity.logged_in { AccountStatus::Ok } else { AccountStatus::NeedsLogin },
@@ -269,8 +265,8 @@ pub(crate) async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &
             new.color = old.color.clone();
         }
         new.tags = clean_tags(new.tags);
-        new.shared_from = non_empty(new.shared_from);
-        new.home_dir = non_empty(Some(new.home_dir)).ok_or_else(|| anyhow!("The account folder cannot be empty"))?;
+        new.shared_from = util::non_empty(new.shared_from);
+        new.home_dir = util::non_empty(Some(new.home_dir)).ok_or_else(|| anyhow!("The account folder cannot be empty"))?;
         let key = util::path_key(Path::new(&new.home_dir));
         if accounts.iter().any(|a| a.id != new.id && util::path_key(Path::new(&a.home_dir)) == key) {
             return Err(anyhow!("That folder is already used by another account"));

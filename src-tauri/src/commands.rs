@@ -1,9 +1,10 @@
 //! Tauri commands: the AgentHubApi from src/shared/types.ts. Names and argument names must match
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
-use crate::accounts::{self, apply_sharing, emit_accounts, non_empty};
+use crate::accounts::{self, apply_sharing, emit_accounts};
 use crate::model::*;
 use crate::providers::{self, Adapter, CommandSpec};
 use crate::store::AppState;
+use crate::util::non_empty;
 use crate::{knowledge, launcher, notify, pty, recommend, settings, skills, usage, util};
 use anyhow::anyhow;
 use std::collections::{HashMap, HashSet};
