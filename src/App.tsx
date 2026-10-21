@@ -118,7 +118,7 @@ export function App() {
     <div className="flex h-full flex-col">
       <a
         href="#main"
-        className="btn btn-primary sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70]"
+        className="btn btn-primary sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[70] focus:h-8 focus:whitespace-nowrap focus:px-3"
         onClick={(e) => {
           e.preventDefault()
           document.getElementById('main')?.focus()
