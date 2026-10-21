@@ -636,6 +636,8 @@ mod contract_tests {
         let src = include_str!("lib.rs");
         let start = src.find("generate_handler![").expect("generate_handler! in lib.rs") + "generate_handler![".len();
         let list = &src[start..start + src[start..].find(']').unwrap()];
+        // Comments inside the list (a disabled command) are not registrations.
+        let list: String = list.lines().map(|l| l.split("//").next().unwrap_or_default()).collect::<Vec<_>>().join("\n");
         list.split(',').map(|path| path.rsplit("::").next().unwrap().trim().to_string()).filter(|name| !name.is_empty()).collect()
     }
 
