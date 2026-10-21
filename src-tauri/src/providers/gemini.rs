@@ -267,6 +267,15 @@ fn offline_refresh(e: impl std::fmt::Display) -> FetchError {
     FetchError::network(format!("Could not reach Google to renew the Gemini session ({e})"))
 }
 
+/// Google answers a refresh token it no longer accepts with 400 (`invalid_grant`) or 401; anything
+/// else (5xx, 429) is Google having a bad moment, not the user being signed out.
+fn refresh_refused(status: u16) -> FetchError {
+    match status {
+        400 | 401 => FetchError::auth(SIGN_IN_AGAIN),
+        _ => FetchError::other(format!("Google could not renew the Gemini session (HTTP {status}); will retry later")),
+    }
+}
+
 /// OAuth credentials file with an in-place refresh that keeps the CLI's file valid.
 struct Creds {
     path: PathBuf,
@@ -303,11 +312,13 @@ impl Creds {
             .send()
             .await
             .map_err(|e| offline_refresh(e.without_url()))?;
-        if !resp.status().is_success() {
-            return Err(again());
+        let status = resp.status();
+        if !status.is_success() {
+            return Err(refresh_refused(status.as_u16()));
         }
-        let v: Value = resp.json().await.map_err(|_| again())?;
-        apply_refresh(&mut self.raw, &v, chrono::Utc::now().timestamp_millis()).ok_or_else(again)?;
+        let odd = || FetchError::other("Google sent an unexpected reply while renewing the Gemini session; will retry later");
+        let v: Value = resp.json().await.map_err(|_| odd())?;
+        apply_refresh(&mut self.raw, &v, chrono::Utc::now().timestamp_millis()).ok_or_else(odd)?;
         let bytes = serde_json::to_vec_pretty(&self.raw).map_err(|e| FetchError::other(e.to_string()))?;
         util::write_atomic(&self.path, &bytes).map_err(|e| FetchError::other(format!("Could not save the renewed Gemini session: {e}")))?;
         restrict_permissions(&self.path);
@@ -872,6 +883,15 @@ mod tests {
         let e = offline_refresh("error sending request");
         assert_eq!(e.kind, ErrorKind::Network);
         assert_eq!(e.message, "Could not reach Google to renew the Gemini session (error sending request)");
+    }
+
+    #[test]
+    fn only_a_refused_refresh_token_means_signed_out() {
+        assert_eq!(refresh_refused(400).kind, ErrorKind::Auth);
+        assert_eq!(refresh_refused(401).kind, ErrorKind::Auth);
+        for status in [429, 500, 503] {
+            assert_eq!(refresh_refused(status).kind, ErrorKind::Other, "{status}");
+        }
     }
 
     fn account(home: &Path) -> Account {
