@@ -243,7 +243,8 @@ pub async fn export(state: &AppState, path: &Path, opts: ExportOptions) -> anyho
 
     let (files, skipped_files) = if opts.include_files {
         let sources = file_sources(state, &accounts)?;
-        tokio::task::spawn_blocking(move || collect_files(&sources)).await?
+        let homes = sign_in_homes(state).await;
+        tokio::task::spawn_blocking(move || collect_files(&sources, &homes)).await?
     } else {
         (Vec::new(), 0)
     };
@@ -321,18 +322,38 @@ fn file_sources(state: &AppState, accounts: &[Account]) -> anyhow::Result<Vec<(A
         .collect()
 }
 
-/// Skills, agents and instructions from each tool's folder.
-fn collect_files(sources: &[(Adapter, PathBuf)]) -> (Vec<BundleFile>, usize) {
+/// Every folder that holds a sign-in: each account's folder and each tool's main folder.
+async fn sign_in_homes(state: &AppState) -> Vec<PathBuf> {
+    let mut homes: Vec<PathBuf> = state.accounts.read().await.iter().map(|a| PathBuf::from(&a.home_dir)).collect();
+    homes.extend(state.adapters.iter().map(|a| a.default_home()));
+    homes
+}
+
+/// Skills, agents and instructions from each tool's folder. Links are followed (skills are often
+/// linked in from a checkout), but never into a folder that holds a sign-in (`homes`).
+fn collect_files(sources: &[(Adapter, PathBuf)], homes: &[PathBuf]) -> (Vec<BundleFile>, usize) {
+    let homes: Vec<PathBuf> = homes.iter().filter_map(|h| h.canonicalize().ok()).collect();
     let (mut out, mut skipped, mut total) = (Vec::new(), 0, 0u64);
     for (adapter, root) in sources {
         let (provider, credentials) = (adapter.id(), adapter.credential_paths());
         for (kind, rels) in adapter.shareable_paths().into_iter().filter(|(k, _)| PORTABLE_KINDS.contains(k)) {
             for rel in rels {
                 let top = root.join(rel);
-                if holds_sign_in(&top, adapter.as_ref()) {
+                let Ok(real_top) = top.canonicalize() else { continue };
+                // A kind folder that is (or holds) a home, or a kind linked into one, is a sign-in in disguise.
+                if homes.iter().any(|h| h.starts_with(&real_top)) || (sharing::is_link(&top) && homes.iter().any(|h| real_top.starts_with(h))) {
+                    skipped += 1;
                     continue;
                 }
-                for file in walk(&top) {
+                let (files, pruned) = walk(&top, &homes);
+                skipped += pruned;
+                for file in files {
+                    // Reached through a link further in: never anything inside a home.
+                    let Ok(real) = file.canonicalize() else { continue };
+                    if !real.starts_with(&real_top) && homes.iter().any(|h| real.starts_with(h)) {
+                        skipped += 1;
+                        continue;
+                    }
                     let size = std::fs::metadata(&file).map(|m| m.len()).unwrap_or(u64::MAX);
                     if size > MAX_FILE || total + size > MAX_BUNDLE {
                         skipped += 1;
@@ -385,27 +406,32 @@ fn knowledge_root(state: &AppState, adapter: &Adapter) -> PathBuf {
     }
 }
 
-/// A kind's own folder or file may be a link (a skills folder kept in a checkout), but not to a
-/// tool's home or anything above one, nor to a sign-in file.
-fn holds_sign_in(top: &Path, adapter: &dyn ProviderAdapter) -> bool {
-    let Ok(real) = top.canonicalize() else { return false };
-    let home = adapter.default_home().canonicalize();
-    home.is_ok_and(|h| h.starts_with(&real)) || adapter.credential_paths().iter().any(|c| real.ends_with(c) || real.join(c).exists())
-}
-
-/// Every regular file under `p` (or `p` itself), skipping VCS folders and dependency caches. `p`
-/// itself may be a link, but links inside it are not followed, as import never writes through one.
-fn walk(p: &Path) -> Vec<PathBuf> {
+/// Every regular file under `p` (or `p` itself), skipping VCS folders and dependency caches, plus
+/// how many linked folders were left out because they lead to or above a home. Links are followed;
+/// walkdir drops the ones that loop.
+fn walk(p: &Path, homes: &[PathBuf]) -> (Vec<PathBuf>, usize) {
     if p.is_file() {
-        return vec![p.to_path_buf()];
+        return (vec![p.to_path_buf()], 0);
     }
-    walkdir::WalkDir::new(p)
+    let pruned = std::cell::Cell::new(0);
+    let files = walkdir::WalkDir::new(p)
+        .follow_links(true)
         .into_iter()
-        .filter_entry(|e| !matches!(e.file_name().to_str(), Some(".git" | "node_modules" | "__pycache__" | ".venv")))
+        .filter_entry(|e| {
+            if matches!(e.file_name().to_str(), Some(".git" | "node_modules" | "__pycache__" | ".venv")) {
+                return false;
+            }
+            let into_home = e.path_is_symlink() && e.path().canonicalize().is_ok_and(|r| homes.iter().any(|h| h.starts_with(&r) || r.starts_with(h)));
+            if into_home {
+                pruned.set(pruned.get() + 1);
+            }
+            !into_home
+        })
         .filter_map(Result::ok)
         .filter(|e| e.file_type().is_file())
         .map(|e| e.into_path())
-        .collect()
+        .collect();
+    (files, pruned.get())
 }
 
 fn to_portable(rel: &Path) -> String {
@@ -817,11 +843,66 @@ mod tests {
         symlink(home.join(".credentials.json"), root.join("commands").join("creds.md")).unwrap();
         symlink(home.join(".credentials.json"), root.join("CLAUDE.md")).unwrap();
 
-        let (files, _) = collect_files(&[(claude.clone(), root.clone())]);
+        let (files, skipped) = collect_files(&[(claude.clone(), root.clone())], std::slice::from_ref(&home));
         let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
         paths.sort();
         assert_eq!(paths, ["commands/review.md", "skills/pdf/SKILL.md"]);
-        assert!(files.iter().all(|f| bundle_target(&root, claude.as_ref(), f).is_some()), "import takes everything export writes");
+        assert_eq!(skipped, 4, "each left-out link is counted");
+        let elsewhere = t.path().join("elsewhere");
+        assert!(files.iter().all(|f| bundle_target(&elsewhere, claude.as_ref(), f).is_some()), "import takes everything export writes");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn export_follows_links_to_skills_kept_elsewhere() {
+        use std::os::unix::fs::symlink;
+        let claude = crate::providers::get(ProviderId::Claude);
+        let t = tempfile::tempdir().unwrap();
+        let (root, repo, profiles) = (t.path().join("shared"), t.path().join("repo"), t.path().join("profiles"));
+        for d in [root.join("skills").join("own"), repo.join("brainstorming"), repo.join("mixed"), profiles.join("work")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(root.join("skills").join("own").join("SKILL.md"), "own").unwrap();
+        std::fs::write(repo.join("brainstorming").join("SKILL.md"), "linked folder").unwrap();
+        std::fs::write(repo.join("mixed").join("SKILL.md"), "linked file").unwrap();
+        std::fs::write(profiles.join("work").join(".credentials.json"), "secret").unwrap();
+        // The layout skill repos give: one link per skill, to a folder or to a single file.
+        symlink(repo.join("brainstorming"), root.join("skills").join("brainstorming")).unwrap();
+        std::fs::create_dir_all(root.join("skills").join("mixed")).unwrap();
+        symlink(repo.join("mixed").join("SKILL.md"), root.join("skills").join("mixed").join("SKILL.md")).unwrap();
+        // A kind folder linked above other accounts' homes is left out.
+        symlink(&profiles, root.join("agents")).unwrap();
+
+        let (files, skipped) = collect_files(&[(claude.clone(), root.clone())], &[profiles.join("work")]);
+        let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, ["skills/brainstorming/SKILL.md", "skills/mixed/SKILL.md", "skills/own/SKILL.md"]);
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn export_reads_the_main_folder_when_there_is_no_shared_one() {
+        let claude = crate::providers::get(ProviderId::Claude);
+        let t = tempfile::tempdir().unwrap();
+        let home = t.path().join(".claude");
+        std::fs::create_dir_all(home.join("skills").join("pdf")).unwrap();
+        std::fs::write(home.join("skills").join("pdf").join("SKILL.md"), "skill").unwrap();
+        std::fs::write(home.join(".credentials.json"), "secret").unwrap();
+        let (files, _) = collect_files(&[(claude, home.clone())], &[home]);
+        assert_eq!(files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), ["skills/pdf/SKILL.md"]);
+    }
+
+    #[test]
+    fn export_keeps_skills_named_like_a_sign_in_file() {
+        let copilot = crate::providers::get(ProviderId::Copilot);
+        let t = tempfile::tempdir().unwrap();
+        let root = t.path().join("shared");
+        for skill in ["config", "pdf"] {
+            std::fs::create_dir_all(root.join("skills").join(skill)).unwrap();
+            std::fs::write(root.join("skills").join(skill).join("SKILL.md"), skill).unwrap();
+        }
+        let (files, _) = collect_files(&[(copilot, root)], &[]);
+        assert_eq!(files.len(), 2);
     }
 
     #[test]
