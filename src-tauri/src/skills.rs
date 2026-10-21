@@ -127,7 +127,7 @@ pub fn plan_files(files: &[TreeFile], folder: &str) -> anyhow::Result<Vec<TreeFi
             continue;
         }
         if !sharing::is_safe_rel(rel) || rel.contains('\\') {
-            bail!("The skill has a file Switchyard can't save safely: {rel}");
+            bail!("The skill has a file Agent Hub can't save safely: {rel}");
         }
         out.push(TreeFile { path: rel.to_string(), ..f.clone() });
     }
@@ -201,7 +201,7 @@ pub fn remove_skill(skills_dir: &Path, r: &SkillRef) -> anyhow::Result<()> {
     let target = skills_dir.join(&r.skill);
     let meta = fs::symlink_metadata(&target).map_err(|_| anyhow!("It isn't installed"))?;
     if !meta.is_dir() || sharing::is_link(&target) || installed_id(&target).as_deref() != Some(r.id().as_str()) {
-        bail!("Switchyard didn't install this copy, so it was left alone");
+        bail!("Agent Hub didn't install this copy, so it was left alone");
     }
     fs::remove_dir_all(&target).with_context(|| format!("deleting {}", target.display()))
 }

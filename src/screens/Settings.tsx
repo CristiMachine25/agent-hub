@@ -70,7 +70,7 @@ export function Settings() {
           </Row>
           {s.liveUsage && (
             <p className="flex items-start gap-2 text-xs text-muted">
-              <ShieldCheck size={14} className="mt-px shrink-0" /> No telemetry and no Switchyard server. Everything is stored in this computer's app data folder.
+              <ShieldCheck size={14} className="mt-px shrink-0" /> No telemetry and no Agent Hub server. Everything is stored in this computer's app data folder.
             </p>
           )}
         </Group>
@@ -150,10 +150,10 @@ export function Settings() {
               ]}
             />
           </Row>
-          <Row label="Keep running in the tray" help="Closing the window keeps Switchyard in the tray so it can warn you about limits.">
+          <Row label="Keep running in the tray" help="Closing the window keeps Agent Hub in the tray so it can warn you about limits.">
             <Switch checked={s.minimizeToTray} onChange={(v) => save({ minimizeToTray: v })} label="Keep running in the tray" />
           </Row>
-          <Row label="Start when you sign in to your computer" help="Switchyard starts hidden in the tray, ready to warn you about limits.">
+          <Row label="Start when you sign in to your computer" help="Agent Hub starts hidden in the tray, ready to warn you about limits.">
             <Switch checked={s.launchAtLogin} onChange={(v) => save({ launchAtLogin: v })} label="Start at login" />
           </Row>
           <Row label="Terminal font size" help="Text size in the terminal grid. Stored on this computer only.">
@@ -176,7 +176,7 @@ function Transfer() {
     <>
       <Row
         label="Export your setup"
-        help="Accounts, plans and colors, and optionally skills, preferences and encrypted sign-ins, in one file for Switchyard on Windows, macOS or Linux."
+        help="Accounts, plans and colors, and optionally skills, preferences and encrypted sign-ins, in one file for Agent Hub on Windows, macOS or Linux."
       >
         <button className="btn btn-sm" onClick={() => setDialog('export')}>
           <Upload size={14} /> Export…

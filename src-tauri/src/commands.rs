@@ -817,7 +817,7 @@ pub async fn knowledge_reseed(app: AppHandle, state: St<'_>, provider_id: Provid
 // ---------- skills directory ----------
 
 fn skill_ref(id: &str) -> Res<skills::SkillRef> {
-    skills::SkillRef::parse(id).ok_or_else(|| format!("{id} isn't a skill Switchyard can install"))
+    skills::SkillRef::parse(id).ok_or_else(|| format!("{id} isn't a skill Agent Hub can install"))
 }
 
 /// Search skills.sh. Shorter than two characters finds nothing, as the directory requires.
@@ -906,7 +906,7 @@ fn openable(url: &str) -> bool {
 pub async fn system_open_url(app: AppHandle, url: String) -> Res<()> {
     use tauri_plugin_opener::OpenerExt;
     if !openable(&url) {
-        return Err(format!("Switchyard only opens skills.sh and GitHub links, not {url}"));
+        return Err(format!("Agent Hub only opens skills.sh and GitHub links, not {url}"));
     }
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }

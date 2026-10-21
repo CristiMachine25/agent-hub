@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Switchyard",
+  "productName": "Agent Hub",
   "version": "0.2.0",
   "identifier": "dev.switchyard.app",
   "build": {
@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Switchyard", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }
+      { "label": "main", "title": "Agent Hub", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }
     ],
     "security": { "csp": null }
   },

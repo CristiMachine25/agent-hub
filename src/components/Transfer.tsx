@@ -90,7 +90,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       }
     >
       <p className="mb-3 text-muted">
-        Saves one file you can open in Switchyard on another computer (Windows, macOS or Linux). Importing it only adds what's missing there.
+        Saves one file you can open in Agent Hub on another computer (Windows, macOS or Linux). Importing it only adds what's missing there.
       </p>
       <fieldset className="mb-3">
         <legend className="mb-1 font-medium">Accounts</legend>

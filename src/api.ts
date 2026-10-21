@@ -68,11 +68,11 @@ function createTauriApi(): HopperApi {
       },
       async pickSavePath(defaultName) {
         const { save } = await import('@tauri-apps/plugin-dialog')
-        return (await save({ defaultPath: defaultName, filters: [{ name: 'Switchyard setup', extensions: ['switchyard'] }] })) ?? null
+        return (await save({ defaultPath: defaultName, filters: [{ name: 'Agent Hub setup', extensions: ['switchyard'] }] })) ?? null
       },
       async pickSetupFile() {
         const { open } = await import('@tauri-apps/plugin-dialog')
-        const picked = await open({ multiple: false, filters: [{ name: 'Switchyard setup', extensions: ['switchyard', 'json'] }] })
+        const picked = await open({ multiple: false, filters: [{ name: 'Agent Hub setup', extensions: ['switchyard', 'json'] }] })
         return typeof picked === 'string' ? picked : null
       }
     },

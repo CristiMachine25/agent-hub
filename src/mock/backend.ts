@@ -423,7 +423,7 @@ export function createMockApi(platform: Platform): HopperApi {
       async remove(id, providerId) {
         await wait(300)
         const folder = folderOf(id)
-        if (installedFrom.get(`${providerId}/${folder}`) !== id) throw new Error("Switchyard didn't install this copy, so it was left alone")
+        if (installedFrom.get(`${providerId}/${folder}`) !== id) throw new Error("Agent Hub didn't install this copy, so it was left alone")
         const k = knowledge[providerId]
         k.items = k.items.filter(([kind, name]) => !(kind === 'skills' && name === folder))
         installedFrom.delete(`${providerId}/${folder}`)
