@@ -897,9 +897,10 @@ fn openable_folder(path: &Path, data_dir: &Path, homes: &[String]) -> bool {
         return false;
     }
     let Ok(real) = path.canonicalize() else { return false };
-    let bundle = real.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-        ["app", "bundle", "framework", "kext", "mpkg", "pkg", "plugin", "prefpane", "workflow"].contains(&e.to_ascii_lowercase().as_str())
-    });
+    let bundle = real
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["app", "bundle", "framework", "kext", "mpkg", "pkg", "plugin", "prefpane", "workflow"].contains(&e.to_ascii_lowercase().as_str()));
     let key = util::path_key(path);
     let ours = key.starts_with(&format!("{}/", util::path_key(data_dir)));
     real.is_dir() && !bundle && (ours || homes.iter().any(|h| util::path_key(Path::new(h)) == key))
