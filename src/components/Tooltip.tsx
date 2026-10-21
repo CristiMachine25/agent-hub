@@ -3,6 +3,8 @@ import { placeTip } from '@/lib/tip'
 
 type Shown = { el: HTMLElement; text: string }
 
+const TIP_ID = 'app-tooltip'
+
 /**
  * The app's one tooltip. Any element with `data-tip="…"` gets it at once on hover and on keyboard focus, in the app's
  * colors, instead of the OS's delayed native title. `data-tip-side="right"` puts it beside the element instead of below.
@@ -58,6 +60,19 @@ export function Tooltip() {
     return () => watch.disconnect()
   }, [el])
 
+  // While it shows, the tip describes its element, so screen readers hear it too (unless it only repeats the name).
+  useEffect(() => {
+    if (!shown) return
+    const { el, text } = shown
+    if (el.getAttribute('aria-label') === text || el.textContent?.trim() === text) return
+    const ids = el.getAttribute('aria-describedby')
+    el.setAttribute('aria-describedby', ids ? `${ids} ${TIP_ID}` : TIP_ID)
+    return () => {
+      if (ids) el.setAttribute('aria-describedby', ids)
+      else el.removeAttribute('aria-describedby')
+    }
+  }, [shown])
+
   useLayoutEffect(() => {
     const tip = box.current
     if (!shown || !tip) return
@@ -75,6 +90,7 @@ export function Tooltip() {
   return (
     <div
       ref={box}
+      id={TIP_ID}
       role="tooltip"
       hidden={!shown}
       className="tip-in pointer-events-none fixed left-0 top-0 z-[60] max-w-[min(320px,calc(100vw-16px))] whitespace-pre-line break-words rounded border border-rivet bg-raised px-2 py-1 text-xs text-ink shadow-lg shadow-black/25"

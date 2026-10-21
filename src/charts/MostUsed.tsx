@@ -29,7 +29,10 @@ export function MostUsed({ accounts, activity, metric }: { accounts: Account[]; 
           <span className="block h-3 rounded-r-[3px] bg-[rgb(var(--cell-off))]">
             <span className="block h-full rounded-r-[3px]" style={{ width: `${Math.max(2, (v / max) * 100)}%`, background: a.color }} />
           </span>
-          <span className="text-right tabular-nums">{metric === 'tokens' ? formatTokens(v) : v.toLocaleString()}</span>
+          <span className="text-right tabular-nums">
+            {metric === 'tokens' ? formatTokens(v) : v.toLocaleString()}
+            <span className="sr-only">, {Math.round((v / total) * 100)}% of all {metric}</span>
+          </span>
         </li>
       ))}
     </ol>
