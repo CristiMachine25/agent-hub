@@ -136,7 +136,7 @@ function AccountDetail({ account: a }: { account: Account }) {
   const topModel = [...models.entries()].sort((x, y) => y[1] - x[1])[0]?.[0]
 
   const setSharing = (key: keyof SharingOptions, v: boolean) =>
-    updateAccount(a.id, { sharing: { ...a.sharing, [key]: v } }, { applySharing: true, quiet: true }).then((ok) => {
+    updateAccount(a.id, { sharing: { ...a.sharing, [key]: v } }, { quiet: true }).then((ok) => {
       if (ok) useStore.getState().toast({ kind: 'success', title: `${SHARING_ITEMS.find((s) => s.key === key)!.label} ${v ? 'now shared' : 'now private'} for ${a.label}` })
     })
 

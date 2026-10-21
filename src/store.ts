@@ -51,7 +51,7 @@ interface State {
   loadRecs(): Promise<void>
   refresh(accountId?: string): Promise<void>
   launch(accountId: string, target?: LaunchTarget, opts?: { resume?: boolean; cwd?: string }): Promise<void>
-  updateAccount(id: string, patch: AccountPatch, opts?: { applySharing?: boolean; quiet?: boolean }): Promise<boolean>
+  updateAccount(id: string, patch: AccountPatch, opts?: { quiet?: boolean }): Promise<boolean>
   removeAccount(id: string, deleteHome: boolean): Promise<boolean>
   markRead(id: string | 'all'): Promise<void>
   saveSettings(patch: Partial<AppSettings>): Promise<void>
@@ -191,11 +191,8 @@ export const useStore = create<State>((set, get) => ({
   async updateAccount(id, patch, opts = {}) {
     try {
       const updated = await api.accounts.update(id, patch)
+      // accounts_update re-applies sharing itself when the sharing options changed.
       set((s) => ({ accounts: s.accounts.map((a) => (a.id === id ? updated : a)) }))
-      if (opts.applySharing) {
-        const applied = await api.accounts.applySharing(id)
-        set((s) => ({ accounts: s.accounts.map((a) => (a.id === id ? applied : a)) }))
-      }
       if (!opts.quiet) get().toast({ kind: 'success', title: 'Saved' })
       return true
     } catch (e) {
