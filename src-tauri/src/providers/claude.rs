@@ -517,10 +517,6 @@ fn find_desktop() -> Option<PathBuf> {
     candidates.into_iter().find(|p| std::fs::symlink_metadata(p).is_ok())
 }
 
-fn parse_version(out: &str) -> Option<String> {
-    out.split_whitespace().next().map(str::to_string)
-}
-
 /// Microsoft Store builds run from `WindowsApps`. Windows redirects their writes under AppData into
 /// the package, so a data folder there doesn't keep the sign-in.
 fn is_store_build(app: &Path) -> bool {
@@ -608,7 +604,7 @@ impl ClaudeAdapter {
     }
 
     async fn user_agent(&self) -> String {
-        let (_, version) = self.version.get("claude", parse_version).await;
+        let (_, version) = self.version.get("claude").await;
         format!("claude-cli/{} (external, cli)", version.unwrap_or_else(|| "2.1.0".into()))
     }
 }
@@ -620,7 +616,7 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     async fn info(&self) -> ProviderInfo {
-        let (cli_path, cli_version) = self.version.get("claude", parse_version).await;
+        let (cli_path, cli_version) = self.version.get("claude").await;
         let desktop = find_desktop();
         let install_hint = if cfg!(windows) {
             "irm https://claude.ai/install.ps1 | iex   (PowerShell)  or  npm i -g @anthropic-ai/claude-code"

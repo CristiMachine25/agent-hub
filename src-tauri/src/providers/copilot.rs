@@ -17,9 +17,7 @@
 //! Usage: `GET https://api.github.com/copilot_internal/user` (headers as in steipete/CodexBar
 //! docs/copilot.md). We never read the keychain (that could pop OS prompts during background polls);
 //! the token comes from the plaintext store if present, else from GitHub CLI: `gh auth token --user <login>`.
-use super::gemini::{
-    cutoff_date, finish_days, launcher_env_refs, local_date, parse_jsonc, CliProbe, DayMap,
-};
+use super::common::{finish_days, first_local_date, local_date, num, parse_jsonc, scan_launcher_scripts, DayMap, VersionCache};
 use super::{CommandSpec, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;
@@ -34,12 +32,12 @@ const DEFAULT_HOST: &str = "https://github.com";
 const NEED_GH: &str = "Connect GitHub CLI (gh auth login) to read Copilot usage";
 
 pub struct CopilotAdapter {
-    probe: CliProbe,
+    version: VersionCache,
 }
 
 impl CopilotAdapter {
     pub fn new() -> Self {
-        Self { probe: CliProbe::new("copilot") }
+        Self { version: VersionCache::default() }
     }
 }
 
@@ -52,10 +50,6 @@ impl Default for CopilotAdapter {
 /// Read `key` in camelCase or snake_case.
 fn field<'a>(v: &'a Value, camel: &str, snake: &str) -> Option<&'a Value> {
     v.get(camel).or_else(|| v.get(snake)).filter(|v| !v.is_null())
-}
-
-fn num(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,9 +148,9 @@ struct Quota {
 impl Quota {
     fn parse(v: &Value) -> Option<Self> {
         v.is_object().then(|| Self {
-            entitlement: field(v, "entitlement", "entitlement").and_then(num),
-            remaining: field(v, "remaining", "remaining").and_then(num),
-            percent_remaining: field(v, "percentRemaining", "percent_remaining").and_then(num),
+            entitlement: num(field(v, "entitlement", "entitlement")),
+            remaining: num(field(v, "remaining", "remaining")),
+            percent_remaining: num(field(v, "percentRemaining", "percent_remaining")),
             unlimited: field(v, "unlimited", "unlimited").and_then(Value::as_bool).unwrap_or(false),
         })
     }
@@ -224,8 +218,8 @@ fn parse_usage(v: &Value) -> CopilotUsage {
 
 /// Free plan shape: `monthly_quotas` (limits) + `limited_user_quotas` (remaining).
 fn free_quota(v: &Value, key: &str) -> Option<Quota> {
-    let total = field(v, "monthlyQuotas", "monthly_quotas").and_then(|m| m.get(key)).and_then(num)?;
-    let left = field(v, "limitedUserQuotas", "limited_user_quotas").and_then(|m| m.get(key)).and_then(num)?;
+    let total = num(field(v, "monthlyQuotas", "monthly_quotas").and_then(|m| m.get(key)))?;
+    let left = num(field(v, "limitedUserQuotas", "limited_user_quotas").and_then(|m| m.get(key)))?;
     (total > 0.0).then_some(Quota { entitlement: Some(total), remaining: Some(left.max(0.0)), percent_remaining: None, unlimited: false })
 }
 
@@ -331,8 +325,8 @@ fn shutdown_totals(data: &Value) -> ModelTotals {
     let mut out = ModelTotals::new();
     for (model, m) in data.get("modelMetrics").and_then(Value::as_object).into_iter().flatten() {
         let u = m.get("usage").cloned().unwrap_or(Value::Null);
-        let g = |k: &str| u.get(k).and_then(num).unwrap_or(0.0).max(0.0) as u64;
-        let req = m.pointer("/requests/count").and_then(num).unwrap_or(0.0).max(0.0) as u64;
+        let g = |k: &str| num(u.get(k)).unwrap_or(0.0).max(0.0) as u64;
+        let req = num(m.pointer("/requests/count")).unwrap_or(0.0).max(0.0) as u64;
         out.insert(model.clone(), [g("inputTokens"), g("outputTokens") + g("reasoningTokens"), g("cacheReadTokens"), g("cacheWriteTokens"), req]);
     }
     out
@@ -375,7 +369,7 @@ fn fold_copilot_events(content: &str, days: &mut DayMap) {
 }
 
 fn scan_copilot_activity(home: &Path, account_id: &str, since_days: u32) -> Vec<DailyActivity> {
-    let cutoff = cutoff_date(since_days);
+    let cutoff = first_local_date(since_days);
     let cutoff_time = std::time::SystemTime::now()
         .checked_sub(Duration::from_secs(u64::from(since_days.max(1)) * 86_400 + 86_400))
         .unwrap_or(std::time::UNIX_EPOCH);
@@ -412,14 +406,14 @@ impl ProviderAdapter for CopilotAdapter {
     }
 
     async fn info(&self) -> ProviderInfo {
-        let (path, version) = self.probe.get().await;
+        let (path, version) = self.version.get("copilot").await;
         ProviderInfo {
             id: ProviderId::Copilot,
             name: "GitHub Copilot CLI".into(),
             vendor: "GitHub".into(),
             cli_command: "copilot".into(),
             cli_installed: path.is_some(),
-            cli_path: path.map(|p| p.to_string_lossy().into_owned()),
+            cli_path: path,
             cli_version: version,
             desktop_name: None,
             desktop_installed: false,
@@ -448,7 +442,7 @@ impl ProviderAdapter for CopilotAdapter {
                 }
             }
         }
-        for p in launcher_env_refs(HOME_ENV) {
+        for (p, _) in scan_launcher_scripts(HOME_ENV) {
             candidates.push((p, Some(format!("Referenced by a launcher script ({HOME_ENV})"))));
         }
         let mut out: Vec<DetectedAccount> = vec![];

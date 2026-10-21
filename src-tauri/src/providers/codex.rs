@@ -487,10 +487,6 @@ fn find_desktop() -> Option<(String, Vec<String>, String)> {
     None
 }
 
-fn parse_version(out: &str) -> Option<String> {
-    out.split_whitespace().last().map(str::to_string)
-}
-
 // ---------------------------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------------------------
@@ -553,7 +549,7 @@ impl ProviderAdapter for CodexAdapter {
     }
 
     async fn info(&self) -> ProviderInfo {
-        let (cli_path, cli_version) = self.version.get("codex", parse_version).await;
+        let (cli_path, cli_version) = self.version.get("codex").await;
         let desktop = find_desktop();
         ProviderInfo {
             id: ProviderId::Codex,
