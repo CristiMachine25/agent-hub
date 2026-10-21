@@ -280,8 +280,8 @@ pub async fn activity(state: &AppState, account_id: Option<&str>, days: u32) -> 
             log::warn!("saving activity cache failed: {e:#}");
         }
     }
-    let since = (chrono::Local::now() - chrono::Duration::days(i64::from(days))).format("%Y-%m-%d").to_string();
-    result.retain(|d| d.date > since);
+    let first = crate::providers::common::first_local_date(days);
+    result.retain(|d| d.date >= first);
     result.sort_by(|a, b| a.date.cmp(&b.date).then_with(|| a.account_id.cmp(&b.account_id)));
     result
 }

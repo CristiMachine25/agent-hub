@@ -19,9 +19,8 @@ fn err(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
-const PALETTE: [&str; 10] = [
-    "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#14b8a6",
-];
+/// Account identity colors: the same validated set as `ACCOUNT_COLORS` in src/lib/providers.ts (see docs/DESIGN.md).
+const PALETTE: [&str; 8] = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#9085E9", "#E66767", "#008300"];
 
 /// First palette color no account uses yet, else rotate by count.
 fn next_color(accounts: &[Account]) -> String {
@@ -129,12 +128,7 @@ pub async fn accounts_detect(state: St<'_>) -> Res<Vec<DetectedAccount>> {
 /// Short, readable name for an imported home: "Claude main" for the stock home,
 /// "Claude H2" for ~/.claude-h2. The email stays visible next to it in the UI.
 fn import_label(d: &DetectedAccount) -> String {
-    let short = match d.provider_id {
-        ProviderId::Claude => "Claude",
-        ProviderId::Codex => "Codex",
-        ProviderId::Gemini => "Gemini",
-        ProviderId::Copilot => "Copilot",
-    };
+    let short = notify::provider_name(d.provider_id);
     if d.is_default_home {
         return format!("{short} main");
     }
@@ -213,7 +207,7 @@ pub async fn accounts_import(app: AppHandle, state: St<'_>, found: Vec<DetectedA
             home_dir: d.home_dir.clone(),
             is_default_home: is_default,
             shared_from: (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()),
-            sharing: SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false },
+            sharing: SharingOptions::NONE,
             color: next_color(&accounts),
             tags: vec![],
             notes: d.hint.clone(),
@@ -395,7 +389,7 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
         if inside_profiles && !is_default && home.is_dir() {
             // Remove our links first so deleting the folder can never reach shared data.
             let mut unshared = account.clone();
-            unshared.sharing = SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false };
+            unshared.sharing = SharingOptions::NONE;
             let a2 = adapter.clone();
             let h2 = home.clone();
             let shared = state.shared_dir(account.provider_id);
@@ -941,6 +935,14 @@ mod tests {
         assert_eq!(next_color(&[]), PALETTE[0]);
         let cwd = pick_cwd(Some("/definitely/not/here".into()), None);
         assert_eq!(cwd, util::home().to_string_lossy());
+    }
+
+    #[test]
+    fn palette_matches_the_ui() {
+        let ts = include_str!("../../src/lib/providers.ts");
+        let list = ts.split("ACCOUNT_COLORS = [").nth(1).and_then(|r| r.split(']').next()).expect("ACCOUNT_COLORS in providers.ts");
+        let ui: Vec<&str> = list.split(',').map(|c| c.trim().trim_matches('\'')).filter(|c| !c.is_empty()).collect();
+        assert_eq!(ui, PALETTE);
     }
 
     #[test]

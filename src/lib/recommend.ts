@@ -1,84 +1,138 @@
-import type { Account, ProviderId, Recommendation, TaskType, UsageSnapshot } from '@shared/types'
-import { bindingWindow, leftOf, longWindow } from './quota'
-import { formatCountdown, windowName } from './format'
-import { PROVIDER_META } from './providers'
+import type { Account, ProviderId, Recommendation, TaskType, UsageSnapshot, UsageWindow } from '@shared/types'
+import { isModelWindow } from './quota'
 
-/** How well each provider suits a kind of task (0..1). Used only to break ties between similar quotas. */
-const FIT: Record<TaskType, Record<ProviderId, number>> = {
-  coding: { claude: 1, codex: 0.95, gemini: 0.7, copilot: 0.75 },
-  'long-refactor': { claude: 1, codex: 0.9, gemini: 0.6, copilot: 0.5 },
-  'quick-question': { claude: 0.8, codex: 0.8, gemini: 0.9, copilot: 0.9 },
-  research: { claude: 0.85, codex: 0.75, gemini: 1, copilot: 0.5 },
-  review: { claude: 0.9, codex: 1, gemini: 0.7, copilot: 0.85 },
-  any: { claude: 1, codex: 1, gemini: 1, copilot: 1 }
+// A line-for-line port of src-tauri/src/recommend.rs, which is what the app ships. Only the browser
+// preview (src/mock/backend.ts) runs this copy; the tests in quota.test.ts use the Rust tests' vectors.
+// Change both together.
+
+/** A window that resets within this many hours with plenty left earns a "use it or lose it" bonus. */
+const RESET_SOON_HOURS = 24
+
+const clamp = (n: number) => Math.min(100, Math.max(0, n))
+const leftOf = (w: UsageWindow) => clamp(100 - w.usedPercent)
+
+/** recommend::tightest: the most-used window, ignoring model-only windows when a general one exists. */
+function tightest(snap: UsageSnapshot): UsageWindow | undefined {
+  const onlyModel = snap.windows.every(isModelWindow)
+  return snap.windows
+    .filter((w) => onlyModel || !isModelWindow(w))
+    .reduce<UsageWindow | undefined>((a, b) => (!a || b.usedPercent >= a.usedPercent ? b : a), undefined)
 }
 
-/**
- * Score every account for a task. Pure, so the mock backend and tests share it; the Rust side has its own.
- * Unusable accounts (signed out, at a limit) score 0 and explain why.
- */
-export function scoreAccounts(
+/** recommend::is_short_window: 5-hour sessions reset constantly, so they never count as "about to be lost". */
+function isShortWindow(w: UsageWindow): boolean {
+  if (w.windowMinutes != null) return w.windowMinutes < 24 * 60
+  const id = w.id.toLowerCase()
+  const label = w.label.toLowerCase()
+  return id.includes('five_hour') || id.includes('5h') || label.includes('5-hour') || label.includes('hour')
+}
+
+/** util::human_until */
+function humanUntil(t: number, now: number): string {
+  const m = Math.trunc((t - now) / 60_000)
+  if (m <= 0) return 'now'
+  if (m < 60) return `in ${m} min`
+  if (m < 48 * 60) {
+    const h = Math.floor(m / 60)
+    const rem = m % 60
+    return h < 6 && rem >= 5 ? `in ${h} h ${rem} min` : `in ${Math.floor((m + 30) / 60)} h`
+  }
+  return `in ${Math.floor((m + 720) / 1440)} days`
+}
+
+function parseIso(s: string | undefined): number | null {
+  const t = s ? Date.parse(s) : NaN
+  return Number.isFinite(t) ? t : null
+}
+
+/** 0 = unknown/free, 1 = Plus, 2 = Pro/Team/Business, 3 = Max/Pro+/Ultra/Enterprise and ChatGPT Pro 100/200/500. */
+export function tier(account: Pick<Account, 'plan' | 'tags'>): number {
+  const text = [account.plan ?? '', ...account.tags].join(' ').toLowerCase()
+  if (['max', 'pro+', 'pro plus', 'ultra', 'enterprise', 'pro 100', 'pro 200', 'pro 500', 'premium'].some((k) => text.includes(k))) return 3
+  if (['pro', 'team', 'business'].some((k) => text.includes(k))) return 2
+  if (text.includes('plus')) return 1
+  return 0
+}
+
+const TASK_KEYWORDS: Record<TaskType, string[]> = {
+  coding: ['coding', 'code', 'dev', 'development'],
+  'long-refactor': ['long-refactor', 'refactor', 'long', 'heavy'],
+  'quick-question': ['quick-question', 'quick', 'chat', 'questions'],
+  research: ['research'],
+  review: ['review', 'reviews'],
+  any: []
+}
+
+const rec = (account: Account, score: number, reason: string): Recommendation => ({
+  accountId: account.id,
+  score: Math.round(clamp(score) * 10) / 10,
+  reason
+})
+
+/** A long window (weekly, monthly) resetting within RESET_SOON_HOURS with at least 30% left. */
+function useItOrLoseIt(snap: UsageSnapshot, now: number): [UsageWindow, number] | undefined {
+  let best: [UsageWindow, number] | undefined
+  for (const w of snap.windows) {
+    if (isShortWindow(w)) continue
+    const t = parseIso(w.resetsAt)
+    if (t === null) continue
+    const left = leftOf(w)
+    if (t > now && Math.trunc((t - now) / 3_600_000) < RESET_SOON_HOURS && left >= 30 && (!best || left >= best[1])) best = [w, left]
+  }
+  return best
+}
+
+export function scoreAccount(account: Account, task: TaskType, snap: UsageSnapshot | undefined, now: number): Recommendation {
+  if (account.status === 'needs-login' || account.status === 'expired') return rec(account, 0, 'Needs login before it can be used.')
+  const t = tier(account)
+  const fit =
+    task === 'long-refactor' ? t * 8 : task === 'coding' ? t * 5 : task === 'research' || task === 'review' ? t * 2 : task === 'quick-question' ? -t * 4 : 0
+  const kws = TASK_KEYWORDS[task]
+  const tagBonus = account.tags.some((tag) => kws.includes(tag.trim().toLowerCase())) ? 10 : 0
+  const pinBonus = account.pinned === true ? 2 : 0
+
+  const tight = snap && tightest(snap)
+  if (!snap || !tight) return rec(account, 40 + fit + tagBonus + pinBonus, 'No usage data yet.')
+  const left = leftOf(tight)
+  const r = parseIso(tight.resetsAt)
+  const resets = r !== null && r > now ? r : null
+
+  if (left < 1) {
+    const when = resets !== null ? `, resets ${humanUntil(resets, now)}` : ''
+    return rec(account, 0, `${tight.label} limit reached${when}.`)
+  }
+
+  // Save big accounts: prefer ones with little headroom left, as long as there is enough.
+  const base = task === 'quick-question' ? (left >= 10 ? 50 + (100 - left) * 0.25 : left * 4) : left * 0.65
+  const lose = useItOrLoseIt(snap, now)
+  const resetBonus = lose ? (12 * lose[1]) / 100 : 0
+  const stalePenalty = snap.stale === true ? 5 : 0
+  const score = base + fit + tagBonus + pinBonus + resetBonus - stalePenalty
+
+  let reason = `${left.toFixed(0)}% of ${tight.label} left`
+  if (resets !== null) reason += `, resets ${humanUntil(resets, now)}`
+  reason += '.'
+  if (lose) {
+    reason += lose[0].id === tight.id ? ' Use it before it resets.' : ` ${lose[1].toFixed(0)}% of ${lose[0].label} resets soon, use it before then.`
+  }
+  if ((task === 'long-refactor' || task === 'coding') && t >= 3) reason += ' Top-tier plan suits long sessions.'
+  else if (task === 'quick-question' && left < 50) reason += ' Good for a quick task, saves your bigger accounts.'
+  if (tagBonus > 0) reason += ' Tagged for this kind of task.'
+  if (stalePenalty > 0) reason += ' (Last known values.)'
+  return rec(account, score, reason)
+}
+
+/** recommend::recommend: best first, ties by label. 0 = can't be used now (signed out or at a limit). */
+export function recommend(
+  task: TaskType,
+  providerId: ProviderId | undefined,
   accounts: Account[],
   usage: Record<string, UsageSnapshot>,
-  task: TaskType,
-  now: number = Date.now(),
-  providerId?: ProviderId,
-  /** CLIs known to be missing are pushed to the bottom: launching them would fail. */
-  installed?: Partial<Record<ProviderId, boolean>>
+  now: number = Date.now()
 ): Recommendation[] {
-  const recs: Recommendation[] = []
-  for (const a of accounts) {
-    if (providerId && a.providerId !== providerId) continue
-    if (a.status === 'needs-login' || a.status === 'expired') {
-      recs.push({ accountId: a.id, score: 0, reason: 'Signed out. Sign in to use this account.' })
-      continue
-    }
-    const snap = usage[a.id]
-    const bind = bindingWindow(snap)
-    const long = longWindow(snap)
-    if (!snap || !bind || !long) {
-      recs.push({ accountId: a.id, score: 20, reason: 'No usage data yet, so limits are unknown.' })
-      continue
-    }
-    const bindLeft = leftOf(bind)
-    const longLeft = leftOf(long)
-    if (bindLeft <= 0.5) {
-      const c = formatCountdown(bind.resetsAt, now)
-      recs.push({
-        accountId: a.id,
-        score: 0,
-        reason: `${bind.label} limit reached${c && c !== 'now' ? `, back in ${c}` : ''}.`
-      })
-      continue
-    }
-
-    // Long tasks need the long window; short tasks only need the session window to have room.
-    const needLong = task === 'long-refactor' ? 0.75 : task === 'quick-question' ? 0.2 : 0.5
-    let score = bindLeft * (1 - needLong) + longLeft * needLong
-    if (task === 'quick-question' && bindLeft >= 10) score = Math.max(score, 55)
-    score *= 0.75 + 0.25 * FIT[task][a.providerId]
-
-    let reason = `${Math.round(longLeft)}% of ${windowName(long.label)} left`
-    if (bind.id !== long.id) reason += `, ${Math.round(bindLeft)}% of ${windowName(bind.label)}`
-
-    // Quota that is about to reset unused is free value: push it up.
-    const hoursToReset = long.resetsAt ? (Date.parse(long.resetsAt) - now) / 3_600_000 : Infinity
-    if (hoursToReset < 48 && longLeft >= 40 && (long.windowMinutes ?? 0) >= 3 * 24 * 60) {
-      score += 18
-      reason += `. Resets in ${formatCountdown(long.resetsAt, now)}, so use it before it's gone`
-    } else if (bindLeft < 20) {
-      reason += '. Close to the session limit'
-    }
-    if (a.tags.includes(task)) score += 6
-    if (installed && installed[a.providerId] === false) {
-      score = Math.min(score, 5)
-      reason = `${PROVIDER_META[a.providerId].product} isn't installed on this computer. ` + reason
-    }
-    if (snap.stale) {
-      score -= 8
-      reason += '. Numbers may be out of date'
-    }
-    recs.push({ accountId: a.id, score: Math.max(1, Math.min(100, Math.round(score))), reason: reason + '.' })
-  }
-  return recs.sort((x, y) => y.score - x.score)
+  return accounts
+    .filter((a) => !providerId || a.providerId === providerId)
+    .map((a) => ({ r: scoreAccount(a, task, usage[a.id], now), label: a.label }))
+    .sort((x, y) => y.r.score - x.r.score || (x.label < y.label ? -1 : x.label > y.label ? 1 : 0))
+    .map((x) => x.r)
 }

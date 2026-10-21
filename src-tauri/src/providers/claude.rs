@@ -18,9 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[path = "claude_codex_common.rs"]
-pub(crate) mod common;
-use common::*;
+use super::common::*;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// From Claude Code's bundled OAuth config (`TOKEN_URL`, `CLIENT_ID`).
@@ -343,6 +341,15 @@ fn parse_usage(v: &Value) -> (Vec<UsageWindow>, Option<Credits>) {
 // Token refresh (Windows/Linux file credentials only)
 // ---------------------------------------------------------------------------------------------
 
+// Transient refresh failures are worded without "login"/"token"/"auth", so usage::looks_like_auth_error
+// doesn't read them as signed out (and fire a "needs you to log in" alert) while offline.
+const REFRESH_OFFLINE: &str = "could not reach Anthropic (network error)";
+const REFRESH_BAD_RESPONSE: &str = "Anthropic sent an unexpected response";
+
+fn refresh_failed(e: &str) -> String {
+    format!("Could not renew the Claude session: {e}.")
+}
+
 #[derive(Debug)]
 enum RefreshError {
     /// Refresh token rejected: the user has to sign in again.
@@ -394,7 +401,7 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
         .json(&body)
         .send()
         .await
-        .map_err(|_| RefreshError::Other("network error while refreshing the login".into()))?;
+        .map_err(|_| RefreshError::Other(REFRESH_OFFLINE.into()))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
@@ -407,18 +414,18 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
             }
             return Err(RefreshError::InvalidGrant);
         }
-        return Err(RefreshError::Other(format!("token refresh failed (HTTP {status})")));
+        return Err(RefreshError::Other(format!("Anthropic answered HTTP {status}")));
     }
-    let token: Value = serde_json::from_str(&text).map_err(|_| RefreshError::Other("unexpected token response".into()))?;
+    let token: Value = serde_json::from_str(&text).map_err(|_| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))?;
 
     let path = home.join(CREDENTIALS_FILE);
     let mut file = util::read_json(&path).ok_or_else(|| RefreshError::Other("credentials file disappeared".into()))?;
-    apply_refresh(&mut file, &token, now_ms()).ok_or_else(|| RefreshError::Other("unexpected token response".into()))?;
+    apply_refresh(&mut file, &token, now_ms()).ok_or_else(|| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))?;
     let bytes = serde_json::to_vec(&file).map_err(|e| RefreshError::Other(e.to_string()))?;
     if let Err(e) = write_credentials_atomic(&path, &bytes) {
         log::warn!("claude: could not write refreshed credentials for {}: {e}", home.display());
     }
-    parse_creds(&file, CredSource::File).ok_or_else(|| RefreshError::Other("unexpected token response".into()))
+    parse_creds(&file, CredSource::File).ok_or_else(|| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -519,10 +526,6 @@ fn find_desktop() -> Option<PathBuf> {
     candidates.into_iter().find(|p| std::fs::symlink_metadata(p).is_ok())
 }
 
-fn parse_version(out: &str) -> Option<String> {
-    out.split_whitespace().next().map(str::to_string)
-}
-
 /// Microsoft Store builds run from `WindowsApps`. Windows redirects their writes under AppData into
 /// the package, so a data folder there doesn't keep the sign-in.
 fn is_store_build(app: &Path) -> bool {
@@ -610,7 +613,7 @@ impl ClaudeAdapter {
     }
 
     async fn user_agent(&self) -> String {
-        let (_, version) = self.version.get("claude", parse_version).await;
+        let (_, version) = self.version.get("claude").await;
         format!("claude-cli/{} (external, cli)", version.unwrap_or_else(|| "2.1.0".into()))
     }
 }
@@ -622,7 +625,7 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     async fn info(&self) -> ProviderInfo {
-        let (cli_path, cli_version) = self.version.get("claude", parse_version).await;
+        let (cli_path, cli_version) = self.version.get("claude").await;
         let desktop = find_desktop();
         let install_hint = if cfg!(windows) {
             "irm https://claude.ai/install.ps1 | iex   (PowerShell)  or  npm i -g @anthropic-ai/claude-code"
@@ -875,7 +878,7 @@ impl ProviderAdapter for ClaudeAdapter {
                     refreshed = true;
                 }
                 Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, "Sign in again: the saved Claude login is no longer valid."),
-                Err(RefreshError::Other(e)) => return self.no_data(account, &ident, format!("Could not refresh the Claude login: {e}.")),
+                Err(RefreshError::Other(e)) => return self.no_data(account, &ident, refresh_failed(&e)),
             }
         }
 
@@ -926,6 +929,15 @@ impl ProviderAdapter for ClaudeAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_refresh_failures_do_not_read_as_signed_out() {
+        for e in [REFRESH_OFFLINE, REFRESH_BAD_RESPONSE, "Anthropic answered HTTP 503"] {
+            let msg = refresh_failed(e);
+            assert!(!crate::usage::looks_like_auth_error(&msg), "{msg}");
+        }
+        assert!(crate::usage::looks_like_auth_error(&refresh_failed("Anthropic answered HTTP 401")));
+    }
 
     const CREDS: &str = r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-AAA","refreshToken":"sk-ant-ort01-BBB",
         "expiresAt":1792520000000,"refreshTokenExpiresAt":1800000000000,

@@ -9,6 +9,9 @@
 //! the rest of the user's environment keep working inside Gemini sessions.
 //!
 //! Verified against @google/gemini-cli 0.64.0 (npm bundle) and steipete/CodexBar docs/gemini.md.
+use super::common::{
+    finish_days, first_local_date, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, DayMap, VersionCache,
+};
 use super::{CommandSpec, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;
@@ -17,8 +20,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const HOME_ENV: &str = "GEMINI_CLI_HOME";
 const GEMINI_DIR: &str = ".gemini";
@@ -31,12 +33,12 @@ const NEED_CLI: &str = "Install Gemini CLI or launch it once to refresh the logi
 const MAX_WINDOWS: usize = 4;
 
 pub struct GeminiAdapter {
-    probe: CliProbe,
+    version: VersionCache,
 }
 
 impl GeminiAdapter {
     pub fn new() -> Self {
-        Self { probe: CliProbe::new("gemini") }
+        Self { version: VersionCache::default() }
     }
 }
 
@@ -189,7 +191,7 @@ fn parse_quota(v: &Value) -> Vec<UsageWindow> {
         let Some(model) = b.get("modelId").and_then(Value::as_str).filter(|m| !m.is_empty()) else {
             continue;
         };
-        let Some(rem) = b.get("remainingFraction").and_then(num) else {
+        let Some(rem) = num(b.get("remainingFraction")) else {
             continue;
         };
         let reset = b.get("resetTime").and_then(Value::as_str).map(normalize_iso);
@@ -259,14 +261,6 @@ fn model_label(id: &str) -> String {
         .join(" ")
 }
 
-fn num(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
-}
-
-fn normalize_iso(s: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(s).map(|d| d.with_timezone(&chrono::Utc).to_rfc3339()).unwrap_or_else(|_| s.to_string())
-}
-
 enum CallError {
     Unauthorized,
     Http(u16, String),
@@ -290,6 +284,12 @@ async fn post_code_assist(method: &str, token: &str, body: &Value) -> Result<Val
     }
 }
 
+/// A refresh that never reached Google. Worded without "login"/"token"/"auth" (and without the token URL)
+/// so usage::looks_like_auth_error doesn't read being offline as signed out.
+fn offline_refresh(e: impl std::fmt::Display) -> String {
+    format!("Could not reach Google to renew the Gemini session ({e})")
+}
+
 /// OAuth credentials file with an in-place refresh that keeps the CLI's file valid.
 struct Creds {
     path: PathBuf,
@@ -308,7 +308,7 @@ impl Creds {
     }
 
     fn expired(&self) -> bool {
-        let Some(exp) = self.raw.get("expiry_date").and_then(num) else {
+        let Some(exp) = num(self.raw.get("expiry_date")) else {
             return self.access_token().is_none();
         };
         exp as i64 <= chrono::Utc::now().timestamp_millis() + 60_000
@@ -330,14 +330,14 @@ impl Creds {
             .body(body)
             .send()
             .await
-            .map_err(|e| format!("Could not reach Google to refresh the Gemini login: {e}"))?;
+            .map_err(|e| offline_refresh(e.without_url()))?;
         if !resp.status().is_success() {
             return Err(AGAIN.into());
         }
         let v: Value = resp.json().await.map_err(|_| AGAIN.to_string())?;
         apply_refresh(&mut self.raw, &v, chrono::Utc::now().timestamp_millis()).ok_or(AGAIN)?;
         let bytes = serde_json::to_vec_pretty(&self.raw).map_err(|e| e.to_string())?;
-        util::write_atomic(&self.path, &bytes).map_err(|e| format!("Could not save the refreshed Gemini token: {e}"))?;
+        util::write_atomic(&self.path, &bytes).map_err(|e| format!("Could not save the renewed Gemini session: {e}"))?;
         restrict_permissions(&self.path);
         Ok(())
     }
@@ -348,7 +348,7 @@ fn apply_refresh(raw: &mut Value, resp: &Value, now_ms: i64) -> Option<()> {
     let token = resp.get("access_token")?.as_str()?.to_string();
     let obj = raw.as_object_mut()?;
     obj.insert("access_token".into(), json!(token));
-    if let Some(secs) = resp.get("expires_in").and_then(num) {
+    if let Some(secs) = num(resp.get("expires_in")) {
         obj.insert("expiry_date".into(), json!(now_ms + (secs * 1000.0) as i64));
     }
     for key in ["id_token", "scope", "token_type", "refresh_token"] {
@@ -497,7 +497,7 @@ fn fold_gemini_chat(content: &str, count_session: bool, days: &mut DayMap) {
         let d = days.entry(day).or_default();
         d.messages += 1;
         if let Some(t) = m.get("tokens").filter(|t| t.is_object()) {
-            let g = |k: &str| t.get(k).and_then(num).unwrap_or(0.0).max(0.0) as u64;
+            let g = |k: &str| num(t.get(k)).unwrap_or(0.0).max(0.0) as u64;
             let (input, cached) = (g("input"), g("cached"));
             let output = g("output") + g("thoughts");
             d.input_tokens += input.saturating_sub(cached);
@@ -516,7 +516,7 @@ fn fold_gemini_chat(content: &str, count_session: bool, days: &mut DayMap) {
 }
 
 fn scan_gemini_activity(home: &Path, account_id: &str, since_days: u32) -> Vec<DailyActivity> {
-    let cutoff = cutoff_date(since_days);
+    let cutoff = first_local_date(since_days);
     let cutoff_time = std::time::SystemTime::now()
         .checked_sub(Duration::from_secs(u64::from(since_days.max(1)) * 86_400 + 86_400))
         .unwrap_or(std::time::UNIX_EPOCH);
@@ -735,176 +735,6 @@ var OAUTH_SCOPE = ["https://www.googleapis.com/auth/cloud-platform"];
     }
 }
 
-// ---------- shared helpers (also used by copilot.rs) ----------
-
-/// Per-day accumulator keyed by local `YYYY-MM-DD`.
-pub(crate) type DayMap = BTreeMap<String, DailyActivity>;
-
-pub(crate) fn local_date(ts: &str) -> Option<String> {
-    let d = chrono::DateTime::parse_from_rfc3339(ts).ok()?;
-    Some(d.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
-}
-
-pub(crate) fn cutoff_date(since_days: u32) -> String {
-    (chrono::Local::now().date_naive() - chrono::Duration::days(i64::from(since_days))).format("%Y-%m-%d").to_string()
-}
-
-/// Drop days before the cutoff and stamp the account id.
-pub(crate) fn finish_days(days: DayMap, account_id: &str, cutoff: &str) -> Vec<DailyActivity> {
-    days.into_iter()
-        .filter(|(day, _)| day.as_str() >= cutoff)
-        .map(|(date, mut d)| {
-            d.date = date;
-            d.account_id = account_id.to_string();
-            d
-        })
-        .collect()
-}
-
-/// Read a JSON file that may contain `//` or `/* */` comments and trailing commas (Gemini's settings.json
-/// and Copilot's config files are user-editable JSONC).
-pub(crate) fn read_jsonc(path: &Path) -> Option<Value> {
-    let s = std::fs::read_to_string(path).ok()?;
-    parse_jsonc(&s)
-}
-
-pub(crate) fn parse_jsonc(s: &str) -> Option<Value> {
-    let s = s.trim_start_matches('\u{feff}');
-    if let Ok(v) = serde_json::from_str(s) {
-        return Some(v);
-    }
-    let mut out = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    let mut in_str = false;
-    while let Some(c) = chars.next() {
-        if in_str {
-            out.push(c);
-            if c == '\\' {
-                if let Some(n) = chars.next() {
-                    out.push(n);
-                }
-            } else if c == '"' {
-                in_str = false;
-            }
-            continue;
-        }
-        match c {
-            '"' => {
-                in_str = true;
-                out.push(c);
-            }
-            '/' if chars.peek() == Some(&'/') => {
-                for n in chars.by_ref() {
-                    if n == '\n' {
-                        out.push('\n');
-                        break;
-                    }
-                }
-            }
-            '/' if chars.peek() == Some(&'*') => {
-                chars.next();
-                let mut prev = ' ';
-                for n in chars.by_ref() {
-                    if prev == '*' && n == '/' {
-                        break;
-                    }
-                    prev = n;
-                }
-            }
-            _ => out.push(c),
-        }
-    }
-    let re = regex::Regex::new(r",(\s*[}\]])").ok()?;
-    serde_json::from_str(&re.replace_all(&out, "$1")).ok()
-}
-
-/// Expand `~`, `$HOME`, `${HOME}`, `%USERPROFILE%`, `$env:USERPROFILE` at the start of a path.
-pub(crate) fn expand_home(raw: &str) -> PathBuf {
-    let home = util::home();
-    let raw = raw.trim();
-    for prefix in ["~", "$HOME", "${HOME}", "%USERPROFILE%", "$env:USERPROFILE", "${env:USERPROFILE}", "%HOMEDRIVE%%HOMEPATH%"] {
-        if let Some(rest) = raw.strip_prefix(prefix) {
-            if rest.is_empty() || rest.starts_with(['/', '\\']) {
-                return home.join(rest.trim_start_matches(['/', '\\']));
-            }
-        }
-    }
-    PathBuf::from(raw)
-}
-
-/// Values assigned to `var` in the user's launcher scripts (~/.local/bin, ~/bin): `export VAR=..`,
-/// `VAR=.. cmd`, `set VAR=..`, `set "VAR=.."`, `$env:VAR = ".."`.
-pub(crate) fn launcher_env_refs(var: &str) -> Vec<PathBuf> {
-    let home = util::home();
-    let dirs = [home.join(".local").join("bin"), home.join("bin")];
-    let mut out: Vec<PathBuf> = vec![];
-    for dir in dirs {
-        let Ok(entries) = std::fs::read_dir(dir) else { continue };
-        for e in entries.flatten() {
-            let Ok(meta) = e.metadata() else { continue };
-            if !meta.is_file() || meta.len() > 64 * 1024 {
-                continue;
-            }
-            let Ok(text) = std::fs::read_to_string(e.path()) else { continue };
-            for p in env_assignments(&text, var) {
-                if !out.iter().any(|o| util::path_key(o) == util::path_key(&p)) {
-                    out.push(p);
-                }
-            }
-        }
-    }
-    out
-}
-
-pub(crate) fn env_assignments(text: &str, var: &str) -> Vec<PathBuf> {
-    let pattern = format!(r#"\b{}"?\s*=\s*(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|"']+))"#, regex::escape(var));
-    let Ok(re) = regex::Regex::new(&pattern) else { return vec![] };
-    re.captures_iter(text)
-        .filter_map(|c| c.get(1).or(c.get(2)).or(c.get(3)).map(|m| m.as_str().to_string()))
-        .filter(|v| !v.contains("$1") && !v.starts_with('-'))
-        .map(|v| expand_home(&v))
-        .collect()
-}
-
-/// `<cmd>` on PATH and its `--version`, cached for 60s.
-pub(crate) struct CliProbe {
-    cmd: &'static str,
-    cache: Mutex<Option<ProbeResult>>,
-}
-
-/// (probed at, path on PATH, version).
-type ProbeResult = (Instant, Option<PathBuf>, Option<String>);
-
-impl CliProbe {
-    pub(crate) fn new(cmd: &'static str) -> Self {
-        Self { cmd, cache: Mutex::new(None) }
-    }
-
-    pub(crate) async fn get(&self) -> (Option<PathBuf>, Option<String>) {
-        if let Ok(guard) = self.cache.lock() {
-            if let Some((at, path, ver)) = guard.as_ref() {
-                if at.elapsed() < Duration::from_secs(60) {
-                    return (path.clone(), ver.clone());
-                }
-            }
-        }
-        let path = util::which(self.cmd);
-        let version = match &path {
-            Some(p) => util::run_capture(p, &["--version"], Duration::from_secs(10)).await.and_then(|s| parse_version(&s)),
-            None => None,
-        };
-        if let Ok(mut guard) = self.cache.lock() {
-            *guard = Some((Instant::now(), path.clone(), version.clone()));
-        }
-        (path, version)
-    }
-}
-
-pub(crate) fn parse_version(out: &str) -> Option<String> {
-    let re = regex::Regex::new(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?").ok()?;
-    re.find(out).map(|m| m.as_str().to_string())
-}
-
 fn dedup_push(out: &mut Vec<DetectedAccount>, acc: DetectedAccount) {
     if !out.iter().any(|o| util::path_key(Path::new(&o.home_dir)) == util::path_key(Path::new(&acc.home_dir))) {
         out.push(acc);
@@ -918,14 +748,14 @@ impl ProviderAdapter for GeminiAdapter {
     }
 
     async fn info(&self) -> ProviderInfo {
-        let (path, version) = self.probe.get().await;
+        let (path, version) = self.version.get("gemini").await;
         ProviderInfo {
             id: ProviderId::Gemini,
             name: "Gemini CLI".into(),
             vendor: "Google".into(),
             cli_command: "gemini".into(),
             cli_installed: path.is_some(),
-            cli_path: path.map(|p| p.to_string_lossy().into_owned()),
+            cli_path: path,
             cli_version: version,
             desktop_name: None,
             desktop_installed: false,
@@ -952,7 +782,7 @@ impl ProviderAdapter for GeminiAdapter {
                 }
             }
         }
-        for p in launcher_env_refs(HOME_ENV) {
+        for (p, _) in scan_launcher_scripts(HOME_ENV) {
             candidates.push((p, Some(format!("Referenced by a launcher script ({HOME_ENV})"))));
         }
         let mut out = vec![];
@@ -1069,6 +899,12 @@ fn base_command(account: &Account) -> CommandSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn offline_refresh_does_not_read_as_signed_out() {
+        let msg = offline_refresh("error sending request");
+        assert!(!crate::usage::looks_like_auth_error(&msg), "{msg}");
+    }
 
     fn account(home: &Path) -> Account {
         Account {
@@ -1232,21 +1068,6 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!((out[0].sessions, out[0].messages, out[0].input_tokens), (1, 2, 10));
         assert_eq!(out[0].account_id, "acc1");
-    }
-
-    #[test]
-    fn jsonc_and_launcher_parsing() {
-        let v = parse_jsonc("{ /* c */ \"a\": \"http://x//y\", // t\n \"b\": [1,2,], }").unwrap();
-        assert_eq!(v["a"], "http://x//y");
-        assert_eq!(v["b"][1], 2);
-        let script = "#!/bin/sh\nexport GEMINI_CLI_HOME=\"$HOME/.gemini-work\"\nGEMINI_CLI_HOME=/opt/g2 exec gemini \"$@\"\n@set GEMINI_CLI_HOME=%USERPROFILE%\\gem3\n$env:GEMINI_CLI_HOME = 'D:\\g4'\n";
-        let refs = env_assignments(script, "GEMINI_CLI_HOME");
-        assert_eq!(refs.len(), 4);
-        assert_eq!(refs[0], util::home().join(".gemini-work"));
-        assert_eq!(refs[1], PathBuf::from("/opt/g2"));
-        assert_eq!(refs[2], util::home().join("gem3"));
-        assert_eq!(refs[3], PathBuf::from("D:\\g4"));
-        assert_eq!(parse_version("0.64.0\n").as_deref(), Some("0.64.0"));
     }
 
     #[tokio::test]

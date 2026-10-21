@@ -1,5 +1,6 @@
-//! Helpers shared by the Claude and Codex adapters: launcher-script scanning, path expansion,
+//! Helpers shared by the provider adapters: launcher-script scanning, path expansion,
 //! JSONL log walking, local dates, version caching and credential-safe file writes.
+use crate::model::DailyActivity;
 use crate::util;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
@@ -62,7 +63,7 @@ pub fn parse_script_assignments(content: &str, var: &str) -> Vec<String> {
             let rest = line[start + var.len()..].trim_start();
             let Some(value) = rest.strip_prefix('=') else { continue };
             let value = value.trim_start();
-            let is_cmd_set = line.trim_start().to_ascii_lowercase().starts_with("set ");
+            let is_cmd_set = line.trim_start().trim_start_matches('@').to_ascii_lowercase().starts_with("set ");
             let parsed = if let Some(v) = value.strip_prefix('"') {
                 v.split('"').next().map(str::to_string)
             } else if let Some(v) = value.strip_prefix('\'') {
@@ -170,6 +171,21 @@ pub fn first_local_date(since_days: u32) -> String {
     (today - chrono::Duration::days(back)).format("%Y-%m-%d").to_string()
 }
 
+/// Per-day accumulator keyed by local `YYYY-MM-DD`.
+pub type DayMap = std::collections::BTreeMap<String, DailyActivity>;
+
+/// Drop days before the cutoff and stamp the account id.
+pub fn finish_days(days: DayMap, account_id: &str, cutoff: &str) -> Vec<DailyActivity> {
+    days.into_iter()
+        .filter(|(day, _)| day.as_str() >= cutoff)
+        .map(|(date, mut d)| {
+            d.date = date;
+            d.account_id = account_id.to_string();
+            d
+        })
+        .collect()
+}
+
 /// ISO-8601 timestamp to local calendar date.
 pub fn local_date(ts: &str) -> Option<String> {
     let dt = chrono::DateTime::parse_from_rfc3339(ts).ok()?;
@@ -197,6 +213,63 @@ pub fn str_field<'a>(v: &'a serde_json::Value, key: &str) -> Option<&'a str> {
     v.get(key).and_then(|x| x.as_str()).map(str::trim).filter(|s| !s.is_empty())
 }
 
+/// Read a JSON file that may contain `//` or `/* */` comments and trailing commas (Gemini's settings.json
+/// and Copilot's config files are user-editable JSONC).
+pub fn read_jsonc(path: &Path) -> Option<serde_json::Value> {
+    let s = std::fs::read_to_string(path).ok()?;
+    parse_jsonc(&s)
+}
+
+pub fn parse_jsonc(s: &str) -> Option<serde_json::Value> {
+    let s = s.trim_start_matches('\u{feff}');
+    if let Ok(v) = serde_json::from_str(s) {
+        return Some(v);
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    let mut in_str = false;
+    while let Some(c) = chars.next() {
+        if in_str {
+            out.push(c);
+            if c == '\\' {
+                if let Some(n) = chars.next() {
+                    out.push(n);
+                }
+            } else if c == '"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            '"' => {
+                in_str = true;
+                out.push(c);
+            }
+            '/' if chars.peek() == Some(&'/') => {
+                for n in chars.by_ref() {
+                    if n == '\n' {
+                        out.push('\n');
+                        break;
+                    }
+                }
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                chars.next();
+                let mut prev = ' ';
+                for n in chars.by_ref() {
+                    if prev == '*' && n == '/' {
+                        break;
+                    }
+                    prev = n;
+                }
+            }
+            _ => out.push(c),
+        }
+    }
+    let re = regex::Regex::new(r",(\s*[}\]])").ok()?;
+    serde_json::from_str(&re.replace_all(&out, "$1")).ok()
+}
+
 /// "5-hour session", "Weekly", "Daily", "30-day", "90-minute".
 pub fn window_label(minutes: u32) -> String {
     match minutes {
@@ -214,6 +287,12 @@ pub fn which_str(cmd: &str) -> Option<String> {
     util::which(cmd).map(|p| p.to_string_lossy().to_string())
 }
 
+/// The version number in `<cli> --version` output ("2.1.3 (Claude Code)", "codex-cli 0.46.0", "0.64.0").
+pub fn parse_version(out: &str) -> Option<String> {
+    let re = regex::Regex::new(r"\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?").ok()?;
+    re.find(out).map(|m| m.as_str().to_string())
+}
+
 /// Caches `<cli> --version` for 60 s.
 /// (probed at, CLI path, version)
 type VersionEntry = (Instant, Option<String>, Option<String>);
@@ -224,8 +303,8 @@ pub struct VersionCache {
 }
 
 impl VersionCache {
-    /// Returns (resolved path, parsed version). `parse` turns raw `--version` output into a version.
-    pub async fn get(&self, cmd: &str, parse: fn(&str) -> Option<String>) -> (Option<String>, Option<String>) {
+    /// Returns (resolved path, parsed version).
+    pub async fn get(&self, cmd: &str) -> (Option<String>, Option<String>) {
         if let Ok(guard) = self.inner.lock() {
             if let Some((at, path, ver)) = guard.as_ref() {
                 if at.elapsed() < Duration::from_secs(60) {
@@ -235,7 +314,7 @@ impl VersionCache {
         }
         let path = util::which(cmd);
         let version = match &path {
-            Some(p) => util::run_capture(p, &["--version"], Duration::from_secs(8)).await.and_then(|o| parse(&o)),
+            Some(p) => util::run_capture(p, &["--version"], Duration::from_secs(10)).await.and_then(|o| parse_version(&o)),
             None => None,
         };
         let path = path.map(|p| p.to_string_lossy().to_string());
@@ -318,6 +397,38 @@ mod tests {
         assert!(expand_path("%1").is_none());
         assert!(expand_path("relative/dir").is_none());
         assert!(expand_path("$NOT_A_REAL_VAR_XYZ/x").is_none());
+    }
+
+    #[test]
+    fn parses_gemini_style_launchers() {
+        let s = "#!/bin/sh\nexport GEMINI_CLI_HOME=\"$HOME/.gemini-work\"\nGEMINI_CLI_HOME=/opt/g2 exec gemini \"$@\"\n@set GEMINI_CLI_HOME=%USERPROFILE%\\gem 3\n$env:GEMINI_CLI_HOME = 'D:\\g4'\n";
+        assert_eq!(parse_script_assignments(s, "GEMINI_CLI_HOME"), vec!["$HOME/.gemini-work", "/opt/g2", "%USERPROFILE%\\gem 3", "D:\\g4"]);
+        assert_eq!(expand_path("$HOME/.gemini-work"), Some(util::home().join(".gemini-work")));
+    }
+
+    #[test]
+    fn jsonc_and_versions() {
+        let v = parse_jsonc("{ /* c */ \"a\": \"http://x//y\", // t\n \"b\": [1,2,], }").unwrap();
+        assert_eq!(v["a"], "http://x//y");
+        assert_eq!(v["b"][1], 2);
+        assert_eq!(parse_version("0.64.0\n").as_deref(), Some("0.64.0"));
+        assert_eq!(parse_version("2.1.3 (Claude Code)").as_deref(), Some("2.1.3"));
+        assert_eq!(parse_version("codex-cli 0.46.0").as_deref(), Some("0.46.0"));
+        assert_eq!(parse_version("1.0.60\nCommit: 1a2b3c4").as_deref(), Some("1.0.60"));
+    }
+
+    #[test]
+    fn day_ranges_count_today_as_day_one() {
+        let today = chrono::Local::now().date_naive();
+        let day = |back: i64| (today - chrono::Duration::days(back)).format("%Y-%m-%d").to_string();
+        assert_eq!(first_local_date(1), day(0));
+        assert_eq!(first_local_date(0), day(0));
+        assert_eq!(first_local_date(7), day(6));
+        let days: DayMap = (0..9).map(|b| (day(b), DailyActivity::default())).collect();
+        let kept = finish_days(days, "acc", &first_local_date(7));
+        assert_eq!(kept.len(), 7);
+        assert_eq!(kept[0].date, day(6));
+        assert!(kept.iter().all(|d| d.account_id == "acc"));
     }
 
     #[test]

@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 pub mod claude;
 pub mod codex;
+pub(crate) mod common;
 pub mod copilot;
 pub mod gemini;
 
@@ -118,6 +119,8 @@ pub fn all() -> Vec<Adapter> {
     ]
 }
 
+/// One adapter by id, for tests. The app keeps a single set in `AppState::adapters`.
+#[cfg(test)]
 pub fn get(id: ProviderId) -> Adapter {
     all().into_iter().find(|a| a.id() == id).expect("adapter registered")
 }
