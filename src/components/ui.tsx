@@ -135,6 +135,13 @@ export function Segmented<T extends string>({
   )
 }
 
+/** What Tab actually stops on inside `el`, in order: no tabindex=-1 radios, nothing disabled or hidden. */
+export function tabbables(el: HTMLElement): HTMLElement[] {
+  return [...el.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]')].filter(
+    (x) => x.tabIndex >= 0 && !x.matches(':disabled') && x.getClientRects().length > 0
+  )
+}
+
 export function Dialog({
   open,
   onClose,
@@ -154,25 +161,40 @@ export function Dialog({
   width?: number
 }) {
   const panel = useRef<HTMLDivElement>(null)
+  // Callers pass inline closures; reading them through refs keeps a parent re-render from re-running the effect,
+  // which would pull focus back to the first field on every keystroke.
+  const close = useRef(onClose)
+  const dismiss = useRef(onDismiss)
+  close.current = onClose
+  dismiss.current = onDismiss
   useEffect(() => {
-    if (!open) return
-    const prev = document.activeElement as HTMLElement | null
     const el = panel.current
-    const first = el?.querySelector<HTMLElement>('[data-autofocus], input, button:not([data-close]), select, textarea')
-    first?.focus()
+    if (!open || !el) return
+    const prev = document.activeElement as HTMLElement | null
+    const marked = () => el.querySelector<HTMLElement>('[data-autofocus]:not(:disabled)')
+    let auto = marked()
+    ;(auto ?? tabbables(el).find((x) => !x.hasAttribute('data-close')))?.focus()
+    // A step that appears later (a confirmation, the next step of a form) can name its own first stop too.
+    const watch = new MutationObserver(() => {
+      const next = marked()
+      if (next && next !== auto) next.focus()
+      auto = next
+    })
+    watch.observe(el, { childList: true, subtree: true })
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation()
-        ;(onDismiss ?? onClose)()
+        ;(dismiss.current ?? close.current)()
       }
-      if (e.key === 'Tab' && el) {
-        const items = [...el.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(
-          (x) => !x.hasAttribute('disabled')
-        )
+      if (e.key === 'Tab') {
+        const items = tabbables(el)
         if (!items.length) return
         const a = items[0]
         const z = items[items.length - 1]
-        if (e.shiftKey && document.activeElement === a) {
+        if (!el.contains(document.activeElement)) {
+          e.preventDefault()
+          a.focus()
+        } else if (e.shiftKey && document.activeElement === a) {
           e.preventDefault()
           z.focus()
         } else if (!e.shiftKey && document.activeElement === z) {
@@ -183,10 +205,11 @@ export function Dialog({
     }
     window.addEventListener('keydown', onKey, true)
     return () => {
+      watch.disconnect()
       window.removeEventListener('keydown', onKey, true)
       prev?.focus?.()
     }
-  }, [open, onClose, onDismiss])
+  }, [open])
   if (!open) return null
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 px-4 pb-6 pt-[max(24px,8vh)]" onMouseDown={onDismiss ?? onClose}>
