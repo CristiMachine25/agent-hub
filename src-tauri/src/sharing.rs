@@ -305,13 +305,24 @@ fn copy_missing_at(src: &Path, dst: &Path, depth: usize) -> io::Result<CopyCount
         return Ok(count);
     }
     if is_link(src) {
-        if fs::symlink_metadata(dst).is_ok() {
-            count.kept += 1;
-        } else {
-            copy_link(src, dst)?;
-            count.added += 1;
+        // A link up to one of its own folders would loop, and in the shared folder it would
+        // point back into the tool's home.
+        if points_above(src) {
+            return Ok(count);
         }
-        return Ok(count);
+        match fs::symlink_metadata(dst) {
+            Err(_) => {
+                copy_link(src, dst)?;
+                count.added += 1;
+                return Ok(count);
+            }
+            // Older versions copied what links pointed at: keep filling that copy as they did.
+            Ok(m) if m.is_dir() && !is_link(dst) && src.is_dir() => {}
+            Ok(_) => {
+                count.kept += 1;
+                return Ok(count);
+            }
+        }
     }
     let meta = fs::metadata(src)?;
     if !meta.is_dir() {
@@ -349,6 +360,14 @@ fn copy_missing_at(src: &Path, dst: &Path, depth: usize) -> io::Result<CopyCount
 
 /// Make `dst` a link to where the link `src` points. A relative target is resolved from `src`'s
 /// folder, so the new link works from its own place.
+/// Whether the link `p` points at the folder it sits in or one above it.
+fn points_above(p: &Path) -> bool {
+    match (p.canonicalize(), p.parent().map(Path::canonicalize)) {
+        (Ok(target), Some(Ok(parent))) => parent.starts_with(target),
+        _ => false,
+    }
+}
+
 fn copy_link(src: &Path, dst: &Path) -> io::Result<()> {
     let target = link_target(src).ok_or_else(|| io::Error::other(format!("can't read the link {}", src.display())))?;
     let target = if target.is_relative() { src.parent().map(|p| p.join(&target)).unwrap_or(target) } else { target };
@@ -617,20 +636,40 @@ mod tests {
         fs::create_dir_all(&a).unwrap();
         symlink(elsewhere.join("tool"), a.join("absolute")).unwrap();
         symlink("../../elsewhere/tool", a.join("relative")).unwrap();
-        // A loop back to the folder itself: recreated once, never walked into.
+        // A loop back up to the home: neither recreated (it would point into the home) nor walked into.
         symlink("..", a.join("loop")).unwrap();
         let c = copy_missing(&a, &b).unwrap();
-        assert_eq!(c, CopyCount { added: 3, kept: 0 });
+        assert_eq!(c, CopyCount { added: 2, kept: 0 });
         for name in ["absolute", "relative"] {
             assert!(is_link(&b.join(name)), "{name} is still a link");
             assert!(points_to(&b.join(name), &elsewhere.join("tool")), "{name}");
         }
-        assert!(is_link(&b.join("loop")));
+        assert!(fs::symlink_metadata(b.join("loop")).is_err());
         // Edits through the copy reach the original, as they did before.
         fs::write(elsewhere.join("tool").join("SKILL.md"), "updated").unwrap();
         assert_eq!(fs::read_to_string(b.join("relative").join("SKILL.md")).unwrap(), "updated");
         // Copying again keeps what is there.
-        assert_eq!(copy_missing(&a, &b).unwrap(), CopyCount { added: 0, kept: 3 });
+        assert_eq!(copy_missing(&a, &b).unwrap(), CopyCount { added: 0, kept: 2 });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reseed_fills_a_copy_an_older_version_made_of_a_linked_folder() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let (repo, home, shared) = (t.path().join("repo"), t.path().join("home"), t.path().join("shared"));
+        fs::create_dir_all(repo.join("old")).unwrap();
+        fs::write(repo.join("old").join("SKILL.md"), "old").unwrap();
+        fs::create_dir_all(&home).unwrap();
+        symlink(&repo, home.join("skills")).unwrap();
+        // What the previous version left: a real folder holding a copy of the linked one.
+        fs::create_dir_all(shared.join("skills").join("old")).unwrap();
+        fs::write(shared.join("skills").join("old").join("SKILL.md"), "old").unwrap();
+        fs::create_dir_all(repo.join("new")).unwrap();
+        fs::write(repo.join("new").join("SKILL.md"), "new").unwrap();
+        let c = copy_missing(&home.join("skills"), &shared.join("skills")).unwrap();
+        assert_eq!(c, CopyCount { added: 1, kept: 1 });
+        assert_eq!(fs::read_to_string(shared.join("skills").join("new").join("SKILL.md")).unwrap(), "new");
     }
 
     #[test]
