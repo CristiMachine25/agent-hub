@@ -249,7 +249,11 @@ pub async fn export(state: &AppState, path: &Path, opts: ExportOptions) -> anyho
     };
     let settings = if opts.include_settings { Some(portable_settings(&state.settings.read().await.clone())) } else { None };
     let sealed = match (passphrase, sign_ins.is_empty()) {
-        (Some(p), false) => Some(seal(p, &serde_json::to_vec(&sign_ins)?)?),
+        // Key stretching takes a while: off the async workers, as in unlock.
+        (Some(p), false) => {
+            let (p, plain) = (p.to_string(), serde_json::to_vec(&sign_ins)?);
+            Some(tokio::task::spawn_blocking(move || seal(&p, &plain)).await??)
+        }
         _ => None,
     };
 
