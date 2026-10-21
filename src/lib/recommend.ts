@@ -118,7 +118,8 @@ export function scoreAccount(account: Account, task: TaskType, snap: UsageSnapsh
   else if (task === 'quick-question' && left < 50) reason += ' Good for a quick task, saves your bigger accounts.'
   if (tagBonus > 0) reason += ' Tagged for this kind of task.'
   if (stalePenalty > 0) reason += ' (Last known values.)'
-  return rec(account, score, reason)
+  // 0 means "can't use it" (the Use now card skips those), so a usable account always scores at least 1.
+  return rec(account, Math.max(1, score), reason)
 }
 
 /** recommend::recommend: best first, ties by label. 0 = can't be used now (signed out or at a limit). */

@@ -153,7 +153,8 @@ pub fn score_account(account: &Account, task: TaskType, snap: Option<&UsageSnaps
     if stale_penalty > 0.0 {
         reason.push_str(" (Last known values.)");
     }
-    rec(account, score, reason)
+    // 0 means "can't use it" (the Use now card skips those), so a usable account always scores at least 1.
+    rec(account, score.max(1.0), reason)
 }
 
 /// A long window (weekly, monthly) resetting within RESET_SOON_HOURS with at least 30% left.
@@ -291,6 +292,17 @@ pub(crate) mod tests {
         let s = snap("a", vec![sonnet]);
         assert_eq!(tightest(&s).map(|w| w.id.as_str()), Some("seven_day_sonnet"));
         assert_eq!(left_percent(&s), Some(0.0));
+    }
+
+    #[test]
+    fn usable_accounts_never_score_zero() {
+        let now = Utc::now();
+        // A quick question on a top-tier plan with 3% left: 3 * 4 - 3 * 4 would otherwise land on 0.
+        let a = account("a", "Max 20x");
+        let s = snap("a", vec![window("w", 97.0, Some(2), 300, now)]);
+        assert!(score_account(&a, TaskType::QuickQuestion, Some(&s), now).score >= 1.0);
+        let full = snap("a", vec![window("w", 100.0, Some(2), 300, now)]);
+        assert_eq!(score_account(&a, TaskType::QuickQuestion, Some(&full), now).score, 0.0);
     }
 
     #[test]

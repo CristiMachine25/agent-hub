@@ -140,6 +140,14 @@ describe('recommend', () => {
     expect(r[0].reason).toContain('Use it before it resets')
   })
 
+  it('never scores a usable account 0', () => {
+    const accounts = [plan('a', 'Max 20x'), plan('b', 'Max 20x')]
+    const usage = { a: snap('a', [win('five_hour', 97, 2, 300)]), b: snap('b', [win('five_hour', 100, 2, 300)]) }
+    const r = recommend('quick-question', undefined, accounts, usage, NOW)
+    expect(r.find((x) => x.accountId === 'a')?.score).toBeGreaterThanOrEqual(1)
+    expect(r.find((x) => x.accountId === 'b')?.score).toBe(0)
+  })
+
   it('filters by provider and rewards matching tags', () => {
     const accounts = [plan('u', 'Pro'), plan('t', 'Pro', { tags: ['Research'] }), plan('o', 'Pro', { providerId: 'codex' })]
     const r = recommend('research', 'claude', accounts, {}, NOW)
