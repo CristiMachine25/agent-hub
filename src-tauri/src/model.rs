@@ -73,6 +73,9 @@ pub enum ShareKind {
 }
 
 impl SharingOptions {
+    /// Nothing shared: imported homes start like this, and removal unlinks with it.
+    pub const NONE: Self = Self { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false };
+
     pub fn enabled(&self, k: ShareKind) -> bool {
         match k {
             ShareKind::Skills => self.skills,

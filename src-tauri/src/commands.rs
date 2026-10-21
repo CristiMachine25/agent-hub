@@ -128,12 +128,7 @@ pub async fn accounts_detect(state: St<'_>) -> Res<Vec<DetectedAccount>> {
 /// Short, readable name for an imported home: "Claude main" for the stock home,
 /// "Claude H2" for ~/.claude-h2. The email stays visible next to it in the UI.
 fn import_label(d: &DetectedAccount) -> String {
-    let short = match d.provider_id {
-        ProviderId::Claude => "Claude",
-        ProviderId::Codex => "Codex",
-        ProviderId::Gemini => "Gemini",
-        ProviderId::Copilot => "Copilot",
-    };
+    let short = notify::provider_name(d.provider_id);
     if d.is_default_home {
         return format!("{short} main");
     }
@@ -212,7 +207,7 @@ pub async fn accounts_import(app: AppHandle, state: St<'_>, found: Vec<DetectedA
             home_dir: d.home_dir.clone(),
             is_default_home: is_default,
             shared_from: (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()),
-            sharing: SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false },
+            sharing: SharingOptions::NONE,
             color: next_color(&accounts),
             tags: vec![],
             notes: d.hint.clone(),
@@ -394,7 +389,7 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
         if inside_profiles && !is_default && home.is_dir() {
             // Remove our links first so deleting the folder can never reach shared data.
             let mut unshared = account.clone();
-            unshared.sharing = SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false };
+            unshared.sharing = SharingOptions::NONE;
             let a2 = adapter.clone();
             let h2 = home.clone();
             let shared = state.shared_dir(account.provider_id);
