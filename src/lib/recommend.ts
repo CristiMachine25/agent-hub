@@ -1,5 +1,5 @@
 import type { Account, ProviderId, Recommendation, TaskType, UsageSnapshot, UsageWindow } from '@shared/types'
-import { isModelWindow } from './quota'
+import { isModelWindow, leftOf } from './quota'
 
 // A line-for-line port of src-tauri/src/recommend.rs, which is what the app ships. Only the browser
 // preview (src/mock/backend.ts) runs this copy; the tests in quota.test.ts use the Rust tests' vectors.
@@ -9,7 +9,6 @@ import { isModelWindow } from './quota'
 const RESET_SOON_HOURS = 24
 
 const clamp = (n: number) => Math.min(100, Math.max(0, n))
-const leftOf = (w: UsageWindow) => clamp(100 - w.usedPercent)
 
 /** recommend::tightest: the most-used window, ignoring model-only windows when a general one exists. */
 function tightest(snap: UsageSnapshot): UsageWindow | undefined {

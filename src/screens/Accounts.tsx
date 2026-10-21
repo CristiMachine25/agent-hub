@@ -5,7 +5,7 @@ import type { Account, DailyActivity, UsageWindow, SharingOptions, TaskType, Usa
 import { api, errorText } from '@/api'
 import { useStore } from '@/store'
 import { useGrid } from '@/terminals/store'
-import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
+import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { PLANS, findPlan, planLabel } from '@/lib/plans'
 import { useDrafts } from '@/lib/drafts'
@@ -412,9 +412,6 @@ function Drafts() {
   )
 }
 
-/** Spoken names for ACCOUNT_COLORS, in the same order. */
-const COLOR_NAMES = ['Blue', 'Orange', 'Green', 'Amber', 'Pink', 'Violet', 'Red', 'Dark green']
-
 function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () => void; account: Account }) {
   const updateAccount = useStore((s) => s.updateAccount)
   const [label, setLabel] = useState(a.label)
@@ -502,7 +499,7 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
               <button
                 key={c}
                 type="button"
-                aria-label={COLOR_NAMES[i] ?? c}
+                aria-label={ACCOUNT_COLOR_NAMES[i] ?? c}
                 aria-pressed={c.toLowerCase() === color.toLowerCase()}
                 onClick={() => setColor(c)}
                 className={clsx('h-7 w-7 rounded-full border-2', c.toLowerCase() === color.toLowerCase() ? 'border-ink' : 'border-transparent')}
