@@ -1,4 +1,5 @@
 import type { Account, ProviderId, Recommendation, TaskType, UsageSnapshot, UsageWindow } from '@shared/types'
+import { PROVIDER_META } from './providers'
 import { isModelWindow, leftOf } from './quota'
 
 // A line-for-line port of src-tauri/src/recommend.rs, which is what the app ships. Only the browser
@@ -122,17 +123,34 @@ export function scoreAccount(account: Account, task: TaskType, snap: UsageSnapsh
   return rec(account, Math.max(1, score), reason)
 }
 
-/** recommend::recommend: best first, ties by label. 0 = can't be used now (signed out or at a limit). */
+/**
+ * recommend::recommend: best first, ties by label. 0 = can't be used now (signed out or at a limit).
+ * Accounts of a provider in `cliMissing` can still be used in its desktop app, so they score 1 (not 0)
+ * and sort after every other usable account, best quota first.
+ */
 export function recommend(
   task: TaskType,
   providerId: ProviderId | undefined,
   accounts: Account[],
   usage: Record<string, UsageSnapshot>,
+  cliMissing: ProviderId[],
   now: number = Date.now()
 ): Recommendation[] {
   return accounts
     .filter((a) => !providerId || a.providerId === providerId)
-    .map((a) => ({ r: scoreAccount(a, task, usage[a.id], now), label: a.label }))
-    .sort((x, y) => y.r.score - x.r.score || (x.label < y.label ? -1 : x.label > y.label ? 1 : 0))
+    .map((a) => {
+      const r = scoreAccount(a, task, usage[a.id], now)
+      const missing = cliMissing.includes(a.providerId)
+      const raw = r.score
+      if (missing && raw > 0) {
+        r.score = 1
+        r.reason = `The ${PROVIDER_META[a.providerId].short} CLI isn't installed on this computer. ${r.reason}`
+      }
+      return { r, missing, raw, label: a.label }
+    })
+    .sort(
+      (x, y) =>
+        y.r.score - x.r.score || Number(x.missing) - Number(y.missing) || y.raw - x.raw || (x.label < y.label ? -1 : x.label > y.label ? 1 : 0)
+    )
     .map((x) => x.r)
 }

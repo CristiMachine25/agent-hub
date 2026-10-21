@@ -52,14 +52,15 @@ fn reset_phrase(w: &UsageWindow, now: DateTime<Utc>) -> Option<String> {
     (t > now).then(|| format!("resets at {} ({})", util::local_clock(t, now), util::human_until(t, now)))
 }
 
-/// Best other usable account of the same provider, with its percent left.
+/// Best other usable account of the same provider, with its percent left. Its CLI is the one this
+/// account uses, so whether it is installed doesn't change the pick.
 fn best_alternative<'a>(
     account: &Account,
     accounts: &'a [Account],
     latest: &HashMap<String, UsageSnapshot>,
     now: DateTime<Utc>,
 ) -> Option<(&'a Account, Recommendation)> {
-    recommend::recommend(TaskType::Any, Some(account.provider_id), accounts, latest, now)
+    recommend::recommend(TaskType::Any, Some(account.provider_id), accounts, latest, &[], now)
         .into_iter()
         .filter(|r| r.account_id != account.id && r.score >= 10.0)
         .find_map(|r| accounts.iter().find(|a| a.id == r.account_id).map(|a| (a, r)))
