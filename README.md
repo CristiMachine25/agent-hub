@@ -44,6 +44,8 @@ More are planned: Cursor, Antigravity, Kiro, Amp, OpenRouter.
 
 Download the installer for your system from [Releases](../../releases) (Windows `.msi`/`.exe`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
 
+macOS builds are not notarized yet. The first time you open Switchyard, macOS says it can't verify the developer: open **System Settings > Privacy & Security** and click **Open Anyway**.
+
 ## Build from source
 
 Prerequisites: Node.js 20+, Rust (stable), and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
