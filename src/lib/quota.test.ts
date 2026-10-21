@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Account, AppSettings, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
+import type { Account, AppSettings, UsageHistoryPoint, UsageSnapshot, UsageWindow } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
 import { bindingWindow, computeAlerts, leftOf, levelFor, litCells, unusedAtResets, wastedValue } from './quota'
-import { scoreAccounts } from './recommend'
+import { recommend, tier } from './recommend'
 
 const NOW = Date.parse('2026-10-20T12:00:00Z')
 const iso = (h: number) => new Date(NOW + h * 3_600_000).toISOString()
@@ -61,6 +61,21 @@ describe('bindingWindow', () => {
     ])
     expect(bindingWindow(s)?.id).toBe('five_hour')
   })
+  // Same vectors as recommend::tests::model_only_windows_do_not_bind on the Rust side.
+  it('keeps an account usable when only a model window is used up', () => {
+    const s = snap('a', [
+      { id: 'five_hour', label: '5-hour session', usedPercent: 20 },
+      { id: 'seven_day', label: 'Weekly', usedPercent: 30 },
+      { id: 'seven_day_sonnet', label: 'Weekly Sonnet', usedPercent: 100 }
+    ])
+    const w = bindingWindow(s)
+    expect(w?.id).toBe('seven_day')
+    expect(w && leftOf(w)).toBe(70)
+  })
+  it('counts model windows when nothing else is known', () => {
+    const s = snap('a', [{ id: 'seven_day_sonnet', label: 'Weekly Sonnet', usedPercent: 100 }])
+    expect(bindingWindow(s)?.id).toBe('seven_day_sonnet')
+  })
 })
 
 describe('computeAlerts', () => {
@@ -87,34 +102,69 @@ describe('unused quota', () => {
   })
 })
 
-describe('scoreAccounts', () => {
-  it('puts quota about to reset ahead, and limited or signed-out accounts last', () => {
-    const accounts = [account('busy'), account('expiring'), account('full'), account('out', { status: 'needs-login' })]
-    const usage = {
-      busy: snap('busy', [
-        { id: 'five_hour', label: '5-hour session', usedPercent: 60, windowMinutes: 300 },
-        { id: 'seven_day', label: 'Weekly limit', usedPercent: 50, windowMinutes: 10080, resetsAt: iso(80) }
-      ]),
-      expiring: snap('expiring', [
-        { id: 'five_hour', label: '5-hour session', usedPercent: 0, windowMinutes: 300 },
-        { id: 'seven_day', label: 'Weekly limit', usedPercent: 30, windowMinutes: 10080, resetsAt: iso(9) }
-      ]),
-      full: snap('full', [{ id: 'five_hour', label: '5-hour session', usedPercent: 100, windowMinutes: 300, resetsAt: iso(2) }])
-    }
-    const recs = scoreAccounts(accounts, usage, 'coding', NOW)
-    expect(recs[0].accountId).toBe('expiring')
-    expect(recs[0].reason).toMatch(/use it before/)
-    const zero = recs.filter((r) => r.score === 0).map((r) => r.accountId).sort()
-    expect(zero).toEqual(['full', 'out'])
+// The same vectors as the tests in src-tauri/src/recommend.rs, which this port mirrors.
+describe('recommend', () => {
+  const win = (id: string, used: number, resetsInH: number | undefined, minutes: number): UsageWindow => ({
+    id,
+    label: minutes < 1440 ? '5-hour session' : 'Weekly',
+    usedPercent: used,
+    resetsAt: resetsInH === undefined ? undefined : iso(resetsInH),
+    windowMinutes: minutes
   })
-  it('pushes accounts whose CLI is missing to the bottom', () => {
-    const accounts = [account('a'), account('b', { providerId: 'copilot' })]
-    const usage = {
-      a: snap('a', [{ id: 'seven_day', label: 'Weekly limit', usedPercent: 70, windowMinutes: 10080 }]),
-      b: snap('b', [{ id: 'premium', label: 'Premium requests', usedPercent: 0, windowMinutes: 43200 }], { providerId: 'copilot' })
-    }
-    const recs = scoreAccounts(accounts, usage, 'coding', NOW, undefined, { claude: true, copilot: false })
-    expect(recs[0].accountId).toBe('a')
-    expect(recs[1].reason).toMatch(/isn't installed/)
+  const plan = (id: string, p: string, extra: Partial<Account> = {}) => account(id, { plan: p, ...extra })
+
+  it('ranks exhausted and signed-out accounts last', () => {
+    const accounts = [plan('a', 'Pro'), plan('b', 'Pro'), plan('c', 'Max', { status: 'needs-login' })]
+    const usage = { a: snap('a', [win('five_hour', 100, 2, 300)]), b: snap('b', [win('five_hour', 30, 2, 300)]) }
+    const r = recommend('coding', undefined, accounts, usage, NOW)
+    expect(r[0].accountId).toBe('b')
+    expect(r[0].reason.startsWith('70% of 5-hour session left')).toBe(true)
+    expect(r.find((x) => x.accountId === 'a')?.reason).toContain('limit reached')
+    expect(r.every((x) => x.score >= 0 && x.score <= 100)).toBe(true)
+    // Overview's "Use now" only offers accounts scoring above 0.
+    expect(r.filter((x) => x.score === 0).map((x) => x.accountId)).toEqual(['a', 'c'])
+  })
+
+  it('prefers Max for a long refactor and the small account for a quick question', () => {
+    const accounts = [plan('max', 'Max 20x'), plan('pro', 'Pro')]
+    const usage = { max: snap('max', [win('five_hour', 20, 3, 300)]), pro: snap('pro', [win('five_hour', 60, 3, 300)]) }
+    expect(recommend('long-refactor', undefined, accounts, usage, NOW)[0].accountId).toBe('max')
+    expect(recommend('quick-question', undefined, accounts, usage, NOW)[0].accountId).toBe('pro')
+  })
+
+  it('pushes up a weekly window that resets soon', () => {
+    const accounts = [plan('a', 'Pro'), plan('b', 'Pro')]
+    const usage = { a: snap('a', [win('seven_day', 40, 10, 10080)]), b: snap('b', [win('seven_day', 40, 100, 10080)]) }
+    const r = recommend('any', undefined, accounts, usage, NOW)
+    expect(r[0].accountId).toBe('a')
+    expect(r[0].reason).toContain('Use it before it resets')
+  })
+
+  it('never scores a usable account 0', () => {
+    const accounts = [plan('a', 'Max 20x'), plan('b', 'Max 20x')]
+    const usage = { a: snap('a', [win('five_hour', 97, 2, 300)]), b: snap('b', [win('five_hour', 100, 2, 300)]) }
+    const r = recommend('quick-question', undefined, accounts, usage, NOW)
+    expect(r.find((x) => x.accountId === 'a')?.score).toBeGreaterThanOrEqual(1)
+    expect(r.find((x) => x.accountId === 'b')?.score).toBe(0)
+  })
+
+  it('filters by provider and rewards matching tags', () => {
+    const accounts = [plan('u', 'Pro'), plan('t', 'Pro', { tags: ['Research'] }), plan('o', 'Pro', { providerId: 'codex' })]
+    const r = recommend('research', 'claude', accounts, {}, NOW)
+    expect(r.map((x) => x.accountId)).toEqual(['t', 'u'])
+    expect(tier({ plan: 'Copilot Pro+', tags: [] })).toBe(3)
+    expect(tier({ plan: 'Plus', tags: [] })).toBe(1)
+    expect(tier({ plan: 'Pro 200', tags: [] })).toBe(3)
+    expect(tier({ plan: 'Team Premium', tags: [] })).toBe(3)
+    expect(tier({ plan: 'Google AI Pro', tags: [] })).toBe(2)
+    expect(tier({ plan: 'Google AI Plus', tags: [] })).toBe(1)
+  })
+
+  it('ignores a used-up model-only window', () => {
+    const sonnet = { ...win('seven_day_sonnet', 100, 30, 10080), label: 'Weekly Sonnet' }
+    const s = snap('a', [win('five_hour', 20, 2, 300), win('seven_day', 30, 100, 10080), sonnet])
+    const r = recommend('any', undefined, [plan('a', 'Pro')], { a: s }, NOW)[0]
+    expect(r.score).toBeGreaterThan(10)
+    expect(r.reason.startsWith('70% of Weekly left')).toBe(true)
   })
 })

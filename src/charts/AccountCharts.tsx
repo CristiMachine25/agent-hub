@@ -2,11 +2,10 @@ import { useMemo } from 'react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { DailyActivity, UsageHistoryPoint, UsageWindow } from '@shared/types'
 import { formatDay, formatTokens } from '@/lib/format'
-import { axisTick, useChartColors } from './theme'
+import { axisTick, tipTime, useChartColors } from './theme'
 
 /** Fixed categorical order (validated all-pairs for the first three) for window lines within one account. */
 const WINDOW_COLORS = { dark: ['#3987E5', '#D95926', '#199E70', '#C98500'], light: ['#2A78D6', '#EB6834', '#1BAF7A', '#EDA100'] }
-const fmtTip = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })
 
 export function WindowHistory({ windows, history, height = 200 }: { windows: UsageWindow[]; history: UsageHistoryPoint[]; height?: number }) {
   const c = useChartColors()
@@ -32,7 +31,7 @@ export function WindowHistory({ windows, history, height = 200 }: { windows: Usa
     <div>
       <div style={{ height }}>
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }}>
+          <LineChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -18 }} aria-label="Limits used over time. Arrow keys step through the points.">
             <CartesianGrid stroke={c.grid} vertical={false} />
             <XAxis dataKey="t" type="number" scale="time" domain={['dataMin', 'dataMax']} ticks={ticks} tickFormatter={(t: number) => formatDay(t)} tick={axisTick(c.axis)} stroke={c.grid} tickLine={false} />
             <YAxis domain={[0, 100]} ticks={[0, 50, 100]} tickFormatter={(v: number) => `${v}%`} tick={axisTick(c.axis)} axisLine={false} tickLine={false} />
@@ -41,7 +40,7 @@ export function WindowHistory({ windows, history, height = 200 }: { windows: Usa
               content={({ active, payload, label }) =>
                 active && payload?.length ? (
                   <div className="rounded border border-rivet bg-deck px-3 py-2 text-xs shadow-lg">
-                    <p className="mb-1 font-semibold">{fmtTip.format(Number(label))}</p>
+                    <p className="mb-1 font-semibold">{tipTime.format(Number(label))}</p>
                     {payload.map((r, i) => (
                       <p key={i} className="flex items-center gap-2">
                         <span className="h-2 w-2 rounded-full" style={{ background: r.color }} />
@@ -92,7 +91,7 @@ export function DailyTokens({ activity, color, span, height = 160 }: { activity:
   return (
     <div style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -12 }} barCategoryGap={2}>
+        <BarChart data={data} margin={{ top: 6, right: 8, bottom: 0, left: -12 }} barCategoryGap={2} aria-label="Tokens per day. Arrow keys step through the days.">
           <CartesianGrid stroke={c.grid} vertical={false} />
           <XAxis dataKey="date" tickFormatter={(d: string) => formatDay(d)} tick={axisTick(c.axis)} stroke={c.grid} tickLine={false} minTickGap={30} />
           <YAxis tickFormatter={(v: number) => formatTokens(v)} tick={axisTick(c.axis)} axisLine={false} tickLine={false} width={50} />

@@ -1,4 +1,4 @@
-//! Tauri commands: the HopperApi from src/shared/types.ts. Names and argument names must match
+//! Tauri commands: the AgentHubApi from src/shared/types.ts. Names and argument names must match
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
 use crate::model::*;
 use crate::providers::{self, Adapter, CommandSpec};
@@ -19,17 +19,12 @@ fn err(e: anyhow::Error) -> String {
     format!("{e:#}")
 }
 
-const PALETTE: [&str; 10] = [
-    "#6366f1", "#f59e0b", "#10b981", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#14b8a6",
-];
+/// Account identity colors: the same validated set as `ACCOUNT_COLORS` in src/lib/providers.ts (see docs/DESIGN.md).
+const PALETTE: [&str; 8] = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#9085E9", "#E66767", "#008300"];
 
 /// First palette color no account uses yet, else rotate by count.
 fn next_color(accounts: &[Account]) -> String {
-    PALETTE
-        .iter()
-        .find(|c| !accounts.iter().any(|a| a.color.eq_ignore_ascii_case(c)))
-        .unwrap_or(&PALETTE[accounts.len() % PALETTE.len()])
-        .to_string()
+    PALETTE.iter().find(|c| !accounts.iter().any(|a| a.color.eq_ignore_ascii_case(c))).unwrap_or(&PALETTE[accounts.len() % PALETTE.len()]).to_string()
 }
 
 fn is_hex_color(s: &str) -> bool {
@@ -129,20 +124,12 @@ pub async fn accounts_detect(state: St<'_>) -> Res<Vec<DetectedAccount>> {
 /// Short, readable name for an imported home: "Claude main" for the stock home,
 /// "Claude H2" for ~/.claude-h2. The email stays visible next to it in the UI.
 fn import_label(d: &DetectedAccount) -> String {
-    let short = match d.provider_id {
-        ProviderId::Claude => "Claude",
-        ProviderId::Codex => "Codex",
-        ProviderId::Gemini => "Gemini",
-        ProviderId::Copilot => "Copilot",
-    };
+    let short = notify::provider_name(d.provider_id);
     if d.is_default_home {
         return format!("{short} main");
     }
     let dir = Path::new(&d.home_dir).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let suffix = dir
-        .trim_start_matches('.')
-        .trim_start_matches(d.provider_id.as_str())
-        .trim_matches(|c: char| c == '-' || c == '_' || c == '.');
+    let suffix = dir.trim_start_matches('.').trim_start_matches(d.provider_id.as_str()).trim_matches(|c: char| c == '-' || c == '_' || c == '.');
     if suffix.is_empty() {
         return non_empty(d.email.clone()).unwrap_or_else(|| short.to_string());
     }
@@ -213,7 +200,7 @@ pub async fn accounts_import(app: AppHandle, state: St<'_>, found: Vec<DetectedA
             home_dir: d.home_dir.clone(),
             is_default_home: is_default,
             shared_from: (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()),
-            sharing: SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false },
+            sharing: SharingOptions::NONE,
             color: next_color(&accounts),
             tags: vec![],
             notes: d.hint.clone(),
@@ -277,8 +264,8 @@ pub(crate) async fn create_account(app: &AppHandle, state: &Arc<AppState>, input
 
     let default_home = adapter.default_home();
     let is_default = util::path_key(&default_home) == key;
-    let shared_from = non_empty(input.shared_from.clone())
-        .or_else(|| (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()));
+    let shared_from =
+        non_empty(input.shared_from.clone()).or_else(|| (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()));
     let identity = adapter.read_identity(&home).await;
     let default_sharing = state.settings.read().await.default_sharing;
 
@@ -333,9 +320,7 @@ pub(crate) async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &
         let mut accounts = state.accounts.write().await;
         let idx = accounts.iter().position(|a| a.id == id).ok_or_else(|| anyhow!("Account not found"))?;
         let old = accounts[idx].clone();
-        let mut v = serde_json::to_value(&old)?;
-        util::merge_json(&mut v, &patch);
-        let mut new: Account = serde_json::from_value(v).context("invalid account fields")?;
+        let mut new = merge_account(&old, &patch)?;
 
         new.label = new.label.trim().to_string();
         if new.label.is_empty() {
@@ -368,13 +353,21 @@ pub(crate) async fn update_account(app: &AppHandle, state: &Arc<AppState>, id: &
     Ok(updated)
 }
 
+/// The account with `patch` merged over it. A `null` clears an optional field; a missing key keeps it.
+fn merge_account(old: &Account, patch: &serde_json::Value) -> anyhow::Result<Account> {
+    let mut v = serde_json::to_value(old)?;
+    util::merge_json(&mut v, patch);
+    serde_json::from_value(v).context("invalid account fields")
+}
+
 #[tauri::command]
-pub async fn accounts_remove(app: AppHandle, state: St<'_>, id: String, delete_home: bool) -> Res<()> {
+/// True when the account's folder was deleted too.
+pub async fn accounts_remove(app: AppHandle, state: St<'_>, id: String, delete_home: bool) -> Res<bool> {
     let state = state.inner().clone();
     remove_account(&app, &state, &id, delete_home).await.map_err(err)
 }
 
-async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete_home: bool) -> anyhow::Result<()> {
+async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete_home: bool) -> anyhow::Result<bool> {
     let account = {
         let mut accounts = state.accounts.write().await;
         let idx = accounts.iter().position(|a| a.id == id).ok_or_else(|| anyhow!("Account not found"))?;
@@ -386,6 +379,7 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
     let _ = state.save_latest().await;
     let _ = state.save_activity().await;
 
+    let mut deleted = false;
     if delete_home {
         let adapter = state.adapter(account.provider_id)?;
         let home = PathBuf::from(&account.home_dir);
@@ -395,7 +389,7 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
         if inside_profiles && !is_default && home.is_dir() {
             // Remove our links first so deleting the folder can never reach shared data.
             let mut unshared = account.clone();
-            unshared.sharing = SharingOptions { skills: false, plugins: false, agents: false, instructions: false, settings: false, mcp: false, history: false };
+            unshared.sharing = SharingOptions::NONE;
             let a2 = adapter.clone();
             let h2 = home.clone();
             let shared = state.shared_dir(account.provider_id);
@@ -405,22 +399,14 @@ async fn remove_account(app: &AppHandle, state: &Arc<AppState>, id: &str, delete
             })
             .await?
             .with_context(|| format!("deleting {}", home.display()))?;
+            deleted = true;
         } else {
             log::info!("not deleting {}: outside the profiles folder or a default home", home.display());
         }
     }
     emit_accounts(app, state).await;
     crate::refresh_tray(app);
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn accounts_apply_sharing(app: AppHandle, state: St<'_>, id: String) -> Res<Account> {
-    let state = state.inner().clone();
-    let account = state.account(&id).await.ok_or("Account not found")?;
-    let adapter = state.adapter(account.provider_id).map_err(err)?;
-    apply_sharing(&app, &state, &account, adapter).await;
-    Ok(account)
+    Ok(deleted)
 }
 
 // ---------- usage ----------
@@ -463,11 +449,7 @@ fn failed(msg: impl Into<String>) -> LaunchResult {
 }
 
 fn pick_cwd(req_cwd: Option<String>, default_cwd: Option<String>) -> String {
-    non_empty(req_cwd)
-        .into_iter()
-        .chain(non_empty(default_cwd))
-        .find(|c| Path::new(c).is_dir())
-        .unwrap_or_else(|| util::home().to_string_lossy().into_owned())
+    non_empty(req_cwd).into_iter().chain(non_empty(default_cwd)).find(|c| Path::new(c).is_dir()).unwrap_or_else(|| util::home().to_string_lossy().into_owned())
 }
 
 /// Command for a terminal target (CLI or login) with its cwd filled in. Re-applies sharing first
@@ -481,11 +463,7 @@ async fn terminal_command(
     extra_args: &[String],
     req_cwd: Option<String>,
 ) -> anyhow::Result<CommandSpec> {
-    let mut spec = if login {
-        adapter.login_command(account).await?
-    } else {
-        adapter.cli_command(account, resume, extra_args).await?
-    };
+    let mut spec = if login { adapter.login_command(account).await? } else { adapter.cli_command(account, resume, extra_args).await? };
     {
         let settings = state.settings.read().await;
         if !login {
@@ -526,12 +504,7 @@ pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchR
     let result = if req.target == LaunchTarget::Desktop {
         let spec = match adapter.desktop_command(&account).await {
             Ok(Some(spec)) => spec,
-            Ok(None) => {
-                return Ok(failed(format!(
-                    "{} has no desktop app that can run with a separate account",
-                    notify::provider_name(account.provider_id)
-                )))
-            }
+            Ok(None) => return Ok(failed(format!("{} has no desktop app that can run with a separate account", notify::provider_name(account.provider_id)))),
             Err(e) => return Ok(failed(format!("{e:#}"))),
         };
         tokio::task::spawn_blocking(move || launcher::launch_desktop(&spec)).await?
@@ -633,10 +606,11 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> anyhow::Result<T> + Sen
     tokio::task::spawn_blocking(f).await.map_err(|e| e.to_string())?.map_err(err)
 }
 
+/// Not async: sync commands run one at a time on the main thread, so input keeps its order. The
+/// write only queues the bytes for the terminal's writer thread, so it never blocks.
 #[tauri::command]
-pub async fn terminal_write(terms: Terms<'_>, id: String, data: String) -> Res<()> {
-    let terms = terms.inner().clone();
-    blocking(move || terms.write(&id, data.as_bytes())).await
+pub fn terminal_write(terms: Terms<'_>, id: String, data: String) -> Res<()> {
+    terms.write(&id, data.as_bytes()).map_err(err)
 }
 
 #[tauri::command]
@@ -774,9 +748,7 @@ pub async fn knowledge_get(state: St<'_>) -> Res<Vec<ProviderKnowledge>> {
         }
         let shared = state.shared_dir(adapter.id());
         let (dir, ad) = (shared.clone(), adapter.clone());
-        let items = tokio::task::spawn_blocking(move || knowledge::list_items(&dir, &ad.shareable_paths(), &ad.credential_paths()))
-            .await
-            .unwrap_or_default();
+        let items = tokio::task::spawn_blocking(move || knowledge::list_items(&dir, &ad.shareable_paths(), &ad.credential_paths())).await.unwrap_or_default();
         out.push(ProviderKnowledge {
             provider_id: adapter.id(),
             folder: shared.to_string_lossy().into_owned(),
@@ -890,10 +862,7 @@ pub async fn skills_remove(state: St<'_>, id: String, provider_id: ProviderId) -
     let r = skill_ref(&id)?;
     let adapter = state.adapter(provider_id).map_err(err)?;
     let shared = state.shared_dir(provider_id);
-    tokio::task::spawn_blocking(move || skills::remove_from(&shared, adapter.as_ref(), &r))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(err)
+    tokio::task::spawn_blocking(move || skills::remove_from(&shared, adapter.as_ref(), &r)).await.map_err(|e| e.to_string())?.map_err(err)
 }
 
 /// Only skills.sh and GitHub pages, over https.
@@ -911,11 +880,30 @@ pub async fn system_open_url(app: AppHandle, url: String) -> Res<()> {
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// A folder Agent Hub keeps (shared folders, profiles in its data folder) or an account's folder.
+/// Never a file or an app bundle, which the system would open or run, and never a path with `..`,
+/// which would make the prefix check below meaningless.
+fn openable_folder(path: &Path, data_dir: &Path, homes: &[String]) -> bool {
+    if path.components().any(|c| c == std::path::Component::ParentDir) {
+        return false;
+    }
+    let Ok(real) = path.canonicalize() else { return false };
+    let bundle = real
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| ["app", "bundle", "framework", "kext", "mpkg", "pkg", "plugin", "prefpane", "workflow"].contains(&e.to_ascii_lowercase().as_str()));
+    let key = util::path_key(path);
+    let ours = key.starts_with(&format!("{}/", util::path_key(data_dir)));
+    real.is_dir() && !bundle && (ours || homes.iter().any(|h| util::path_key(Path::new(h)) == key))
+}
+
+/// Show one of those folders in the file manager.
 #[tauri::command]
-pub async fn system_open_path(app: AppHandle, path: String) -> Res<()> {
+pub async fn system_open_path(app: AppHandle, state: St<'_>, path: String) -> Res<()> {
     use tauri_plugin_opener::OpenerExt;
-    if !Path::new(&path).exists() {
-        return Err(format!("{path} does not exist"));
+    let homes: Vec<String> = state.accounts.read().await.iter().map(|a| a.home_dir.clone()).collect();
+    if !openable_folder(Path::new(&path), state.data_dir(), &homes) {
+        return Err(format!("{path} isn't a folder Agent Hub manages"));
     }
     app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
 }
@@ -928,8 +916,47 @@ mod tests {
     fn opens_only_skills_sh_and_github_pages() {
         assert!(openable("https://skills.sh/anthropics/skills/pdf"));
         assert!(openable("https://github.com/anthropics/skills/tree/main/skills/pdf"));
-        for no in ["http://github.com/x", "https://github.com.evil.io/x", "https://evil.io/?u=https://github.com", "file:///etc/passwd", "javascript:alert(1)", "github.com/x", ""] {
+        for no in [
+            "http://github.com/x",
+            "https://github.com.evil.io/x",
+            "https://evil.io/?u=https://github.com",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "github.com/x",
+            "",
+        ] {
             assert!(!openable(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn opens_only_its_own_folders_and_account_folders() {
+        let t = tempfile::tempdir().unwrap();
+        let data = t.path().join("app data");
+        let (shared, home, other) = (data.join("shared").join("claude"), t.path().join(".claude-work"), t.path().join("Documents"));
+        for d in [&shared, &home, &other] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let file = shared.join("run.command");
+        std::fs::write(&file, "x").unwrap();
+        let homes = vec![home.to_string_lossy().into_owned()];
+        assert!(openable_folder(&shared, &data, &homes));
+        assert!(openable_folder(&home, &data, &homes));
+        assert!(!openable_folder(&other, &data, &homes), "not one of ours");
+        assert!(!openable_folder(&file, &data, &homes), "files could run");
+        assert!(!openable_folder(&data.join("missing"), &data, &homes));
+        assert!(!openable_folder(&data.join("..").join("Documents"), &data, &homes), "no climbing out");
+        let app = shared.join("Tool.app");
+        std::fs::create_dir_all(&app).unwrap();
+        assert!(!openable_folder(&app, &data, &homes), "opening a bundle launches it");
+        #[cfg(unix)]
+        {
+            let link = shared.join("linked-skills");
+            std::os::unix::fs::symlink(&other, &link).unwrap();
+            assert!(openable_folder(&link, &data, &homes), "a folder linked into ours still opens");
+            let app_link = shared.join("innocent");
+            std::os::unix::fs::symlink(&app, &app_link).unwrap();
+            assert!(!openable_folder(&app_link, &data, &homes), "a link to a bundle is still a bundle");
         }
     }
 
@@ -941,6 +968,29 @@ mod tests {
         assert_eq!(next_color(&[]), PALETTE[0]);
         let cwd = pick_cwd(Some("/definitely/not/here".into()), None);
         assert_eq!(cwd, util::home().to_string_lossy());
+    }
+
+    #[test]
+    fn palette_matches_the_ui() {
+        let ts = include_str!("../../src/lib/providers.ts");
+        let list = ts.split("ACCOUNT_COLORS = [").nth(1).and_then(|r| r.split(']').next()).expect("ACCOUNT_COLORS in providers.ts");
+        let ui: Vec<&str> = list.split(',').map(|c| c.trim().trim_matches('\'')).filter(|c| !c.is_empty()).collect();
+        assert_eq!(ui, PALETTE);
+    }
+
+    #[test]
+    fn account_patch_clears_null_fields_and_keeps_missing_ones() {
+        let mut old = crate::recommend::tests::account("a", "Max 5x");
+        old.notes = Some("keep me".into());
+        old.monthly_cost = Some(100.0);
+        let new = merge_account(&old, &serde_json::json!({ "monthlyCost": null, "plan": null, "label": "Renamed" })).unwrap();
+        assert_eq!(new.monthly_cost, None);
+        assert_eq!(new.plan, None);
+        assert_eq!(new.notes.as_deref(), Some("keep me"));
+        assert_eq!(new.label, "Renamed");
+        let new = merge_account(&new, &serde_json::json!({ "notes": null })).unwrap();
+        assert_eq!(new.notes, None);
+        assert!(merge_account(&old, &serde_json::json!({ "label": null })).is_err());
     }
 
     #[test]

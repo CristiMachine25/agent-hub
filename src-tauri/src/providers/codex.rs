@@ -9,7 +9,7 @@
 //!
 //! Live usage: `GET <chatgpt_base_url>/wham/usage`; fallback `codex app-server` JSON-RPC
 //! (`account/read`, `account/rateLimits/read`), which also lets Codex refresh its own tokens.
-use super::claude::common::*;
+use super::common::*;
 use super::{CommandSpec, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;
@@ -205,9 +205,8 @@ fn parse_wham(v: &Value, now: DateTime<Utc>) -> Parsed {
             let w = rl.get(*key).filter(|w| w.is_object())?;
             let used = num(w.get("used_percent"))?;
             let minutes = num(w.get("limit_window_seconds")).map(|s| (s / 60.0).round() as u32).filter(|m| *m > 0);
-            let reset = num(w.get("reset_at"))
-                .and_then(from_unix)
-                .or_else(|| num(w.get("reset_after_seconds")).map(|s| now + chrono::Duration::seconds(s as i64)));
+            let reset =
+                num(w.get("reset_at")).and_then(from_unix).or_else(|| num(w.get("reset_after_seconds")).map(|s| now + chrono::Duration::seconds(s as i64)));
             Some(make_window(id, used, minutes, reset, now))
         })
         .collect();
@@ -245,9 +244,8 @@ fn parse_log_limits(rl: &Value, event_at: DateTime<Utc>, now: DateTime<Utc>) -> 
             let w = rl.get(*id).filter(|w| w.is_object())?;
             let used = num(w.get("used_percent"))?;
             let minutes = num(w.get("window_minutes")).map(|m| m as u32).filter(|m| *m > 0);
-            let reset = num(w.get("resets_at"))
-                .and_then(from_unix)
-                .or_else(|| num(w.get("resets_in_seconds")).map(|s| event_at + chrono::Duration::seconds(s as i64)));
+            let reset =
+                num(w.get("resets_at")).and_then(from_unix).or_else(|| num(w.get("resets_in_seconds")).map(|s| event_at + chrono::Duration::seconds(s as i64)));
             Some(make_window(id, used, minutes, reset, now))
         })
         .collect();
@@ -272,10 +270,7 @@ async fn fetch_wham(url: &str, access_token: &str, account_id: Option<&str>) -> 
     if let Some(id) = account_id {
         req = req.header("ChatGPT-Account-Id", id);
     }
-    let resp = req
-        .send()
-        .await
-        .map_err(|e| ApiError::Network(if e.is_timeout() { "timed out".into() } else { "network error".into() }))?;
+    let resp = req.send().await.map_err(|e| ApiError::Network(if e.is_timeout() { "timed out".into() } else { "network error".into() }))?;
     match resp.status().as_u16() {
         200 => resp.json::<Value>().await.map_err(|_| ApiError::Parse),
         401 | 403 => Err(ApiError::Unauthorized),
@@ -364,8 +359,7 @@ fn latest_logged_limits(home: &Path) -> Option<(Value, DateTime<Utc>)> {
             &path,
             |l| l.contains("\"token_count\"") && l.contains("\"rate_limits\""),
             |v| {
-                let Some(rl) = v.get("payload").and_then(|p| p.get("rate_limits")).filter(|r| r.get("primary").is_some_and(Value::is_object))
-                else {
+                let Some(rl) = v.get("payload").and_then(|p| p.get("rate_limits")).filter(|r| r.get("primary").is_some_and(Value::is_object)) else {
                     return;
                 };
                 let Some(ts) = v.get("timestamp").and_then(Value::as_str).and_then(|t| DateTime::parse_from_rfc3339(t).ok()) else { return };
@@ -458,9 +452,7 @@ fn scan_sessions(account_id: &str, home: &Path, since_days: u32) -> Vec<DailyAct
             |v| accumulate_event(&v, &session, &first, &mut st, &mut days),
         );
     }
-    days.into_values()
-        .map(|d| DailyActivity { account_id: account_id.to_string(), sessions: d.sessions.len() as u32, ..d.activity })
-        .collect()
+    days.into_values().map(|d| DailyActivity { account_id: account_id.to_string(), sessions: d.sessions.len() as u32, ..d.activity }).collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -487,10 +479,6 @@ fn find_desktop() -> Option<(String, Vec<String>, String)> {
     None
 }
 
-fn parse_version(out: &str) -> Option<String> {
-    out.split_whitespace().last().map(str::to_string)
-}
-
 // ---------------------------------------------------------------------------------------------
 // Adapter
 // ---------------------------------------------------------------------------------------------
@@ -515,10 +503,12 @@ impl CodexAdapter {
     }
 
     /// Last-known limits from session logs, carrying `error` (why live data is missing) if any.
-    fn local_snapshot(&self, account: &Account, ident: &Identity, error: Option<String>) -> UsageSnapshot {
-        let home = Path::new(&account.home_dir);
+    async fn local_snapshot(&self, account: &Account, ident: &Identity, error: Option<String>) -> UsageSnapshot {
+        // Walks every recent session file: keep it off the async workers.
+        let home = PathBuf::from(&account.home_dir);
+        let logged = tokio::task::spawn_blocking(move || latest_logged_limits(&home)).await.ok().flatten();
         let now = Utc::now();
-        let Some((rl, at)) = latest_logged_limits(home) else {
+        let Some((rl, at)) = logged else {
             let mut s = self.base_snapshot(account, UsageSource::None, ident);
             s.error = Some(error.unwrap_or_else(|| "No recent Codex sessions to read limits from yet.".into()));
             return s;
@@ -553,7 +543,7 @@ impl ProviderAdapter for CodexAdapter {
     }
 
     async fn info(&self) -> ProviderInfo {
-        let (cli_path, cli_version) = self.version.get("codex", parse_version).await;
+        let (cli_path, cli_version) = self.version.get("codex").await;
         let desktop = find_desktop();
         ProviderInfo {
             id: ProviderId::Codex,
@@ -672,10 +662,10 @@ impl ProviderAdapter for CodexAdapter {
         let auth = read_auth(&home);
         let ident = identity_from_auth(auth.as_ref());
         if !live {
-            return self.local_snapshot(account, &ident, None);
+            return self.local_snapshot(account, &ident, None).await;
         }
         let Some(auth) = auth else {
-            return self.local_snapshot(account, &ident, Some("Not signed in. Use Sign in to log this account in.".into()));
+            return self.local_snapshot(account, &ident, Some("Not signed in. Use Sign in to log this account in.".into())).await;
         };
         let Some(token) = auth.access_token.as_deref() else {
             let msg = if auth.api_key.is_some() {
@@ -683,7 +673,7 @@ impl ProviderAdapter for CodexAdapter {
             } else {
                 "Not signed in. Use Sign in to log this account in."
             };
-            return self.local_snapshot(account, &ident, Some(msg.into()));
+            return self.local_snapshot(account, &ident, Some(msg.into())).await;
         };
 
         let url = usage_url(read_config(&home).as_ref());
@@ -716,7 +706,7 @@ impl ProviderAdapter for CodexAdapter {
             ApiError::Network(e) => format!("Could not reach ChatGPT's usage API ({e}); showing the last known limits."),
             ApiError::Parse => "ChatGPT's usage API returned an unexpected response; showing the last known limits.".to_string(),
         };
-        self.local_snapshot(account, &ident, Some(msg))
+        self.local_snapshot(account, &ident, Some(msg)).await
     }
 
     async fn scan_activity(&self, account: &Account, since_days: u32) -> Vec<DailyActivity> {
@@ -864,8 +854,10 @@ mod tests {
     }
 
     fn token_count(ts: &str, total: [u64; 3], last: [u64; 3]) -> Value {
-        let u = |x: [u64; 3]| json!({"input_tokens": x[0], "cached_input_tokens": x[1], "cache_write_input_tokens": 0,
-                                       "output_tokens": x[2], "reasoning_output_tokens": 0, "total_tokens": x[0] + x[2]});
+        let u = |x: [u64; 3]| {
+            json!({"input_tokens": x[0], "cached_input_tokens": x[1], "cache_write_input_tokens": 0,
+                                       "output_tokens": x[2], "reasoning_output_tokens": 0, "total_tokens": x[0] + x[2]})
+        };
         json!({"timestamp": ts, "type": "event_msg", "payload": {"type": "token_count",
                "info": {"total_token_usage": u(total), "last_token_usage": u(last), "model_context_window": 475000},
                "rate_limits": {"limit_id": "codex", "primary": {"used_percent": 23.0, "window_minutes": 300, "resets_at": 1792514865},

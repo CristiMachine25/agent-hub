@@ -3,8 +3,8 @@ import { AlertTriangle, BellOff, Clock, Info, LogIn, RefreshCcw, Shuffle } from 
 import type { NotificationKind } from '@shared/types'
 import { useStore } from '@/store'
 import { formatAgo, formatClock } from '@/lib/format'
-import { AccountDot, EmptyState } from '@/components/ui'
-import { Page } from './Overview'
+import { AccountDot, EmptyState, SectionTitle } from '@/components/ui'
+import { Page } from '@/components/Page'
 
 const ICON: Record<NotificationKind, typeof Info> = {
   'limit-reached': AlertTriangle,
@@ -58,8 +58,8 @@ export function Notifications() {
       ) : (
         groups.map((g) => (
           <section key={g.title}>
-            <h2 className="mb-2 text-xs font-medium text-muted">{g.title}</h2>
-            <ul className="divide-y divide-rivet rounded-lg border border-rivet">
+            <SectionTitle>{g.title}</SectionTitle>
+            <ul className="divide-y divide-rivet overflow-hidden rounded-lg border border-rivet">
               {g.items.map((n) => {
                 const Icon = ICON[n.kind]
                 const a = accounts.find((x) => x.id === n.accountId)

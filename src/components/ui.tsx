@@ -1,8 +1,7 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { X } from 'lucide-react'
 import type { Account, ProviderId } from '@shared/types'
-import { PROVIDER_META } from '@/lib/providers'
 
 /** Brand marks from Simple Icons (CC0), drawn on a 24x24 grid. Used only to say which tool an account runs. */
 const LOGO_PATHS: Record<ProviderId, string> = {
@@ -83,6 +82,22 @@ export function Switch({
   )
 }
 
+/**
+ * Arrow keys for a radiogroup with a single Tab stop: they focus and check the next or previous radio.
+ * Put it on the group, and give the checked radio (or the first one, if none is) tabIndex 0 and the rest -1.
+ */
+export function onRadioArrows(e: ReactKeyboardEvent<HTMLElement>) {
+  const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
+  if (!d) return
+  const radios = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="radio"]:not(:disabled)')]
+  const i = radios.indexOf(e.target as HTMLElement)
+  if (i < 0) return
+  e.preventDefault()
+  const next = radios[(i + d + radios.length) % radios.length]
+  next.focus()
+  next.click()
+}
+
 export function Segmented<T extends string>({
   value,
   options,
@@ -96,31 +111,19 @@ export function Segmented<T extends string>({
   label: string
   size?: 'sm' | 'md'
 }) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([])
   return (
-    <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap gap-1 rounded-md bg-ground p-0.5 border border-rivet">
-      {options.map((o, i) => {
+    <div role="radiogroup" aria-label={label} onKeyDown={onRadioArrows} className="inline-flex flex-wrap gap-1 rounded-md bg-ground p-0.5 border border-rivet">
+      {options.map((o) => {
         const on = o.id === value
         return (
           <button
             key={o.id}
-            ref={(el) => {
-              refs.current[i] = el
-            }}
             type="button"
             role="radio"
             aria-checked={on}
             data-tip={o.title}
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(o.id)}
-            onKeyDown={(e) => {
-              const d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0
-              if (!d) return
-              e.preventDefault()
-              const n = (i + d + options.length) % options.length
-              onChange(options[n].id)
-              refs.current[n]?.focus()
-            }}
             className={clsx(
               'rounded-[5px] px-2.5 transition-colors whitespace-nowrap',
               size === 'sm' ? 'h-6 text-xs' : 'h-7 text-sm',
@@ -132,6 +135,13 @@ export function Segmented<T extends string>({
         )
       })}
     </div>
+  )
+}
+
+/** What Tab actually stops on inside `el`, in order: no tabindex=-1 radios, nothing disabled or hidden. */
+export function tabbables(el: HTMLElement): HTMLElement[] {
+  return [...el.querySelectorAll<HTMLElement>('a[href], button, input, select, textarea, [tabindex]')].filter(
+    (x) => x.tabIndex >= 0 && !x.matches(':disabled') && x.getClientRects().length > 0
   )
 }
 
@@ -154,25 +164,44 @@ export function Dialog({
   width?: number
 }) {
   const panel = useRef<HTMLDivElement>(null)
+  // Callers pass inline closures; reading them through refs keeps a parent re-render from re-running the effect,
+  // which would pull focus back to the first field on every keystroke.
+  const close = useRef(onClose)
+  const dismiss = useRef(onDismiss)
+  close.current = onClose
+  dismiss.current = onDismiss
   useEffect(() => {
-    if (!open) return
-    const prev = document.activeElement as HTMLElement | null
     const el = panel.current
-    const first = el?.querySelector<HTMLElement>('[data-autofocus], input, button:not([data-close]), select, textarea')
-    first?.focus()
+    if (!open || !el) return
+    const prev = document.activeElement as HTMLElement | null
+    const marked = () => el.querySelector<HTMLElement>('[data-autofocus]:not(:disabled)')
+    let auto = marked()
+    ;(auto ?? tabbables(el).find((x) => !x.hasAttribute('data-close')))?.focus()
+    // A step that appears later (a confirmation, the next step of a form) can name its own first stop too.
+    const watch = new MutationObserver(() => {
+      const next = marked()
+      if (next && next !== auto) next.focus()
+      auto = next
+    })
+    watch.observe(el, { childList: true, subtree: true })
     const onKey = (e: KeyboardEvent) => {
+      // A modal opened on top (the ⌘K palette) owns the keys, even before it has taken focus;
+      // Escape there must not close this one too.
+      const modals = document.querySelectorAll('[aria-modal="true"]')
+      if (modals[modals.length - 1] !== el) return
       if (e.key === 'Escape') {
         e.stopPropagation()
-        ;(onDismiss ?? onClose)()
+        ;(dismiss.current ?? close.current)()
       }
-      if (e.key === 'Tab' && el) {
-        const items = [...el.querySelectorAll<HTMLElement>('button, input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter(
-          (x) => !x.hasAttribute('disabled')
-        )
+      if (e.key === 'Tab') {
+        const items = tabbables(el)
         if (!items.length) return
         const a = items[0]
         const z = items[items.length - 1]
-        if (e.shiftKey && document.activeElement === a) {
+        if (!el.contains(document.activeElement)) {
+          e.preventDefault()
+          a.focus()
+        } else if (e.shiftKey && document.activeElement === a) {
           e.preventDefault()
           z.focus()
         } else if (!e.shiftKey && document.activeElement === z) {
@@ -183,10 +212,11 @@ export function Dialog({
     }
     window.addEventListener('keydown', onKey, true)
     return () => {
+      watch.disconnect()
       window.removeEventListener('keydown', onKey, true)
       prev?.focus?.()
     }
-  }, [open, onClose, onDismiss])
+  }, [open])
   if (!open) return null
   return (
     <div className="fixed inset-0 z-40 flex items-start justify-center bg-black/50 px-4 pb-6 pt-[max(24px,8vh)]" onMouseDown={onDismiss ?? onClose}>

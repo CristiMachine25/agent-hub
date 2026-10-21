@@ -35,6 +35,9 @@ pub fn run() {
     let app = tauri::Builder::default()
         // Must be the first plugin: a second launch just focuses the running window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)))
+        // Warnings go to stdout and to "Agent Hub.log" in the OS log folder (on macOS
+        // ~/Library/Logs/dev.switchyard.app, elsewhere <local app data>/dev.switchyard.app/logs).
+        .plugin(tauri_plugin_log::Builder::new().level(log::LevelFilter::Info).max_file_size(1_000_000).build())
         .plugin(tauri_plugin_autostart::Builder::new().arg(MINIMIZED_ARG).build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
@@ -72,7 +75,6 @@ pub fn run() {
             commands::accounts_create,
             commands::accounts_update,
             commands::accounts_remove,
-            commands::accounts_apply_sharing,
             commands::usage_latest,
             commands::usage_history,
             commands::usage_activity,
@@ -143,9 +145,7 @@ fn sync_autostart(app: &AppHandle, state: &AppState) {
 }
 
 fn minimize_to_tray(app: &AppHandle) -> bool {
-    app.try_state::<Arc<AppState>>()
-        .and_then(|s| s.settings.try_read().ok().map(|s| s.minimize_to_tray))
-        .unwrap_or(true)
+    app.try_state::<Arc<AppState>>().and_then(|s| s.settings.try_read().ok().map(|s| s.minimize_to_tray)).unwrap_or(true)
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -158,16 +158,14 @@ fn show_main_window(app: &AppHandle) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = static_menu(app, &[])?;
-    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip(APP_NAME)
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(on_menu_event)
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                show_main_window(tray.app_handle());
-            }
-        });
+    let mut builder =
+        TrayIconBuilder::with_id(TRAY_ID).tooltip(APP_NAME).menu(&menu).show_menu_on_left_click(false).on_menu_event(on_menu_event).on_tray_icon_event(
+            |tray, event| {
+                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                    show_main_window(tray.app_handle());
+                }
+            },
+        );
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
@@ -203,11 +201,7 @@ pub fn refresh_tray(app: &AppHandle) {
         let items: Vec<(String, String)> = accounts
             .iter()
             .map(|a| {
-                let left = latest
-                    .get(&a.id)
-                    .and_then(recommend::left_percent)
-                    .map(|l| format!(" \u{2014} {l:.0}% left"))
-                    .unwrap_or_default();
+                let left = latest.get(&a.id).and_then(recommend::left_percent).map(|l| format!(" \u{2014} {l:.0}% left")).unwrap_or_default();
                 (format!("launch:{}", a.id), format!("Launch {}{left}", notify::display_name(a)))
             })
             .collect();

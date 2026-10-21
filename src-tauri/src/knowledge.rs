@@ -303,25 +303,17 @@ mod tests {
         fs::create_dir_all(shared.join("commands").join("git")).unwrap();
         fs::write(shared.join("commands").join("git").join("commit.md"), "c").unwrap();
         fs::create_dir_all(shared.join("plugins")).unwrap();
-        fs::write(
-            shared.join("plugins").join("installed_plugins.json"),
-            r#"{"version":2,"plugins":{"docs@official":[{"installPath":"/elsewhere/docs"}]}}"#,
-        )
-        .unwrap();
+        fs::write(shared.join("plugins").join("installed_plugins.json"), r#"{"version":2,"plugins":{"docs@official":[{"installPath":"/elsewhere/docs"}]}}"#)
+            .unwrap();
         fs::write(shared.join("CLAUDE.md"), "i").unwrap();
         let mut p = paths();
         p.push((ShareKind::Plugins, vec!["plugins"]));
         let got: Vec<(String, String)> = list_items(shared, &p, CREDS).into_iter().map(|i| (i.kind, i.name)).collect();
-        let want: Vec<(String, String)> = [
-            ("skills", "pdf"),
-            ("plugins", "docs"),
-            ("agents", "reviewer"),
-            ("commands", "git/commit"),
-            ("instructions", "CLAUDE.md"),
-        ]
-        .iter()
-        .map(|(k, n)| (k.to_string(), n.to_string()))
-        .collect();
+        let want: Vec<(String, String)> =
+            [("skills", "pdf"), ("plugins", "docs"), ("agents", "reviewer"), ("commands", "git/commit"), ("instructions", "CLAUDE.md")]
+                .iter()
+                .map(|(k, n)| (k.to_string(), n.to_string()))
+                .collect();
         assert_eq!(got, want);
     }
 }

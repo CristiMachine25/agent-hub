@@ -3,9 +3,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'rec
 import type { Account, UsageHistoryPoint, UsageSnapshot, UsageWindow } from '@shared/types'
 import { longWindow } from '@/lib/quota'
 import { formatDay, windowName } from '@/lib/format'
-import { useChartColors } from './theme'
-
-const fmtTip = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: 'numeric' })
+import { tipTime, useChartColors } from './theme'
 
 /**
  * Weekly/monthly used % per account over time, as small multiples: one strip per account on a shared time axis.
@@ -65,7 +63,7 @@ export function UsageOverTime({
               </span>
               <div className="h-9 border-b border-rivet">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+                  <AreaChart data={data} margin={{ top: 2, right: 0, bottom: 0, left: 0 }} accessibilityLayer={false}>
                     <XAxis dataKey="t" type="number" domain={[start, end]} hide />
                     <YAxis domain={[0, 100]} hide />
                     <Tooltip
@@ -74,7 +72,7 @@ export function UsageOverTime({
                       content={({ active, payload }) =>
                         active && payload?.length ? (
                           <div className="rounded border border-rivet bg-deck px-2.5 py-1.5 text-xs shadow-lg">
-                            <span className="text-muted">{fmtTip.format(Number(payload[0].payload.t))}: </span>
+                            <span className="text-muted">{tipTime.format(Number(payload[0].payload.t))}: </span>
                             <span className="tabular-nums">{Math.round(Number(payload[0].value))}% used</span>
                           </div>
                         ) : null

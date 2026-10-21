@@ -84,11 +84,7 @@ impl AppState {
     }
 
     pub fn adapter(&self, id: ProviderId) -> anyhow::Result<Adapter> {
-        self.adapters
-            .iter()
-            .find(|a| a.id() == id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no adapter for {}", id.as_str()))
+        self.adapters.iter().find(|a| a.id() == id).cloned().ok_or_else(|| anyhow::anyhow!("no adapter for {}", id.as_str()))
     }
 
     pub fn data_dir(&self) -> &Path {
@@ -164,7 +160,9 @@ impl AppState {
     pub async fn read_history(&self, account_id: Option<&str>, days: u32) -> Vec<UsageHistoryPoint> {
         let _guard = self.history_lock.lock().await;
         let since = chrono::Utc::now() - chrono::Duration::days(i64::from(days.max(1)));
-        read_history_file(&self.dir.join(HISTORY_FILE), account_id, since)
+        let (path, account_id) = (self.dir.join(HISTORY_FILE), account_id.map(str::to_string));
+        // Parsing up to 90 days of history is blocking work: keep it off the async workers.
+        tokio::task::spawn_blocking(move || read_history_file(&path, account_id.as_deref(), since)).await.unwrap_or_default()
     }
 
     pub async fn account(&self, id: &str) -> Option<Account> {
@@ -253,11 +251,7 @@ fn append_history_file(path: &Path, points: &[UsageHistoryPoint]) -> anyhow::Res
     Ok(())
 }
 
-fn read_history_file(
-    path: &Path,
-    account_id: Option<&str>,
-    since: chrono::DateTime<chrono::Utc>,
-) -> Vec<UsageHistoryPoint> {
+fn read_history_file(path: &Path, account_id: Option<&str>, since: chrono::DateTime<chrono::Utc>) -> Vec<UsageHistoryPoint> {
     let Ok(f) = std::fs::File::open(path) else {
         return vec![];
     };
@@ -279,10 +273,7 @@ pub fn prune_history(path: &Path, now: chrono::DateTime<chrono::Utc>) -> anyhow:
     let mut kept = Vec::new();
     let mut dropped = 0usize;
     for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
-        let keep = serde_json::from_str::<UsageHistoryPoint>(&line)
-            .ok()
-            .and_then(|p| util::parse_iso(&p.t))
-            .is_some_and(|t| t >= cutoff);
+        let keep = serde_json::from_str::<UsageHistoryPoint>(&line).ok().and_then(|p| util::parse_iso(&p.t)).is_some_and(|t| t >= cutoff);
         if keep {
             kept.extend_from_slice(line.as_bytes());
             kept.push(b'\n');
@@ -313,10 +304,8 @@ fn migrate_legacy(legacy: &Path, dir: &Path) -> anyhow::Result<bool> {
     let old_profiles = legacy.join("profiles");
     if old_profiles.is_dir() {
         let settings_path = dir.join(SETTINGS_FILE);
-        let mut settings: serde_json::Value = std::fs::read_to_string(&settings_path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_else(|| serde_json::json!({}));
+        let mut settings: serde_json::Value =
+            std::fs::read_to_string(&settings_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
         let unset = settings.get("profilesDir").and_then(|v| v.as_str()).is_none_or(|v| v.trim().is_empty());
         if let (true, Some(obj)) = (unset, settings.as_object_mut()) {
             obj.insert("profilesDir".into(), old_profiles.to_string_lossy().into_owned().into());
@@ -406,6 +395,26 @@ mod tests {
         assert_eq!(read_history_file(&path, None, now - chrono::Duration::days(1)).len(), 2);
         prune_history(&path, now).unwrap();
         assert_eq!(read_history_file(&path, None, old - chrono::Duration::days(1)).len(), 2);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn overlapping_saves_all_succeed_and_keep_the_newest_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = std::sync::Arc::new(AppState::load(dir.path().to_path_buf()).unwrap());
+        let tasks: Vec<_> = (1..=16u32)
+            .map(|i| {
+                let state = state.clone();
+                tokio::spawn(async move {
+                    state.settings.write().await.poll_interval_minutes = i;
+                    state.save_settings().await
+                })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap().unwrap();
+        }
+        let saved = load_settings(&dir.path().join(SETTINGS_FILE));
+        assert_eq!(saved.poll_interval_minutes, state.settings.read().await.poll_interval_minutes);
     }
 
     #[test]

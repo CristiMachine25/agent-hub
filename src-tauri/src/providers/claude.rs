@@ -18,9 +18,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-#[path = "claude_codex_common.rs"]
-pub(crate) mod common;
-use common::*;
+use super::common::*;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 /// From Claude Code's bundled OAuth config (`TOKEN_URL`, `CLIENT_ID`).
@@ -111,11 +109,7 @@ fn parse_creds(v: &Value, source: CredSource) -> Option<OAuthCreds> {
         access_token,
         refresh_token,
         expires_at_ms: num(o.get("expiresAt")).map(|n| n as i64),
-        scopes: o
-            .get("scopes")
-            .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
-            .unwrap_or_default(),
+        scopes: o.get("scopes").and_then(Value::as_array).map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect()).unwrap_or_default(),
         subscription_type: str_field(o, "subscriptionType").map(str::to_string),
         rate_limit_tier: str_field(o, "rateLimitTier").map(str::to_string),
         source,
@@ -155,12 +149,7 @@ fn parse_keychain_secret(raw: &str) -> Option<Value> {
 }
 
 async fn keychain_read(service: &str) -> Option<Value> {
-    let out = util::run_capture(
-        Path::new("/usr/bin/security"),
-        &["find-generic-password", "-s", service, "-w"],
-        Duration::from_secs(10),
-    )
-    .await?;
+    let out = util::run_capture(Path::new("/usr/bin/security"), &["find-generic-password", "-s", service, "-w"], Duration::from_secs(10)).await?;
     parse_keychain_secret(&out)
 }
 
@@ -186,9 +175,7 @@ async fn keychain_write(service: &str, secret: &[u8]) -> anyhow::Result<bool> {
 
 /// Existence check only (no secret read, so no Keychain prompt).
 async fn keychain_exists(service: &str) -> bool {
-    util::run_capture(Path::new("/usr/bin/security"), &["find-generic-password", "-s", service], Duration::from_secs(5))
-        .await
-        .is_some()
+    util::run_capture(Path::new("/usr/bin/security"), &["find-generic-password", "-s", service], Duration::from_secs(5)).await.is_some()
 }
 
 /// Credentials for a home: Keychain first on macOS, then the file.
@@ -214,10 +201,7 @@ fn metadata_paths(home: &Path, is_default: bool) -> Vec<PathBuf> {
 }
 
 fn read_oauth_account(home: &Path, is_default: bool) -> Option<Value> {
-    metadata_paths(home, is_default)
-        .iter()
-        .filter_map(|p| util::read_json(p))
-        .find_map(|v| v.get("oauthAccount").filter(|o| o.is_object()).cloned())
+    metadata_paths(home, is_default).iter().filter_map(|p| util::read_json(p)).find_map(|v| v.get("oauthAccount").filter(|o| o.is_object()).cloned())
 }
 
 /// Plan label from `subscriptionType` ("max", or "claude_max" in oauthAccount) and rate-limit tier.
@@ -254,12 +238,10 @@ fn plan_label(subscription: Option<&str>, tier: Option<&str>) -> Option<String> 
 
 fn identity_from(creds: Option<&OAuthCreds>, oauth_account: Option<&Value>, logged_in: bool) -> Identity {
     let email = oauth_account.and_then(|o| str_field(o, "emailAddress")).map(str::to_string);
-    let plan = creds
-        .and_then(|c| plan_label(c.subscription_type.as_deref(), c.rate_limit_tier.as_deref()))
-        .or_else(|| {
-            let o = oauth_account?;
-            plan_label(str_field(o, "organizationType"), str_field(o, "organizationRateLimitTier"))
-        });
+    let plan = creds.and_then(|c| plan_label(c.subscription_type.as_deref(), c.rate_limit_tier.as_deref())).or_else(|| {
+        let o = oauth_account?;
+        plan_label(str_field(o, "organizationType"), str_field(o, "organizationRateLimitTier"))
+    });
     Identity { logged_in, email, plan }
 }
 
@@ -330,11 +312,7 @@ fn parse_usage(v: &Value) -> (Vec<UsageWindow>, Option<Credits>) {
         if used.is_none() && limit.is_none() {
             return None;
         }
-        Some(Credits {
-            used: used.unwrap_or(0.0) / 100.0,
-            limit: limit.map(|l| l / 100.0),
-            unit: str_field(e, "currency").unwrap_or("USD").to_string(),
-        })
+        Some(Credits { used: used.unwrap_or(0.0) / 100.0, limit: limit.map(|l| l / 100.0), unit: str_field(e, "currency").unwrap_or("USD").to_string() })
     });
     (windows, credits)
 }
@@ -342,6 +320,15 @@ fn parse_usage(v: &Value) -> (Vec<UsageWindow>, Option<Credits>) {
 // ---------------------------------------------------------------------------------------------
 // Token refresh (Windows/Linux file credentials only)
 // ---------------------------------------------------------------------------------------------
+
+// Transient refresh failures are worded without "login"/"token"/"auth", so usage::looks_like_auth_error
+// doesn't read them as signed out (and fire a "needs you to log in" alert) while offline.
+const REFRESH_OFFLINE: &str = "could not reach Anthropic (network error)";
+const REFRESH_BAD_RESPONSE: &str = "Anthropic sent an unexpected response";
+
+fn refresh_failed(e: &str) -> String {
+    format!("Could not renew the Claude session: {e}.")
+}
 
 #[derive(Debug)]
 enum RefreshError {
@@ -370,9 +357,9 @@ fn apply_refresh(file: &mut Value, resp: &Value, now_ms: i64) -> Option<()> {
 }
 
 fn is_invalid_grant(status: u16, body: &str) -> bool {
-    let err = serde_json::from_str::<Value>(body).ok().and_then(|v| {
-        v.get("error").and_then(|e| e.as_str().map(str::to_string).or_else(|| e.get("type").and_then(Value::as_str).map(str::to_string)))
-    });
+    let err = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.get("error").and_then(|e| e.as_str().map(str::to_string).or_else(|| e.get("type").and_then(Value::as_str).map(str::to_string))));
     matches!(err.as_deref(), Some("invalid_grant")) || (status == 400 && body.contains("invalid_grant"))
 }
 
@@ -389,12 +376,7 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
     if !creds.scopes.is_empty() {
         body["scope"] = json!(creds.scopes.join(" "));
     }
-    let resp = util::http()
-        .post(TOKEN_URL)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|_| RefreshError::Other("network error while refreshing the login".into()))?;
+    let resp = util::http().post(TOKEN_URL).json(&body).send().await.map_err(|_| RefreshError::Other(REFRESH_OFFLINE.into()))?;
     let status = resp.status().as_u16();
     let text = resp.text().await.unwrap_or_default();
     if !(200..300).contains(&status) {
@@ -407,18 +389,18 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
             }
             return Err(RefreshError::InvalidGrant);
         }
-        return Err(RefreshError::Other(format!("token refresh failed (HTTP {status})")));
+        return Err(RefreshError::Other(format!("Anthropic answered HTTP {status}")));
     }
-    let token: Value = serde_json::from_str(&text).map_err(|_| RefreshError::Other("unexpected token response".into()))?;
+    let token: Value = serde_json::from_str(&text).map_err(|_| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))?;
 
     let path = home.join(CREDENTIALS_FILE);
     let mut file = util::read_json(&path).ok_or_else(|| RefreshError::Other("credentials file disappeared".into()))?;
-    apply_refresh(&mut file, &token, now_ms()).ok_or_else(|| RefreshError::Other("unexpected token response".into()))?;
+    apply_refresh(&mut file, &token, now_ms()).ok_or_else(|| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))?;
     let bytes = serde_json::to_vec(&file).map_err(|e| RefreshError::Other(e.to_string()))?;
     if let Err(e) = write_credentials_atomic(&path, &bytes) {
         log::warn!("claude: could not write refreshed credentials for {}: {e}", home.display());
     }
-    parse_creds(&file, CredSource::File).ok_or_else(|| RefreshError::Other("unexpected token response".into()))
+    parse_creds(&file, CredSource::File).ok_or_else(|| RefreshError::Other(REFRESH_BAD_RESPONSE.into()))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -471,9 +453,7 @@ fn accumulate_line(v: &Value, first_date: &str, seen: &mut HashSet<String>, days
 }
 
 fn finish_days(account_id: &str, days: BTreeMap<String, DayAgg>) -> Vec<DailyActivity> {
-    days.into_values()
-        .map(|d| DailyActivity { account_id: account_id.to_string(), sessions: d.sessions.len() as u32, ..d.activity })
-        .collect()
+    days.into_values().map(|d| DailyActivity { account_id: account_id.to_string(), sessions: d.sessions.len() as u32, ..d.activity }).collect()
 }
 
 fn scan_projects(account_id: &str, home: &Path, since_days: u32) -> Vec<DailyActivity> {
@@ -519,10 +499,6 @@ fn find_desktop() -> Option<PathBuf> {
     candidates.into_iter().find(|p| std::fs::symlink_metadata(p).is_ok())
 }
 
-fn parse_version(out: &str) -> Option<String> {
-    out.split_whitespace().next().map(str::to_string)
-}
-
 /// Microsoft Store builds run from `WindowsApps`. Windows redirects their writes under AppData into
 /// the package, so a data folder there doesn't keep the sign-in.
 fn is_store_build(app: &Path) -> bool {
@@ -552,10 +528,7 @@ fn desktop_config_paths() -> Vec<PathBuf> {
 
 /// Account the main Claude Desktop profile was last signed in to.
 fn desktop_main_account() -> Option<String> {
-    desktop_config_paths()
-        .iter()
-        .filter_map(|p| util::read_json(p))
-        .find_map(|v| str_field(&v, "lastKnownAccountUuid").map(str::to_string))
+    desktop_config_paths().iter().filter_map(|p| util::read_json(p)).find_map(|v| str_field(&v, "lastKnownAccountUuid").map(str::to_string))
 }
 
 /// Where a profile's own Claude Desktop data lives. Kept in the profile folder, except for Store builds
@@ -610,7 +583,7 @@ impl ClaudeAdapter {
     }
 
     async fn user_agent(&self) -> String {
-        let (_, version) = self.version.get("claude", parse_version).await;
+        let (_, version) = self.version.get("claude").await;
         format!("claude-cli/{} (external, cli)", version.unwrap_or_else(|| "2.1.0".into()))
     }
 }
@@ -622,7 +595,7 @@ impl ProviderAdapter for ClaudeAdapter {
     }
 
     async fn info(&self) -> ProviderInfo {
-        let (cli_path, cli_version) = self.version.get("claude", parse_version).await;
+        let (cli_path, cli_version) = self.version.get("claude").await;
         let desktop = find_desktop();
         let install_hint = if cfg!(windows) {
             "irm https://claude.ai/install.ps1 | iex   (PowerShell)  or  npm i -g @anthropic-ai/claude-code"
@@ -677,8 +650,7 @@ impl ProviderAdapter for ClaudeAdapter {
             let looks_like_home = if is_default {
                 ident.logged_in || read_oauth_account(&dir, true).is_some()
             } else {
-                ident.logged_in
-                    || [CREDENTIALS_FILE, ".claude.json", "settings.json", "projects"].iter().any(|f| dir.join(f).exists())
+                ident.logged_in || [CREDENTIALS_FILE, ".claude.json", "settings.json", "projects"].iter().any(|f| dir.join(f).exists())
             };
             if !looks_like_home {
                 continue;
@@ -826,9 +798,7 @@ impl ProviderAdapter for ClaudeAdapter {
             app_args.push(format!("--user-data-dir={}", data_dir.display()));
             if first_time {
                 let who = account.email.as_deref().map(|e| format!(" as {e}")).unwrap_or_default();
-                note = Some(format!(
-                    "First time for this profile: sign in to Claude Desktop{who} in the new window. It stays signed in from then on."
-                ));
+                note = Some(format!("First time for this profile: sign in to Claude Desktop{who} in the new window. It stays signed in from then on."));
             }
         }
         let app = app.to_string_lossy().to_string();
@@ -875,7 +845,7 @@ impl ProviderAdapter for ClaudeAdapter {
                     refreshed = true;
                 }
                 Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, "Sign in again: the saved Claude login is no longer valid."),
-                Err(RefreshError::Other(e)) => return self.no_data(account, &ident, format!("Could not refresh the Claude login: {e}.")),
+                Err(RefreshError::Other(e)) => return self.no_data(account, &ident, refresh_failed(&e)),
             }
         }
 
@@ -926,6 +896,15 @@ impl ProviderAdapter for ClaudeAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transient_refresh_failures_do_not_read_as_signed_out() {
+        for e in [REFRESH_OFFLINE, REFRESH_BAD_RESPONSE, "Anthropic answered HTTP 503"] {
+            let msg = refresh_failed(e);
+            assert!(!crate::usage::looks_like_auth_error(&msg), "{msg}");
+        }
+        assert!(crate::usage::looks_like_auth_error(&refresh_failed("Anthropic answered HTTP 401")));
+    }
 
     const CREDS: &str = r#"{"claudeAiOauth":{"accessToken":"sk-ant-oat01-AAA","refreshToken":"sk-ant-ort01-BBB",
         "expiresAt":1792520000000,"refreshTokenExpiresAt":1800000000000,
@@ -1069,11 +1048,19 @@ mod tests {
         assert!(accumulate_line(&line(&ts, "msg_2", "req_2", "s2", "claude-sonnet-4-6", 1, 2), &first, &mut seen, &mut days));
         assert!(!accumulate_line(&line(&old, "msg_3", "req_3", "s3", "claude-sonnet-4-6", 1, 2), &first, &mut seen, &mut days));
         assert!(!accumulate_line(&json!({"type": "user", "timestamp": ts, "message": {"content": "hi"}}), &first, &mut seen, &mut days));
-        assert!(!accumulate_line(&line(&ts, "msg_4", "r4", "s1", "<synthetic>", 0, 0).as_object().map(|o| {
-            let mut o = o.clone();
-            o.remove("timestamp");
-            Value::Object(o)
-        }).unwrap(), &first, &mut seen, &mut days));
+        assert!(!accumulate_line(
+            &line(&ts, "msg_4", "r4", "s1", "<synthetic>", 0, 0)
+                .as_object()
+                .map(|o| {
+                    let mut o = o.clone();
+                    o.remove("timestamp");
+                    Value::Object(o)
+                })
+                .unwrap(),
+            &first,
+            &mut seen,
+            &mut days
+        ));
 
         let out = finish_days("acc", days);
         assert_eq!(out.len(), 1);

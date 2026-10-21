@@ -42,6 +42,8 @@ export const SHARING_ITEMS: { key: keyof SharingOptions; label: string; explain:
 
 /** Account identity colors: a validated categorical set (see docs/DESIGN.md). */
 export const ACCOUNT_COLORS = ['#3987E5', '#D95926', '#199E70', '#C98500', '#D55181', '#9085E9', '#E66767', '#008300']
+/** What screen readers call each of ACCOUNT_COLORS, in the same order. */
+export const ACCOUNT_COLOR_NAMES = ['Blue', 'Orange', 'Green', 'Amber', 'Pink', 'Violet', 'Red', 'Dark green']
 
 export function launchVerb(p: ProviderId): string {
   return `Launch ${PROVIDER_META[p].short}`

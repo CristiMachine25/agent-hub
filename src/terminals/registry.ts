@@ -19,6 +19,8 @@ const entries = new Map<string, TermEntry>()
 /** Output that arrived before the pane created its terminal (spawn returns after the process starts). */
 const pending = new Map<string, string[]>()
 const PENDING_LIMIT = 512
+/** Closed terminals whose last output may still be on its way; it is dropped until their exit event. */
+const disposed = new Set<string>()
 
 let listening = false
 let exitHandler: (id: string, code: number | null) => void = () => {}
@@ -80,7 +82,7 @@ const ANSI: Record<'dark' | 'light', ITheme> = {
   }
 }
 
-export function terminalTheme(mode: 'dark' | 'light'): ITheme {
+function terminalTheme(mode: 'dark' | 'light'): ITheme {
   return {
     ...ANSI[mode],
     background: rgb('ground'),
@@ -100,11 +102,15 @@ function ensureListeners() {
       e.term.write(data)
       return
     }
+    if (disposed.has(id)) return
     const buf = pending.get(id) ?? []
     if (buf.length < PENDING_LIMIT) buf.push(data)
     pending.set(id, buf)
   })
-  api.on('terminal-exit', ({ id, code }) => exitHandler(id, code))
+  api.on('terminal-exit', ({ id, code }) => {
+    disposed.delete(id)
+    exitHandler(id, code)
+  })
 }
 
 /** Called by the grid store so exits update pane status. */
@@ -151,11 +157,35 @@ function keyHandler(term: Terminal) {
   }
 }
 
+/** Sends keystrokes in order: one write in flight per terminal; input typed meanwhile goes in the next one. */
+function inputWriter(id: string): (data: string) => void {
+  let queued = ''
+  let sending = false
+  const send = () => {
+    if (sending || !queued) return
+    const data = queued
+    queued = ''
+    sending = true
+    void api.terminals
+      .write(id, data)
+      .catch(() => {})
+      .finally(() => {
+        sending = false
+        send()
+      })
+  }
+  return (data) => {
+    queued += data
+    send()
+  }
+}
+
 /** The xterm for a backend terminal, created on first use. `scrollback` seeds a re-attached terminal. */
 export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string): TermEntry {
   ensureListeners()
   const existing = entries.get(id)
   if (existing) return existing
+  disposed.delete(id)
   const host = document.createElement('div')
   host.className = 'h-full w-full'
   const term = new Terminal({
@@ -176,7 +206,7 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
     })
   )
   term.attachCustomKeyEventHandler(keyHandler(term))
-  term.onData((data) => void api.terminals.write(id, data).catch(() => {}))
+  term.onData(inputWriter(id))
   term.open(host)
   const entry: TermEntry = { term, fit, host, cols: term.cols, rows: term.rows }
   entries.set(id, entry)
@@ -189,10 +219,6 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
     pending.delete(id)
   }
   return entry
-}
-
-export function hasTerm(id: string): boolean {
-  return entries.has(id)
 }
 
 /** Fit to the host's size and tell the backend when the character grid changed. */
@@ -223,6 +249,7 @@ export function estimateSize(el: HTMLElement | null): { cols: number; rows: numb
 export function disposeTerm(id: string) {
   const e = entries.get(id)
   pending.delete(id)
+  disposed.add(id)
   if (!e) return
   entries.delete(id)
   e.term.dispose()

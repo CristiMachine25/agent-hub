@@ -2,7 +2,7 @@ import type { Account, AppSettings, UsageSnapshot, UsageWindow, UsageHistoryPoin
 
 export type Level = 'full' | 'half' | 'low' | 'empty'
 
-export function clampPct(n: number): number {
+function clampPct(n: number): number {
   if (!Number.isFinite(n)) return 0
   return Math.min(100, Math.max(0, n))
 }

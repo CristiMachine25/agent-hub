@@ -227,7 +227,7 @@ function CreateStep({
 }) {
   const providers = useStore((s) => s.providers)
   const defaultSharing = useStore((s) => s.settings?.defaultSharing ?? DEFAULT_SHARING)
-  const { toast, launch, go } = useStore.getState()
+  const { launch, go } = useStore.getState()
   const [providerId, setProviderId] = useState<ProviderId>(draft?.providerId ?? 'claude')
   const [label, setLabel] = useState(draft?.label ?? '')
   const [preset, setPreset] = useState<Preset>(draft?.preset ?? 'recommended')

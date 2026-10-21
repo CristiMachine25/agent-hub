@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { AlertTriangle, Check, ExternalLink, Loader2, Search, Trash2, X } from 'lucide-react'
 import type { DirectorySkill, InstalledSkill, ProviderId, SkillPreview } from '@shared/types'
@@ -8,7 +8,7 @@ import { PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { formatTokens } from '@/lib/format'
 import { FEATURED, featuredFor, folderOf, installState, repoUrl, skillPageUrl } from '@/lib/skills'
 import { Dialog, EmptyState, ProviderMark, SectionTitle } from '@/components/ui'
-import { Page } from './Overview'
+import { Page } from '@/components/Page'
 
 /** What a row needs: a directory result, or a featured entry before its counts are known. */
 type Listing = { id: string; name: string; source: string; installs?: number; blurb?: string }
@@ -25,6 +25,7 @@ export function Skills() {
   const [results, setResults] = useState<DirectorySkill[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string>()
+  const [attempt, setAttempt] = useState(0)
   const [open, setOpen] = useState<Listing | null>(null)
   const seq = useRef(0)
 
@@ -66,7 +67,11 @@ export function Skills() {
       }
     }, 250)
     return () => clearTimeout(t)
-  }, [q])
+  }, [q, attempt])
+
+  const count = results && (results.length === 50 ? 'Top 50 results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`)
+  const status =
+    q.length < 2 ? '' : searching ? 'Searching skills.sh…' : searchError ? "Couldn't search skills.sh" : results?.length === 0 ? `No skills match “${q}”` : count ? `${count} for “${q}”` : ''
 
   return (
     <Page title="Skills">
@@ -90,7 +95,7 @@ export function Skills() {
           className="h-10 w-full pl-9 pr-9"
         />
         {searching ? (
-          <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-muted" aria-label="Searching" />
+          <Loader2 size={15} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-muted" aria-hidden />
         ) : (
           query && (
             <button className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted hover:text-ink" onClick={() => setQuery('')} aria-label="Clear search">
@@ -98,13 +103,17 @@ export function Skills() {
             </button>
           )
         )}
+        <p className="sr-only" role="status">
+          {status}
+        </p>
       </div>
 
       {tools.length === 0 && (
         <EmptyState title="Add an account first" body="Skills install into the shared folder of a tool you have accounts for. You can still browse and read them." />
       )}
 
-      {q.length < 2 ? (
+      {/* The featured lists stay up until the first results arrive, so the page doesn't go blank while it searches. */}
+      {q.length < 2 || (!results && !searchError) ? (
         FEATURED.map((g) => (
           <section key={g.title} aria-label={g.title}>
             <SectionTitle>{g.title}</SectionTitle>
@@ -112,15 +121,21 @@ export function Skills() {
           </section>
         ))
       ) : searchError ? (
-        <EmptyState title="Couldn't search skills.sh" body={searchError} />
+        <EmptyState
+          title="Couldn't search skills.sh"
+          body={searchError}
+          action={
+            <button className="btn btn-primary" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          }
+        />
       ) : results && results.length === 0 ? (
         <EmptyState title={`No skills match “${q}”`} body="Try a broader word, such as the framework or file type you work with." />
       ) : (
         results && (
           <section aria-label="Search results">
-            <SectionTitle aside={<span className="text-xs text-muted">Most relevant first</span>}>
-              {results.length === 50 ? 'Top 50 results' : `${results.length} ${results.length === 1 ? 'result' : 'results'}`}
-            </SectionTitle>
+            <SectionTitle aside={<span className="text-xs text-muted">Most relevant first</span>}>{count}</SectionTitle>
             <SkillList items={results.map(fromResult)} installed={installed} tools={tools} onOpen={setOpen} />
           </section>
         )
@@ -139,8 +154,11 @@ function SkillList({ items, installed, tools, onOpen }: { items: Listing[]; inst
   return (
     <ul className="grid grid-cols-1 overflow-hidden rounded-lg border border-rivet min-[1100px]:grid-cols-2">
       {items.map((it) => (
-        <li key={it.id} className="border-b border-rivet last:border-b-0 min-[1100px]:[&:nth-child(odd):not(:last-child)]:border-r min-[1100px]:[&:nth-last-child(2):nth-child(odd)]:border-b-0">
-          <button className="flex h-full w-full items-start gap-3 bg-deck px-4 py-3 text-left hover:bg-raised" onClick={() => onOpen(it)} data-tip={`Read ${it.name} before installing`}>
+        <li
+          key={it.id}
+          className="border-b border-rivet last:border-b-0 min-[1100px]:[&:last-child:nth-child(odd)]:col-span-2 min-[1100px]:[&:nth-child(odd):not(:last-child)]:border-r min-[1100px]:[&:nth-last-child(2):nth-child(odd)]:border-b-0"
+        >
+          <button className="group flex h-full w-full items-start gap-3 bg-deck px-4 py-3 text-left hover:bg-raised" onClick={() => onOpen(it)} data-tip={`Read ${it.name} before installing`}>
             <span className="min-w-0 flex-1">
               <span className="flex min-w-0 items-baseline gap-2">
                 <span className="truncate font-semibold">{it.name}</span>
@@ -167,8 +185,12 @@ function ToolMarks({ id, installed, tools }: { id: string; installed: InstalledS
         const tool = PROVIDER_META[p].product
         const title = state === 'installed' ? `Installed for ${tool}` : state === 'taken' ? `${tool} already has a different skill named ${folderOf(id)}` : `Not installed for ${tool}`
         return (
-          <span key={p} data-tip={title} aria-label={title} className={clsx('flex', state === 'absent' && 'opacity-25 grayscale', state === 'taken' && 'opacity-60')}>
-            <ProviderMark id={p} size={15} />
+          <span key={p} data-tip={title} aria-label={title} className={clsx('relative flex', state === 'absent' && 'opacity-25 grayscale')}>
+            <span className={clsx('flex', state === 'taken' && 'opacity-60')}>
+              <ProviderMark id={p} size={15} />
+            </span>
+            {/* "Taken" is not "installed": a warning dot tells them apart without relying on how faded the mark is. */}
+            {state === 'taken' && <span className="absolute -right-1 -top-1 h-[7px] w-[7px] rounded-full bg-low ring-2 ring-deck group-hover:ring-raised" />}
           </span>
         )
       })}
@@ -190,6 +212,7 @@ function SkillDialog({
   onChanged: () => Promise<void>
 }) {
   const toast = useStore((s) => s.toast)
+  const uid = useId()
   const [preview, setPreview] = useState<SkillPreview | null>(null)
   const [previewError, setPreviewError] = useState<string>()
   const absent = tools.filter((p) => installState(listing.id, p, installed) === 'absent')
@@ -276,30 +299,34 @@ function SkillDialog({
               const state = installState(listing.id, p, installed)
               const tool = PROVIDER_META[p].product
               return (
-                <label key={p} className={clsx('flex items-center gap-2.5', state !== 'absent' && 'text-muted')}>
-                  <input
-                    type="checkbox"
-                    checked={state === 'installed' || (state === 'absent' && picked.has(p))}
-                    disabled={state !== 'absent' || busy !== null}
-                    onChange={(e) => {
-                      const next = new Set(picked)
-                      if (e.target.checked) next.add(p)
-                      else next.delete(p)
-                      setPicked(next)
-                    }}
-                  />
-                  <ProviderMark id={p} size={15} />
-                  <span className="flex-1">
+                <div key={p} className={clsx('flex items-center gap-2.5', state !== 'absent' && 'text-muted')}>
+                  {/* Only the checkbox and the tool name form the label, so the status and Remove stay out of its name. */}
+                  <label className="flex items-center gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={state === 'installed' || (state === 'absent' && picked.has(p))}
+                      disabled={state !== 'absent' || busy !== null}
+                      aria-describedby={state !== 'absent' ? `${uid}-${p}` : undefined}
+                      onChange={(e) => {
+                        const next = new Set(picked)
+                        if (e.target.checked) next.add(p)
+                        else next.delete(p)
+                        setPicked(next)
+                      }}
+                    />
+                    <ProviderMark id={p} size={15} />
                     {tool}
-                    {state === 'installed' && <span className="ml-2 inline-flex items-center gap-1 text-xs text-full"><Check size={12} /> Installed</span>}
-                    {state === 'taken' && <span className="ml-2 text-xs">A different skill named {folderOf(listing.id)} is already there</span>}
+                  </label>
+                  <span id={`${uid}-${p}`} className="flex-1 text-xs">
+                    {state === 'installed' && <span className="inline-flex items-center gap-1 text-full"><Check size={12} /> Installed</span>}
+                    {state === 'taken' && <>A different skill named {folderOf(listing.id)} is already there</>}
                   </span>
                   {state === 'installed' && (
                     <button type="button" className="btn btn-ghost btn-sm btn-danger" onClick={() => remove(p)} disabled={busy !== null}>
                       {busy === p ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />} Remove
                     </button>
                   )}
-                </label>
+                </div>
               )
             })}
           </fieldset>

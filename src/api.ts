@@ -1,12 +1,12 @@
-// HopperApi: Tauri invoke/listen inside the app, an in-memory mock in a plain browser.
+// AgentHubApi: Tauri invoke/listen inside the app, an in-memory mock in a plain browser.
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
-import type { AppEvents, HopperApi } from '@shared/types'
+import type { AppEvents, AgentHubApi } from '@shared/types'
 import { COMMANDS } from '@shared/types'
 import { createMockApi } from './mock/backend'
 import { detectPlatform, isTauri } from './lib/platform'
 
-function createTauriApi(): HopperApi {
+function createTauriApi(): AgentHubApi {
   const call = <T,>(cmd: string, args?: Record<string, unknown>) => invoke<T>(cmd, args)
   return {
     platform: detectPlatform(),
@@ -19,8 +19,7 @@ function createTauriApi(): HopperApi {
       import: (found) => call(COMMANDS.accountsImport, { found }),
       create: (input) => call(COMMANDS.accountsCreate, { input }),
       update: (id, patch) => call(COMMANDS.accountsUpdate, { id, patch }),
-      remove: (id, opts) => call(COMMANDS.accountsRemove, { id, deleteHome: opts.deleteHome }),
-      applySharing: (id) => call(COMMANDS.accountsApplySharing, { id })
+      remove: (id, opts) => call(COMMANDS.accountsRemove, { id, deleteHome: opts.deleteHome })
     },
     usage: {
       latest: () => call(COMMANDS.usageLatest),
@@ -98,12 +97,19 @@ function createTauriApi(): HopperApi {
 
 export const IS_MOCK = !isTauri()
 
-export const api: HopperApi = IS_MOCK ? createMockApi(detectPlatform()) : createTauriApi()
+export const api: AgentHubApi = IS_MOCK ? createMockApi(detectPlatform()) : createTauriApi()
+
+/** Where the backend writes its log file (tauri-plugin-log's LogDir target). */
+const LOG_DIR = {
+  darwin: '~/Library/Logs/dev.switchyard.app',
+  win32: '%LOCALAPPDATA%\\dev.switchyard.app\\logs',
+  linux: '~/.local/share/dev.switchyard.app/logs'
+} as const
 
 /** Turn any thrown value (Tauri returns plain strings) into a readable message. */
 export function errorText(e: unknown): string {
   if (typeof e === 'string') return e
   if (e instanceof Error) return e.message
   if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message)
-  return 'Something went wrong. Try again, and check the app log if it keeps happening.'
+  return `Something went wrong. Try again; if it keeps happening, check Agent Hub.log in ${LOG_DIR[detectPlatform()]}.`
 }

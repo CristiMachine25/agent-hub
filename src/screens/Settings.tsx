@@ -6,7 +6,7 @@ import { useStore } from '@/store'
 import { SHARING_ITEMS } from '@/lib/providers'
 import { Segmented, Switch } from '@/components/ui'
 import { ExportDialog, ImportDialog } from '@/components/Transfer'
-import { Page } from './Overview'
+import { Page } from '@/components/Page'
 import { FONT_SIZE_KEY, FONT_SIZES, restyleAll, terminalFontSize } from '@/terminals/registry'
 
 const TERMINALS: Record<string, { id: string; label: string }[]> = {
@@ -80,7 +80,7 @@ export function Settings() {
             <Switch checked={n.enabled} onChange={(v) => setN({ enabled: v })} label="Show notifications" />
           </Row>
           <Row label="Warn when a limit is nearly used" help={`When an account has used ${n.nearlyExhaustedPercent}% of any limit.`}>
-            <Slider value={n.nearlyExhaustedPercent} min={50} max={95} step={5} unit="% used" onChange={(v) => setN({ nearlyExhaustedPercent: v })} disabled={!n.enabled} label="Nearly used threshold" />
+            <Slider value={n.nearlyExhaustedPercent} min={50} max={95} step={5} unit="% used" onChange={(v) => setN({ nearlyExhaustedPercent: v })} disabled={!n.enabled} label="Warn when a limit is nearly used" />
           </Row>
           <Row
             label="Use it or lose it"
@@ -154,7 +154,7 @@ export function Settings() {
             <Switch checked={s.minimizeToTray} onChange={(v) => save({ minimizeToTray: v })} label="Keep running in the tray" />
           </Row>
           <Row label="Start when you sign in to your computer" help="Agent Hub starts hidden in the tray, ready to warn you about limits.">
-            <Switch checked={s.launchAtLogin} onChange={(v) => save({ launchAtLogin: v })} label="Start at login" />
+            <Switch checked={s.launchAtLogin} onChange={(v) => save({ launchAtLogin: v })} label="Start when you sign in to your computer" />
           </Row>
           <Row label="Terminal font size" help="Text size in the terminal grid. Stored on this computer only.">
             <FontSize />
@@ -236,8 +236,16 @@ function Slider({
   // Show the value while dragging; save once the slider has been still for 400 ms.
   const [local, setLocal] = useState(value)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const pending = useRef<() => void>(undefined)
   useEffect(() => setLocal(value), [value])
-  useEffect(() => () => clearTimeout(timer.current), [])
+  // Leaving the screen within the 400 ms saves the value now instead of dropping it.
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current)
+      pending.current?.()
+    },
+    []
+  )
   return (
     <label className="flex items-center gap-3">
       <input
@@ -252,7 +260,11 @@ function Slider({
           const v = Number(e.target.value)
           setLocal(v)
           clearTimeout(timer.current)
-          timer.current = setTimeout(() => onChange(v), 400)
+          pending.current = () => {
+            pending.current = undefined
+            onChange(v)
+          }
+          timer.current = setTimeout(pending.current, 400)
         }}
         className="w-36"
       />

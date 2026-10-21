@@ -59,13 +59,7 @@ pub fn apply_for_account(account: &Account, adapter: &dyn ProviderAdapter, knowl
     apply(home, sources, &account.sharing, &shareable, &creds)
 }
 
-pub fn apply(
-    home: &Path,
-    sources: Sources,
-    opts: &SharingOptions,
-    shareable: &[(ShareKind, Vec<&'static str>)],
-    credentials: &[&str],
-) -> SharingReport {
+pub fn apply(home: &Path, sources: Sources, opts: &SharingOptions, shareable: &[(ShareKind, Vec<&'static str>)], credentials: &[&str]) -> SharingReport {
     let mut report = SharingReport::default();
     // Sharing a home with itself would create self-referencing links.
     let usable = |s: Option<&Path>| s.filter(|s| util::path_key(s) != util::path_key(home)).map(Path::to_path_buf);
@@ -113,7 +107,24 @@ fn drop_hard_link(old: Option<&Path>, dst: &Path) -> io::Result<()> {
 
 pub(crate) fn is_safe_rel(rel: &str) -> bool {
     let p = Path::new(rel);
-    !rel.is_empty() && p.components().all(|c| matches!(c, Component::Normal(_)))
+    !rel.is_empty()
+        && p.components().all(|c| match c {
+            Component::Normal(part) => !cfg!(windows) || part.to_str().is_some_and(windows_safe_name),
+            _ => false,
+        })
+}
+
+/// A file or folder name Windows stores as given: no device name (`con`, `nul`, `com1`...), no
+/// `:` (an alternate data stream) or other reserved character, no trailing dot or space (dropped,
+/// so two names could become one).
+pub(crate) fn windows_safe_name(name: &str) -> bool {
+    let stem = name.split('.').next().unwrap_or_default().to_ascii_lowercase();
+    let device = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || (stem.len() == 4 && (stem.starts_with("com") || stem.starts_with("lpt")) && matches!(stem.as_bytes()[3], b'1'..=b'9'));
+    !name.is_empty()
+        && !device
+        && !name.ends_with(['.', ' '])
+        && !name.chars().any(|c| c.is_control() || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'))
 }
 
 /// True when `rel` is a credential path, lies inside one, or contains one.
@@ -173,12 +184,16 @@ fn share_one(src: &Path, dst: &Path, rel: &str, adopt: bool, report: &mut Sharin
     Ok(())
 }
 
-/// Remove only what we created: links (symlink/junction) and hard links to a source. Real data stays.
+/// Remove only what we created: links (symlink/junction) and hard links to a source. Real data,
+/// and links the user made to somewhere else, stay.
 fn unshare_one(sources: &[PathBuf], dst: &Path, rel: &str, report: &mut SharingReport) -> io::Result<()> {
     let Ok(meta) = fs::symlink_metadata(dst) else {
         return Ok(());
     };
     if is_link(dst) {
+        if !sources.iter().any(|s| points_to(dst, s)) {
+            return Ok(());
+        }
         remove_link(dst)?;
         report.unlinked.push(rel.to_string());
     } else if meta.is_file() && sources.iter().any(|s| same_file::is_same_file(s, dst).unwrap_or(false)) {
@@ -206,8 +221,10 @@ pub fn is_link(p: &Path) -> bool {
     }
 }
 
-fn points_to(link: &Path, target: &Path) -> bool {
-    let read = fs::read_link(link).ok().or_else(|| {
+// The closure does real work on Windows; elsewhere it is just `None`.
+#[allow(clippy::unnecessary_lazy_evaluations)]
+fn link_target(link: &Path) -> Option<PathBuf> {
+    fs::read_link(link).ok().or_else(|| {
         #[cfg(windows)]
         {
             junction::get_target(link).ok()
@@ -216,8 +233,11 @@ fn points_to(link: &Path, target: &Path) -> bool {
         {
             None
         }
-    });
-    if let Some(t) = read {
+    })
+}
+
+fn points_to(link: &Path, target: &Path) -> bool {
+    if let Some(t) = link_target(link) {
         let t = if t.is_relative() { link.parent().map(|p| p.join(&t)).unwrap_or(t) } else { t };
         if norm_key(&t) == norm_key(target) {
             return true;
@@ -272,17 +292,37 @@ fn skip_on_copy(name: &str) -> bool {
     name == ".git" || name == "node_modules" || name.contains(".hopper-backup-")
 }
 
-/// Copy `src` (file or folder, links followed) to `dst`, adding only files `dst` lacks.
-/// Never overwrites, moves or deletes anything.
+/// Copy `src` (file or folder) to `dst`, adding only files `dst` lacks. A link is copied as a
+/// link to the same place, never as what it points at, so a skills folder linked into another
+/// checkout keeps following it. Never overwrites, moves or deletes anything.
 pub fn copy_missing(src: &Path, dst: &Path) -> io::Result<CopyCount> {
     copy_missing_at(src, dst, 0)
 }
 
 fn copy_missing_at(src: &Path, dst: &Path, depth: usize) -> io::Result<CopyCount> {
     let mut count = CopyCount::default();
-    // Links are followed, so a link loop would otherwise recurse forever.
     if depth > 32 {
         return Ok(count);
+    }
+    if is_link(src) {
+        // A link up to one of its own folders would loop, and in the shared folder it would
+        // point back into the tool's home.
+        if points_above(src) {
+            return Ok(count);
+        }
+        match fs::symlink_metadata(dst) {
+            Err(_) => {
+                copy_link(src, dst)?;
+                count.added += 1;
+                return Ok(count);
+            }
+            // Older versions copied what links pointed at: keep filling that copy as they did.
+            Ok(m) if m.is_dir() && !is_link(dst) && src.is_dir() => {}
+            Ok(_) => {
+                count.kept += 1;
+                return Ok(count);
+            }
+        }
     }
     let meta = fs::metadata(src)?;
     if !meta.is_dir() {
@@ -316,6 +356,27 @@ fn copy_missing_at(src: &Path, dst: &Path, depth: usize) -> io::Result<CopyCount
         count += copy_missing_at(&entry.path(), &dst.join(&name), depth + 1)?;
     }
     Ok(count)
+}
+
+/// Make `dst` a link to where the link `src` points. A relative target is resolved from `src`'s
+/// folder, so the new link works from its own place.
+/// Whether the link `p` points at the folder it sits in or one above it.
+fn points_above(p: &Path) -> bool {
+    match (p.canonicalize(), p.parent().map(Path::canonicalize)) {
+        (Ok(target), Some(Ok(parent))) => parent.starts_with(target),
+        _ => false,
+    }
+}
+
+fn copy_link(src: &Path, dst: &Path) -> io::Result<()> {
+    let target = link_target(src).ok_or_else(|| io::Error::other(format!("can't read the link {}", src.display())))?;
+    let target = if target.is_relative() { src.parent().map(|p| p.join(&target)).unwrap_or(target) } else { target };
+    if fs::metadata(&target)?.is_dir() {
+        link_dir(&target, dst)?;
+    } else {
+        link_file(&target, dst)?;
+    }
+    Ok(())
 }
 
 fn move_aside(p: &Path) -> io::Result<PathBuf> {
@@ -548,5 +609,76 @@ mod tests {
         assert!(!b.join("x").join(".git").exists());
         assert!(!b.join("node_modules").exists());
         assert_eq!(fs::read_to_string(a.join("same.txt")).unwrap(), "from a", "source untouched");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn disabling_keeps_links_the_user_made() {
+        let (t, src, home) = setup();
+        let own = t.path().join("my skills");
+        fs::create_dir_all(&own).unwrap();
+        std::os::unix::fs::symlink(&own, home.join("skills")).unwrap();
+        let off = SharingOptions { skills: false, ..all_on() };
+        let r = apply(&home, Sources::same(Some(&src)), &off, &paths(), CREDS);
+        assert!(is_link(&home.join("skills")), "not ours, so it stays: {r:?}");
+        assert!(points_to(&home.join("skills"), &own));
+        assert!(!r.unlinked.contains(&"skills".to_string()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn copy_missing_keeps_links_as_links() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let (a, b, elsewhere) = (t.path().join("home").join("skills"), t.path().join("shared"), t.path().join("elsewhere"));
+        fs::create_dir_all(elsewhere.join("tool")).unwrap();
+        fs::write(elsewhere.join("tool").join("SKILL.md"), "live").unwrap();
+        fs::create_dir_all(&a).unwrap();
+        symlink(elsewhere.join("tool"), a.join("absolute")).unwrap();
+        symlink("../../elsewhere/tool", a.join("relative")).unwrap();
+        // A loop back up to the home: neither recreated (it would point into the home) nor walked into.
+        symlink("..", a.join("loop")).unwrap();
+        let c = copy_missing(&a, &b).unwrap();
+        assert_eq!(c, CopyCount { added: 2, kept: 0 });
+        for name in ["absolute", "relative"] {
+            assert!(is_link(&b.join(name)), "{name} is still a link");
+            assert!(points_to(&b.join(name), &elsewhere.join("tool")), "{name}");
+        }
+        assert!(fs::symlink_metadata(b.join("loop")).is_err());
+        // Edits through the copy reach the original, as they did before.
+        fs::write(elsewhere.join("tool").join("SKILL.md"), "updated").unwrap();
+        assert_eq!(fs::read_to_string(b.join("relative").join("SKILL.md")).unwrap(), "updated");
+        // Copying again keeps what is there.
+        assert_eq!(copy_missing(&a, &b).unwrap(), CopyCount { added: 0, kept: 2 });
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reseed_fills_a_copy_an_older_version_made_of_a_linked_folder() {
+        use std::os::unix::fs::symlink;
+        let t = tempfile::tempdir().unwrap();
+        let (repo, home, shared) = (t.path().join("repo"), t.path().join("home"), t.path().join("shared"));
+        fs::create_dir_all(repo.join("old")).unwrap();
+        fs::write(repo.join("old").join("SKILL.md"), "old").unwrap();
+        fs::create_dir_all(&home).unwrap();
+        symlink(&repo, home.join("skills")).unwrap();
+        // What the previous version left: a real folder holding a copy of the linked one.
+        fs::create_dir_all(shared.join("skills").join("old")).unwrap();
+        fs::write(shared.join("skills").join("old").join("SKILL.md"), "old").unwrap();
+        fs::create_dir_all(repo.join("new")).unwrap();
+        fs::write(repo.join("new").join("SKILL.md"), "new").unwrap();
+        let c = copy_missing(&home.join("skills"), &shared.join("skills")).unwrap();
+        assert_eq!(c, CopyCount { added: 1, kept: 1 });
+        assert_eq!(fs::read_to_string(shared.join("skills").join("new").join("SKILL.md")).unwrap(), "new");
+    }
+
+    #[test]
+    fn windows_unsafe_names_are_spotted() {
+        for bad in ["con", "NUL", "aux.txt", "com1", "lpt9.md", "a.txt:evil", "x.", "x ", "a<b", "a|b", "a?b", "a*b"] {
+            assert!(!windows_safe_name(bad), "{bad:?}");
+        }
+        for ok in ["SKILL.md", "console", "com10", "a.b.c", ".hidden", "nul-ish", "scripts"] {
+            assert!(windows_safe_name(ok), "{ok:?}");
+        }
     }
 }

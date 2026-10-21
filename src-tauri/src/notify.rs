@@ -43,15 +43,7 @@ pub fn display_name(a: &Account) -> String {
 }
 
 fn note(kind: NotificationKind, account: &Account, title: String, body: String, now: DateTime<Utc>) -> AppNotification {
-    AppNotification {
-        id: uuid::Uuid::new_v4().to_string(),
-        kind,
-        account_id: Some(account.id.clone()),
-        title,
-        body,
-        created_at: now.to_rfc3339(),
-        read: false,
-    }
+    AppNotification { id: uuid::Uuid::new_v4().to_string(), kind, account_id: Some(account.id.clone()), title, body, created_at: now.to_rfc3339(), read: false }
 }
 
 /// " resets at 14:30 (in 2 h)" or "".
@@ -233,11 +225,7 @@ fn use_it_rule(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotifi
     }
     let k = ctx.key("lose");
     // Providers that report "resets in N seconds" jitter slightly between polls: same cycle within 3 h.
-    let same_cycle = state
-        .fired
-        .get(&k)
-        .and_then(|m| m.parse::<i64>().ok())
-        .is_some_and(|prev| (prev - t.timestamp()).abs() < 3 * 3600);
+    let same_cycle = state.fired.get(&k).and_then(|m| m.parse::<i64>().ok()).is_some_and(|prev| (prev - t.timestamp()).abs() < 3 * 3600);
     if same_cycle {
         return;
     }

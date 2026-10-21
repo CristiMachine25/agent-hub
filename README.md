@@ -4,7 +4,7 @@
 
 Runs on **Windows, macOS and Linux**. Everything stays on your computer.
 
-> Status: early development (v0.2). Website: https://cristimachine25.github.io/agent-hub/. See [docs/PLAN.md](docs/PLAN.md) for the roadmap.
+> Status: early development (v0.2). Website: https://cristimachine25.github.io/agent-hub/. See [docs/PLAN.md](docs/PLAN.md) for what has shipped and what is next.
 
 ## Why
 
@@ -18,10 +18,13 @@ If you pay for more than one AI plan (two Claude Max accounts, ChatGPT Pro, Gemi
 - **Notifications.** Nearly exhausted, limit reached, limit reset, and "use it or lose it" when lots of quota is about to reset unused.
 - **Recommendations.** Pick a task type (coding, long refactor, quick question, research, review) and get the best account to use right now.
 - **One-click launch.** Opens your terminal with the right account, or resumes your last session. Desktop apps too, where they support it.
+- **Launcher.** Press Ctrl/Cmd+K, type an account or screen name, press Enter. Keys `1` to `7` jump between screens.
 - **Permission modes.** Pick per tool how every CLI starts, on every account: ask as usual, accept edits, plan, or bypass permissions (Claude Code), auto or bypass (Codex), auto edit or YOLO (Gemini), allow all tools (Copilot).
 - **Sharing you control.** Per account, choose what to share with your main setup: skills, plugins, agents and commands, instructions, MCP servers, settings, chat history. Credentials are never shared.
+- **Shared knowledge.** Each tool gets one shared profile for skills, agents, instructions, plugins and settings, and every account links to it, so all your accounts work the same way. The Knowledge screen shows what is in it.
 - **Skills from skills.sh.** Browse featured skills or search the public skills.sh directory, read a skill's SKILL.md, and install it for Claude Code, Codex, Gemini CLI or Copilot in one step. It goes into each tool's shared folder, downloaded from the skill's GitHub repository at a single commit, and nothing already there is overwritten.
 - **Terminal grid.** Run up to nine AI CLIs side by side in one window, each pane on its own account with its own meter. When one hits its limit, continue the same chat on another account in one click. Keep several sessions, each with its own layout, in a collapsible list beside the grid; hidden sessions keep running.
+- **Move to a new computer.** Export your setup (accounts, skills, preferences) to an `.agenthub` file and import it on Windows, macOS or Linux. Sign-ins are optional and encrypted with a passphrase you choose. Import only adds: nothing already on the computer is replaced.
 - **Tray menu** for quick launches without opening the window. Agent Hub can start at login, hidden in the tray.
 
 ## Supported tools
@@ -43,13 +46,13 @@ More are planned: Cursor, Antigravity, Kiro, Amp, OpenRouter.
 
 ## Install
 
-Download the installer for your system from [Releases](../../releases) (Windows `.msi`/`.exe`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
+Download the installer for your system from [Releases](https://github.com/CristiMachine25/agent-hub/releases/latest) (Windows `.msi`/`.exe`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
 
 macOS builds are not notarized yet. The first time you open Agent Hub, macOS says it can't verify the developer: open **System Settings > Privacy & Security** and click **Open Anyway**.
 
 ## Build from source
 
-Prerequisites: Node.js 20+, Rust (stable), and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
+Prerequisites: Node.js 22.12+, Rust (stable), and the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/) for your OS.
 
 ```bash
 npm install
@@ -60,7 +63,10 @@ npm run dev         # UI only, in a browser, with mock data
 
 ## Contributing
 
-Issues and pull requests are welcome. Adding a provider means implementing one Rust trait: see `src-tauri/src/providers/mod.rs`.
+Issues and pull requests are welcome. Adding a provider takes an adapter plus a few tables on both sides; the compiler points at most of them once the new id exists:
+
+- **Rust:** implement the `ProviderAdapter` trait in a new file in `src-tauri/src/providers/` and register it in `providers::all()` (`providers/mod.rs`, which also maps permission modes to CLI flags). Add the id to `ProviderId` and `PermissionModes` in `src-tauri/src/model.rs`, its display name in `notify::provider_name` (`notify.rs`), and, if its plans use tier words the recommender doesn't know yet, those words to `tier` in `recommend.rs` (mirrored in `src/lib/recommend.ts`).
+- **UI:** add the id to `ProviderId` and `PermissionModes` in `src/shared/types.ts`, then to `PROVIDER_ORDER`/`PROVIDER_META` (`src/lib/providers.ts`), `PLANS`/`DEFAULT_PLAN` (`src/lib/plans.ts`), the logo (`LOGO_PATHS` in `src/components/ui.tsx`), the permission mode options (`src/screens/Knowledge.tsx`) and the browser-preview data (`src/mock/`).
 
 ## Disclaimer
 

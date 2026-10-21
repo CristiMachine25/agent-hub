@@ -5,7 +5,7 @@ import type { Account, DailyActivity, UsageWindow, SharingOptions, TaskType, Usa
 import { api, errorText } from '@/api'
 import { useStore } from '@/store'
 import { useGrid } from '@/terminals/store'
-import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
+import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { PLANS, findPlan, planLabel } from '@/lib/plans'
 import { useDrafts } from '@/lib/drafts'
@@ -14,7 +14,7 @@ import { Meter, WindowGauge } from '@/components/Meter'
 import { AccountDot, Dialog, EmptyState, ProviderMark, Segmented, SectionTitle, Switch } from '@/components/ui'
 import { CopyButton } from '@/components/Toasts'
 import { DailyTokens, WindowHistory } from '@/charts/AccountCharts'
-import { Page, Toolbar } from './Overview'
+import { Page, Toolbar } from '@/components/Page'
 
 export function Accounts() {
   const accounts = useStore((s) => s.accounts)
@@ -78,7 +78,7 @@ export function Accounts() {
                           <span className="flex items-center gap-2">
                             <AccountDot account={a} size={8} />
                             <span className={clsx('flex-1 truncate', on && 'font-semibold')}>{a.label}</span>
-                            <span className="text-xs tabular-nums text-muted">{signedOut ? 'Signed out' : left === null ? '' : left <= 0.5 ? 'At limit' : formatPct(left)}</span>
+                            <span className="text-xs tabular-nums text-muted">{signedOut ? 'Signed out' : left === null ? '' : left <= 0.5 ? 'Limit reached' : formatPct(left)}</span>
                           </span>
                           {left !== null && !signedOut && <Meter left={left} cells={20} size="xs" label={`${a.label} quota left`} className="mt-1.5 pl-4" />}
                         </button>
@@ -136,13 +136,17 @@ function AccountDetail({ account: a }: { account: Account }) {
   const topModel = [...models.entries()].sort((x, y) => y[1] - x[1])[0]?.[0]
 
   const setSharing = (key: keyof SharingOptions, v: boolean) =>
-    updateAccount(a.id, { sharing: { ...a.sharing, [key]: v } }, { applySharing: true, quiet: true }).then((ok) => {
+    updateAccount(a.id, { sharing: { ...a.sharing, [key]: v } }, { quiet: true }).then((ok) => {
       if (ok) useStore.getState().toast({ kind: 'success', title: `${SHARING_ITEMS.find((s) => s.key === key)!.label} ${v ? 'now shared' : 'now private'} for ${a.label}` })
     })
+
+  const openFolder = () =>
+    api.system.openPath(a.homeDir).catch((e) => useStore.getState().toast({ kind: 'error', title: "Couldn't open the folder", body: errorText(e) }))
 
   return (
     <>
       <Toolbar
+        level={2}
         title={
           <span className="flex items-center gap-2.5">
             <AccountDot account={a} size={10} />
@@ -192,7 +196,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 </button>
               )}
               {!signedOut && (
-                <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} title="Run it in a pane of the terminal grid">
+                <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} data-tip="Run it in a pane of the terminal grid">
                   <SquareTerminal size={14} /> Open in grid
                 </button>
               )}
@@ -297,7 +301,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 {a.homeDir}
               </code>
               <CopyButton text={a.homeDir} label="Copy path" />
-              <button className="btn btn-sm" onClick={() => api.system.openPath(a.homeDir)}>
+              <button className="btn btn-sm" onClick={openFolder}>
                 <FolderOpen size={13} /> Open folder
               </button>
             </div>
@@ -425,16 +429,18 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
       setPlan(a.plan ?? '')
       setNotes(a.notes ?? '')
     }
-  }, [open, a])
+    // Only when the dialog opens: `a` is a new object on every accounts-changed, which would wipe the edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, a.id])
   const toggleTag = (t: TaskType) => setTags(tags.includes(t) ? tags.filter((x) => x !== t) : [...tags, t])
   const save = async () => {
     const ok = await updateAccount(a.id, {
       label: label.trim() || a.label,
       color,
       tags,
-      monthlyCost: cost ? Number(cost) : undefined,
-      plan: plan || undefined,
-      notes: notes.trim() || undefined
+      monthlyCost: cost ? Number(cost) : null,
+      plan: plan || null,
+      notes: notes.trim() || null
     })
     if (ok) onClose()
   }
@@ -489,11 +495,11 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
         <fieldset>
           <legend className="mb-1.5 font-medium">Color</legend>
           <div className="flex gap-2">
-            {ACCOUNT_COLORS.map((c) => (
+            {ACCOUNT_COLORS.map((c, i) => (
               <button
                 key={c}
                 type="button"
-                aria-label={`Color ${c}`}
+                aria-label={ACCOUNT_COLOR_NAMES[i] ?? c}
                 aria-pressed={c.toLowerCase() === color.toLowerCase()}
                 onClick={() => setColor(c)}
                 className={clsx('h-7 w-7 rounded-full border-2', c.toLowerCase() === color.toLowerCase() ? 'border-ink' : 'border-transparent')}
@@ -550,7 +556,7 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
             Keep account
           </button>
           <button
-            className="btn border-empty bg-empty font-semibold text-white hover:!bg-empty"
+            className="btn btn-destructive"
             disabled={busy}
             onClick={async () => {
               setBusy(true)

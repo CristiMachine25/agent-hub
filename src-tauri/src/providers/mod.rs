@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 pub mod claude;
 pub mod codex;
+pub(crate) mod common;
 pub mod copilot;
 pub mod gemini;
 
@@ -59,10 +60,7 @@ pub trait ProviderAdapter: Send + Sync {
     /// The sign-in of a home, as (relative path, bytes), for moving the account to another computer.
     /// Default: the credential files that exist in the home.
     async fn export_sign_in(&self, home: &std::path::Path, _is_default: bool) -> Vec<(String, Vec<u8>)> {
-        self.credential_paths()
-            .into_iter()
-            .filter_map(|rel| std::fs::read(home.join(rel)).ok().map(|b| (rel.to_string(), b)))
-            .collect()
+        self.credential_paths().into_iter().filter_map(|rel| std::fs::read(home.join(rel)).ok().map(|b| (rel.to_string(), b))).collect()
     }
 
     /// Write a sign-in exported on another computer. Never replaces anything already in the home.
@@ -118,6 +116,8 @@ pub fn all() -> Vec<Adapter> {
     ]
 }
 
+/// One adapter by id, for tests. The app keeps a single set in `AppState::adapters`.
+#[cfg(test)]
 pub fn get(id: ProviderId) -> Adapter {
     all().into_iter().find(|a| a.id() == id).expect("adapter registered")
 }
@@ -141,16 +141,9 @@ pub fn permission_flags(provider: ProviderId, modes: &PermissionModes) -> Vec<St
 fn permission_overrides(provider: ProviderId) -> &'static [&'static str] {
     match provider {
         ProviderId::Claude => &["--permission-mode", "--dangerously-skip-permissions"],
-        ProviderId::Codex => &[
-            "--full-auto",
-            "--dangerously-bypass-approvals-and-sandbox",
-            "--yolo",
-            "--approve-for-me",
-            "-s",
-            "--sandbox",
-            "-a",
-            "--ask-for-approval",
-        ],
+        ProviderId::Codex => {
+            &["--full-auto", "--dangerously-bypass-approvals-and-sandbox", "--yolo", "--approve-for-me", "-s", "--sandbox", "-a", "--ask-for-approval"]
+        }
         ProviderId::Gemini => &["--approval-mode", "--yolo", "-y"],
         ProviderId::Copilot => &["--allow-all-tools", "--allow-all", "--yolo"],
     }
@@ -191,10 +184,7 @@ mod tests {
         assert_eq!(permission_flags(ProviderId::Claude, &modes("acceptEdits", "", "", "")), ["--permission-mode", "acceptEdits"]);
         assert_eq!(permission_flags(ProviderId::Claude, &modes("plan", "", "", "")), ["--permission-mode", "plan"]);
         assert!(permission_flags(ProviderId::Claude, &modes("rm -rf", "", "", "")).is_empty());
-        assert_eq!(
-            permission_flags(ProviderId::Codex, &modes("", "auto", "", "")),
-            ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"]
-        );
+        assert_eq!(permission_flags(ProviderId::Codex, &modes("", "auto", "", "")), ["--sandbox", "workspace-write", "--ask-for-approval", "on-request"]);
         assert_eq!(permission_flags(ProviderId::Codex, &modes("", "bypass", "", "")), ["--dangerously-bypass-approvals-and-sandbox"]);
         assert_eq!(permission_flags(ProviderId::Gemini, &modes("", "", "autoEdit", "")), ["--approval-mode", "auto_edit"]);
         assert_eq!(permission_flags(ProviderId::Gemini, &modes("", "", "yolo", "")), ["--yolo"]);

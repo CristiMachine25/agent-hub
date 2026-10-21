@@ -7,9 +7,10 @@ use crate::providers::ProviderAdapter;
 use crate::{knowledge, sharing, util};
 use anyhow::{anyhow, bail, Context};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 /// Written into every skill folder Agent Hub installs: where it came from.
 pub const MARKER: &str = ".switchyard-skill.json";
@@ -41,7 +42,7 @@ impl SkillRef {
             && repo.len() <= 100
             && !matches!(*repo, "." | "..")
             && repo.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-        let skill_ok = !skill.is_empty() && skill.len() <= 100 && skill_slug(skill) == *skill;
+        let skill_ok = !skill.is_empty() && skill.len() <= 100 && skill_slug(skill) == *skill && (!cfg!(windows) || sharing::windows_safe_name(skill));
         (owner_ok && repo_ok && skill_ok).then(|| Self { owner: owner.to_string(), repo: repo.to_string(), skill: skill.to_string() })
     }
 
@@ -111,6 +112,7 @@ fn is_skill_md(path: &str) -> bool {
 /// repository is not part of the skill.
 pub fn plan_files(files: &[TreeFile], folder: &str) -> anyhow::Result<Vec<TreeFile>> {
     let mut out = Vec::new();
+    let mut seen = HashSet::new();
     for f in files.iter().filter(|f| !f.link) {
         let rel = if folder.is_empty() {
             if !f.path.eq_ignore_ascii_case("SKILL.md") {
@@ -128,6 +130,10 @@ pub fn plan_files(files: &[TreeFile], folder: &str) -> anyhow::Result<Vec<TreeFi
         }
         if !sharing::is_safe_rel(rel) || rel.contains('\\') {
             bail!("The skill has a file Agent Hub can't save safely: {rel}");
+        }
+        // On macOS and Windows one of the two would silently replace the other.
+        if !seen.insert(rel.to_lowercase()) {
+            bail!("The skill has two files whose names differ only in case: {rel}");
         }
         out.push(TreeFile { path: rel.to_string(), ..f.clone() });
     }
@@ -159,10 +165,7 @@ pub fn write_skill(skills_dir: &Path, r: &SkillRef, d: &Download) -> anyhow::Res
         bail!("A skill named {} is already in the shared folder", r.skill);
     }
     fs::create_dir_all(skills_dir).with_context(|| format!("creating {}", skills_dir.display()))?;
-    let tmp = skills_dir
-        .parent()
-        .unwrap_or(skills_dir)
-        .join(format!(".switchyard-install-{}", uuid::Uuid::new_v4().simple()));
+    let tmp = skills_dir.parent().unwrap_or(skills_dir).join(format!(".switchyard-install-{}", uuid::Uuid::new_v4().simple()));
     let written = fill(&tmp, r, d).and_then(|_| fs::rename(&tmp, &target).map_err(Into::into));
     if written.is_err() {
         let _ = fs::remove_dir_all(&tmp);
@@ -312,8 +315,30 @@ const DIRECTORY: &str = "https://skills.sh";
 /// Files downloaded at the same time.
 const PARALLEL: usize = 8;
 
-/// Most SKILL.md files read to find a skill by its name.
+/// Most SKILL.md files read to find a skill by its name, and the largest one read.
 const MAX_NAME_LOOKUPS: usize = 200;
+const MAX_NAME_LOOKUP_BYTES: u64 = 256 * 1024;
+
+/// A skill found in its repository at one commit: the files install writes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    pub commit: String,
+    /// The skill's folder in the repository ("" for a repository that is one skill).
+    pub folder: String,
+    pub files: Vec<TreeFile>,
+}
+
+/// Where each previewed skill was found, so install writes the commit the user read rather than
+/// whatever HEAD points at by then.
+static REVIEWED: Mutex<BTreeMap<String, Located>> = Mutex::new(BTreeMap::new());
+
+fn remember(r: &SkillRef, at: &Located) {
+    REVIEWED.lock().unwrap_or_else(|e| e.into_inner()).insert(r.id(), at.clone());
+}
+
+fn reviewed(r: &SkillRef) -> Option<Located> {
+    REVIEWED.lock().unwrap_or_else(|e| e.into_inner()).get(&r.id()).cloned()
+}
 
 /// The directory's search, best matches first. Queries need at least two characters.
 pub async fn search(query: &str) -> anyhow::Result<Vec<DirectorySkill>> {
@@ -322,30 +347,45 @@ pub async fn search(query: &str) -> anyhow::Result<Vec<DirectorySkill>> {
     Ok(parse_search(&v))
 }
 
-/// The skill's SKILL.md from the directory's copy of it, to read before installing.
+/// The skill's SKILL.md to read before installing, from its GitHub repository at the commit HEAD
+/// points at now. Installing it afterwards writes that same commit's files.
 pub async fn preview(r: &SkillRef) -> anyhow::Result<SkillPreview> {
-    let mut url = reqwest::Url::parse(DIRECTORY)?;
-    url.path_segments_mut().map_err(|_| anyhow!("bad directory url"))?.extend(["api", "download", &r.owner, &r.repo, &r.skill]);
-    let v: Value = send(util::http().get(url)).await?.json().await?;
-    let files = v.get("files").and_then(Value::as_array).ok_or_else(|| anyhow!("skills.sh has no copy of this skill"))?;
-    let md = files
-        .iter()
-        .find(|f| f.get("path").and_then(Value::as_str).is_some_and(|p| p.eq_ignore_ascii_case("SKILL.md")))
-        .and_then(|f| f.get("contents")?.as_str())
-        .ok_or_else(|| anyhow!("The skill has no SKILL.md"))?;
-    let (name, description, body) = front_matter(md);
-    Ok(SkillPreview {
+    let http = util::http();
+    let at = locate(&http, r).await?;
+    let md = at.files.iter().find(|f| f.path.eq_ignore_ascii_case("SKILL.md")).cloned().ok_or_else(|| anyhow!("The skill has no SKILL.md"))?;
+    let (_, bytes) = fetch_raw(http.clone(), r.clone(), at.commit.clone(), at.folder.clone(), md).await?;
+    let md = String::from_utf8_lossy(&bytes);
+    let (name, description, body) = front_matter(&md);
+    let preview = SkillPreview {
         id: r.id(),
         name: name.unwrap_or_else(|| r.skill.clone()),
         description: description.unwrap_or_default(),
         body: body.to_string(),
-        files: files.len(),
-    })
+        files: at.files.len(),
+    };
+    remember(r, &at);
+    Ok(preview)
 }
 
-/// The skill's files from its GitHub repository, all from the commit HEAD points at now.
+/// The skill's files from its GitHub repository: from the commit its preview showed, or from the
+/// commit HEAD points at now when it wasn't previewed.
 pub async fn download(r: &SkillRef) -> anyhow::Result<Download> {
-    let http = util::http();
+    let http = util::download_http();
+    let at = match reviewed(r) {
+        Some(at) => at,
+        None => locate(&http, r).await?,
+    };
+    let got = fetch_all(&http, r, &at.commit, &at.folder, at.files).await?;
+    Ok(Download { commit: at.commit, folder: at.folder, files: got })
+}
+
+/// SKILL.md files small enough to read for their name, best first.
+fn name_lookups(files: &[TreeFile]) -> Vec<TreeFile> {
+    skill_md_files(files).into_iter().filter(|f| f.size <= MAX_NAME_LOOKUP_BYTES).take(MAX_NAME_LOOKUPS).cloned().collect()
+}
+
+/// The skill's folder and files at the commit HEAD points at now.
+async fn locate(http: &reqwest::Client, r: &SkillRef) -> anyhow::Result<Located> {
     let api = format!("https://api.github.com/repos/{}/{}", r.owner, r.repo);
     let head = http.get(format!("{api}/commits/HEAD")).header(reqwest::header::ACCEPT, "application/vnd.github.sha");
     let commit = send(head).await?.text().await?.trim().to_string();
@@ -357,8 +397,7 @@ pub async fn download(r: &SkillRef) -> anyhow::Result<Download> {
     let folder = match pick_folder(&files, &r.skill) {
         Some(folder) => folder,
         None => {
-            let mds: Vec<TreeFile> = skill_md_files(&files).into_iter().take(MAX_NAME_LOOKUPS).cloned().collect();
-            let read = fetch_all(&http, r, &commit, "", mds).await?;
+            let read = fetch_all(http, r, &commit, "", name_lookups(&files)).await?;
             let read: Vec<(String, String)> = read
                 .into_iter()
                 .map(|(f, bytes)| (f.path.rsplit_once('/').map_or("", |(dir, _)| dir).to_string(), String::from_utf8_lossy(&bytes).into_owned()))
@@ -366,8 +405,8 @@ pub async fn download(r: &SkillRef) -> anyhow::Result<Download> {
             pick_by_name(&read, &r.skill).ok_or_else(|| anyhow!("{} has no skill named {}", r.source(), r.skill))?
         }
     };
-    let got = fetch_all(&http, r, &commit, &folder, plan_files(&files, &folder)?).await?;
-    Ok(Download { commit, folder, files: got })
+    let files = plan_files(&files, &folder)?;
+    Ok(Located { commit, folder, files })
 }
 
 /// Download `files` (relative to `folder`) at `commit`, a few at a time, sorted by path.
@@ -418,7 +457,7 @@ async fn send(req: reqwest::RequestBuilder) -> anyhow::Result<reqwest::Response>
     if host == "api.github.com" && (status.as_u16() == 429 || header("x-ratelimit-remaining").as_deref() == Some("0")) {
         let reset = header("x-ratelimit-reset").and_then(|s| s.parse::<i64>().ok()).and_then(|s| chrono::DateTime::from_timestamp(s, 0));
         let when = reset.map(|t| format!(" Try again at {}.", util::local_clock(t, chrono::Utc::now()))).unwrap_or_default();
-        bail!("GitHub's hourly download limit for this network is used up.{when}");
+        bail!("GitHub's hourly limit for skill previews and downloads on this network is used up.{when}");
     }
     if status == reqwest::StatusCode::NOT_FOUND {
         bail!("Not found on {host}. The skill or its repository may have moved.");
@@ -553,6 +592,38 @@ mod tests {
     }
 
     #[test]
+    fn refuses_files_that_differ_only_in_case() {
+        let tree = [file("skills/pdf/SKILL.md", 1), file("skills/pdf/skill.md", 1)];
+        let e = plan_files(&tree, "skills/pdf").unwrap_err().to_string();
+        assert!(e.contains("only in case"), "{e}");
+        assert!(plan_files(&[file("skills/pdf/SKILL.md", 1), file("skills/pdf/Scripts/a.sh", 1), file("skills/pdf/scripts/b.sh", 1)], "skills/pdf").is_ok());
+    }
+
+    #[test]
+    fn windows_device_names_are_not_skill_folders() {
+        assert_eq!(SkillRef::parse("a/b/con").is_some(), !cfg!(windows));
+        assert_eq!(SkillRef::parse("a/b/com1").is_some(), !cfg!(windows));
+        assert!(SkillRef::parse("a/b/console").is_some());
+    }
+
+    #[test]
+    fn only_small_skill_md_files_are_read_for_their_name() {
+        let tree = [file("skills/a/SKILL.md", 1000), file("skills/huge/SKILL.md", 10 * 1024 * 1024), file("b/SKILL.md", 10)];
+        let paths: Vec<String> = name_lookups(&tree).into_iter().map(|f| f.path).collect();
+        assert_eq!(paths, ["skills/a/SKILL.md", "b/SKILL.md"]);
+    }
+
+    #[test]
+    fn install_uses_the_commit_the_preview_showed() {
+        let r = SkillRef::parse("someone/pinned/tool").unwrap();
+        assert_eq!(reviewed(&r), None);
+        let at = Located { commit: "b".repeat(40), folder: "skills/tool".into(), files: vec![file("SKILL.md", 3)] };
+        remember(&r, &at);
+        assert_eq!(reviewed(&r), Some(at));
+        assert_eq!(reviewed(&pdf()), None, "kept per skill");
+    }
+
+    #[test]
     fn writes_the_skill_with_a_marker_and_leaves_no_temp_folder() {
         let t = tempfile::tempdir().unwrap();
         let skills = t.path().join("shared").join("skills");
@@ -659,11 +730,14 @@ mod tests {
             { "path": "vendor/lib", "mode": "160000", "type": "commit" }
         ]});
         let files = parse_tree(&v).unwrap();
-        assert_eq!(files, [
-            TreeFile { path: "skills/pdf/SKILL.md".into(), size: 12, executable: false, link: false },
-            TreeFile { path: "skills/pdf/run.sh".into(), size: 3, executable: true, link: false },
-            TreeFile { path: "skills/pdf/latest".into(), size: 9, executable: false, link: true },
-        ]);
+        assert_eq!(
+            files,
+            [
+                TreeFile { path: "skills/pdf/SKILL.md".into(), size: 12, executable: false, link: false },
+                TreeFile { path: "skills/pdf/run.sh".into(), size: 3, executable: true, link: false },
+                TreeFile { path: "skills/pdf/latest".into(), size: 9, executable: false, link: true },
+            ]
+        );
         let cut = serde_json::json!({ "truncated": true, "tree": [] });
         assert!(parse_tree(&cut).unwrap_err().to_string().contains("too big"));
         assert!(parse_tree(&serde_json::json!({ "message": "Not Found" })).is_err());

@@ -34,8 +34,18 @@ pub async fn run_capture(program: &Path, args: &[&str], timeout: Duration) -> Op
 /// Shared HTTP client with a sane timeout.
 pub fn http() -> reqwest::Client {
     static CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
+        reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(concat!("switchyard/", env!("CARGO_PKG_VERSION"))).build().expect("http client")
+    });
+    CLIENT.clone()
+}
+
+/// HTTP client for downloads (skill files): the same 15 s to connect, but a whole response may
+/// take up to 2 minutes, since the shared client's 15 s limit includes reading the body.
+pub fn download_http() -> reqwest::Client {
+    static CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
         reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
             .user_agent(concat!("switchyard/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("http client")
@@ -49,9 +59,20 @@ pub fn read_json(path: &Path) -> Option<serde_json::Value> {
 }
 
 /// Write a file atomically (temp file + rename) so a crash never leaves half a credential file.
+/// Each call gets its own temp file, so overlapping writes of one path never mix their bytes.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let seq = SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("tmp-{}-{seq}", std::process::id()));
+    let result = write_and_rename(&tmp, path, bytes);
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+fn write_and_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     let mut opts = std::fs::OpenOptions::new();
     opts.write(true).create(true).truncate(true);
     #[cfg(unix)]
@@ -60,11 +81,11 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         use std::os::unix::fs::OpenOptionsExt;
         opts.mode(0o600);
     }
-    let mut f = opts.open(&tmp)?;
+    let mut f = opts.open(tmp)?;
     f.write_all(bytes)?;
     f.sync_all()?;
     drop(f);
-    std::fs::rename(&tmp, path)
+    std::fs::rename(tmp, path)
 }
 
 /// Normalize a path for comparisons (case-insensitive on Windows, no trailing slash).
@@ -75,16 +96,6 @@ pub fn path_key(p: &Path) -> String {
     } else {
         s
     }
-}
-
-/// Unix-ms timestamp to ISO-8601.
-pub fn ms_to_iso(ms: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp_millis(ms).map(|d| d.to_rfc3339())
-}
-
-/// Unix-seconds timestamp to ISO-8601.
-pub fn secs_to_iso(s: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp(s, 0).map(|d| d.to_rfc3339())
 }
 
 /// Serialize `value` as pretty JSON and write it atomically, creating parent dirs.
@@ -164,6 +175,32 @@ pub fn local_clock(t: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chron
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_atomic_writes_never_mix() {
+        let t = tempfile::tempdir().unwrap();
+        let path = t.path().join("accounts.json");
+        let threads: Vec<_> = (0..8u8)
+            .map(|i| {
+                let path = path.clone();
+                std::thread::spawn(move || (0..20).map(|_| write_atomic(&path, &[i; 64 * 1024]).map_err(|e| e.to_string())).collect::<Vec<_>>())
+            })
+            .collect();
+        for h in threads {
+            for r in h.join().unwrap() {
+                assert_eq!(r, Ok(()));
+            }
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert_eq!(bytes.len(), 64 * 1024);
+        assert!(bytes.iter().all(|b| *b == bytes[0]), "bytes from several writers");
+        assert_eq!(std::fs::read_dir(t.path()).unwrap().count(), 1, "temp files left behind");
+    }
+}
+
 /// GUI apps on macOS start with launchd's PATH (/usr/bin:/bin:/usr/sbin:/sbin) when opened from
 /// Finder, the Dock or a login item, so CLIs in Homebrew, ~/.local/bin or npm's prefix look missing
 /// and `#!/usr/bin/env node` scripts cannot start.
@@ -172,7 +209,7 @@ pub mod gui_path {
     use std::io::Read;
     use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
     const MARK: &str = "__SWITCHYARD_PATH__";
 
@@ -183,10 +220,8 @@ pub mod gui_path {
         let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
         let from_shell = login_shell_path(Path::new(&shell), Duration::from_secs(3));
         let home = super::home();
-        let fallbacks: Vec<PathBuf> = [home.join(".local/bin"), "/opt/homebrew/bin".into(), "/usr/local/bin".into()]
-            .into_iter()
-            .filter(|p| p.is_dir())
-            .collect();
+        let fallbacks: Vec<PathBuf> =
+            [home.join(".local/bin"), "/opt/homebrew/bin".into(), "/usr/local/bin".into()].into_iter().filter(|p| p.is_dir()).collect();
         let merged = merge_path(from_shell.as_deref(), &current, &fallbacks);
         if merged != current {
             std::env::set_var("PATH", merged);
@@ -195,26 +230,33 @@ pub mod gui_path {
 
     /// `$PATH` from an interactive login shell (which reads .zprofile and .zshrc), or None if it
     /// fails or takes longer than `timeout`. Markers skip anything the rc files print.
+    /// `printenv` (not `"$PATH"`) so fish, where PATH is a list, prints it colon-separated too.
     fn login_shell_path(shell: &Path, timeout: Duration) -> Option<String> {
         let mut child = Command::new(shell)
-            .args(["-ilc", &format!("printf '%s%s%s' {MARK} \"$PATH\" {MARK}")])
+            .args(["-ilc", &format!("printf %s {MARK}; /usr/bin/printenv PATH; printf %s {MARK}")])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
             .ok()?;
-        let deadline = Instant::now() + timeout;
-        while child.try_wait().ok()?.is_none() {
-            if Instant::now() > deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
+        // Read on a helper thread and stop at the closing marker: a background job started by an
+        // rc file can keep the pipe open long after the shell exits, so EOF may never come.
+        let mut stdout = child.stdout.take()?;
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut out, mut buf) = (Vec::new(), [0u8; 4096]);
+            while let Ok(n @ 1..) = stdout.read(&mut buf) {
+                out.extend_from_slice(&buf[..n]);
+                if let Some(v) = marked_value(&String::from_utf8_lossy(&out)) {
+                    let _ = tx.send(v);
+                    return;
+                }
             }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        let mut out = String::new();
-        child.stdout.take()?.read_to_string(&mut out).ok()?;
-        marked_value(&out)
+        });
+        let value = rx.recv_timeout(timeout).ok();
+        let _ = child.kill();
+        let _ = child.wait();
+        value
     }
 
     fn marked_value(out: &str) -> Option<String> {
@@ -276,6 +318,19 @@ pub mod gui_path {
             std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
             let started = std::time::Instant::now();
             assert_eq!(login_shell_path(&shell, Duration::from_millis(300)), None);
+            assert!(started.elapsed() < Duration::from_secs(5));
+        }
+
+        #[test]
+        fn a_background_job_holding_stdout_does_not_block() {
+            let t = tempfile::tempdir().unwrap();
+            let shell = t.path().join("rc-daemon-shell");
+            let script = format!("#!/bin/sh\nsleep 30 &\nprintf '%s%s%s' {MARK} /from/shell {MARK}\n");
+            std::fs::write(&shell, script).unwrap();
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let started = std::time::Instant::now();
+            assert_eq!(login_shell_path(&shell, Duration::from_secs(2)).as_deref(), Some("/from/shell"));
             assert!(started.elapsed() < Duration::from_secs(5));
         }
     }

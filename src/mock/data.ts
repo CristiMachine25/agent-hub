@@ -18,7 +18,7 @@ const HOUR = 60 * MIN
 const DAY = 24 * HOUR
 
 /** Deterministic PRNG so the demo looks the same on every reload. */
-export function rng(seed: number): () => number {
+function rng(seed: number): () => number {
   let a = seed >>> 0
   return () => {
     a = (a + 0x6d2b79f5) >>> 0
@@ -35,7 +35,7 @@ export function homeRoot(p: Platform): { home: string; sep: string } {
   return { home: '/home/sam', sep: '/' }
 }
 
-export function mockProviders(p: Platform): ProviderInfo[] {
+function mockProviders(p: Platform): ProviderInfo[] {
   const { home } = homeRoot(p)
   const bin = p === 'win32' ? `${home}\\AppData\\Roaming\\npm` : p === 'darwin' ? '/opt/homebrew/bin' : `${home}/.local/bin`
   const ext = p === 'win32' ? '.cmd' : ''
