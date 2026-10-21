@@ -6,7 +6,7 @@ const host = process.env.TAURI_DEV_HOST
 
 export default defineConfig({
   plugins: [react()],
-  resolve: { alias: { '@': resolve(__dirname, 'src'), '@shared': resolve(__dirname, 'src/shared') } },
+  resolve: { alias: { '@': resolve(import.meta.dirname, 'src'), '@shared': resolve(import.meta.dirname, 'src/shared') } },
   clearScreen: false,
   server: {
     port: 1420,

@@ -1,5 +1,5 @@
-// Shared contract between the Electron main process, the preload bridge and the UI.
-// Every module codes against these types. Change them only with care: all three sides depend on them.
+// Shared contract between the Rust backend (src-tauri/src/model.rs mirrors it) and the UI.
+// Every module codes against these types. Change them only with care: both sides depend on them.
 
 export type ProviderId = 'claude' | 'codex' | 'gemini' | 'copilot'
 

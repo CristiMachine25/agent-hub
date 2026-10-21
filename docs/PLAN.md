@@ -50,40 +50,54 @@ Desktop apps: Electron-based desktop apps (Claude Desktop) can run per-account w
 
 ```
 src/                      React UI (Vite, Tailwind, Recharts, Zustand)
-  shared/types.ts         Contract shared with Rust (mirrored in src-tauri/src/model.rs)
-  api.ts                  HopperApi over Tauri invoke; mock data when run in a plain browser
+  shared/types.ts         Contract shared with Rust (mirrored in src-tauri/src/model.rs), incl. the command list
+  api.ts                  Typed API over Tauri invoke; the mock backend when run in a plain browser
+  store.ts                App state and actions (Zustand)
+  screens/                Overview, Accounts, Knowledge, Skills, Notifications, Settings
+  terminals/              Terminal grid: sessions, panes, xterm.js registry
+  components/             Sidebar, Ctrl/Cmd+K launcher, add-account and export/import dialogs, shared UI
+  lib/, charts/           Pure helpers (quota, grid, recommend, format...) and the usage charts
+  mock/                   In-memory backend and demo data for `npm run dev`
 src-tauri/src/
   lib.rs                  App setup, plugins, tray, background poller
-  commands.rs             #[tauri::command]s = HopperApi
+  commands.rs             #[tauri::command]s, one per entry in the shared command list
+  model.rs                Rust mirror of src/shared/types.ts
   store.rs                JSON persistence in the app data dir (accounts, settings, notifications, history)
   sharing.rs              Junction/symlink management
+  knowledge.rs            The shared profile per tool that accounts link skills, plugins and instructions from
+  skills.rs               Search, preview and install skills from skills.sh into the shared profiles
+  transfer.rs             Export/import of a setup (.agenthub), sign-ins encrypted with a passphrase
   launcher.rs             Open the user's terminal per OS with the account env
+  pty.rs                  Embedded terminals for the grid (ConPTY / openpty via portable-pty)
   usage.rs                Poll loop, history, activity cache
   notify.rs               Rules: nearly exhausted, limit hit, reset, use-it-or-lose-it
   recommend.rs            Score accounts for "what should I use now"
-  providers/{claude,codex,gemini,copilot}.rs
+  util.rs                 Small cross-platform helpers
+  providers/{claude,codex,gemini,copilot}.rs, claude_codex_common.rs
+site/                     Landing page, deployed to GitHub Pages
 ```
 
-## Milestones
+## Status
 
-**M1: working app (now)**
+**Shipped (v0.2)**
 - Detect installed CLIs and existing homes (including side-by-side homes like `~/.claude-h1`).
-- Add, import, edit and remove accounts; per-account sharing toggles.
-- Launch CLI (new terminal), login flow, resume last session; desktop launch where supported.
+- Add, import, edit and remove accounts, with per-account sharing toggles and saved drafts of half-filled profiles.
+- Launch the CLI in a new terminal, login flow, resume last session; desktop launch where supported. Per-tool permission modes.
 - Live usage for Claude and Codex, best-effort for Gemini and Copilot; manual entry fallback.
 - Dashboard: per-account limit bars, reset countdowns, usage-over-time and most-used charts.
-- Notifications and recommendations. Tray menu with quick launch.
-- CI builds for Windows, macOS and Linux (GitHub Actions + tauri-action) on tagged releases.
+- Notifications and recommendations. Tray menu with quick launch. Ctrl/Cmd+K launcher.
+- Account-aware terminal grid inside the app (xterm.js + portable-pty): up to nine panes, each on its own account, in named sessions.
+- Continue on another account: when a pane's account hits its limit, one click reopens the chat on the next account with resume and shared history.
+- Shared knowledge: one shared profile per tool that every account links its skills, plugins, agents and instructions from.
+- Skills explorer: browse and search skills.sh and install a skill into a tool's shared profile.
+- Export/import of a setup between machines (`.agenthub` file, sign-ins optional and encrypted with a passphrase).
+- Renamed to Agent Hub (the app identifier and data folders keep their earlier names, so existing data is kept).
+- CI on Windows, macOS and Linux; tagged releases build installers with tauri-action. macOS bundles are signed ad hoc.
+- Landing page on GitHub Pages: animated demo of the board, download buttons per OS with auto-detect, supported tools, privacy statement.
 
-**M2: power features**
-- Account-aware terminal grid inside the app (BridgeSpace-style, xterm.js + portable-pty), each pane on a different account.
-- Auto-rotate: when the active account hits its limit, offer to reopen the session on the next account with `--continue`/resume and shared history.
+**Next**
 - More providers: Cursor, Antigravity, Kiro, Amp, z.ai, OpenRouter credit balance.
-- Per-task routing rules ("long refactors go to Max accounts").
-- Encrypted backups of account metadata; export/import between machines.
-
-**M3: landing page and distribution**
-- Landing page (static site on GitHub Pages): live animated demo of the dashboard, download buttons per OS with auto-detect, provider list, privacy statement (everything stays local).
+- Per-task routing rules ("long refactors go to Max accounts"), beyond today's task-type recommendations.
 - Signed builds (Windows code signing, macOS notarization), auto-update via Tauri updater, Homebrew cask, winget, Flathub/AUR.
 
 ## Privacy and safety rules

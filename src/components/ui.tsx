@@ -2,7 +2,6 @@ import { useEffect, useId, useRef, type ReactNode } from 'react'
 import clsx from 'clsx'
 import { X } from 'lucide-react'
 import type { Account, ProviderId } from '@shared/types'
-import { PROVIDER_META } from '@/lib/providers'
 
 /** Brand marks from Simple Icons (CC0), drawn on a 24x24 grid. Used only to say which tool an account runs. */
 const LOGO_PATHS: Record<ProviderId, string> = {
