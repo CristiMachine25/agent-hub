@@ -9,7 +9,7 @@ export function CopyButton({ text, label = 'Copy command' }: { text: string; lab
     <button
       className="btn btn-ghost btn-sm shrink-0 px-1.5"
       aria-label={label}
-      title={label}
+      data-tip={label}
       onClick={async () => {
         try {
           await navigator.clipboard.writeText(text)

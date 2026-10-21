@@ -95,7 +95,7 @@ export function Knowledge() {
     <Page
       title="Knowledge"
       actions={
-        <button className="btn" onClick={() => load()} disabled={loading} title="Read the shared folders again">
+        <button className="btn" onClick={() => load()} disabled={loading} data-tip="Read the shared folders again">
           <RefreshCw size={14} className={clsx(loading && 'animate-spin')} /> Refresh
         </button>
       }
@@ -180,7 +180,7 @@ function ProviderCard({ k, onChanged }: { k: ProviderKnowledge; onChanged: () =>
             <h2 id={`kn-${k.providerId}`} className="font-serif text-[17px] font-semibold leading-6">
               {meta.product}
             </h2>
-            <code className="code block truncate text-muted" title={k.folder}>
+            <code className="code block truncate text-muted" data-tip={k.folder}>
               {k.folder}
             </code>
           </div>
@@ -189,7 +189,7 @@ function ProviderCard({ k, onChanged }: { k: ProviderKnowledge; onChanged: () =>
           <button className="btn btn-sm" onClick={() => open(k.folder)}>
             <FolderOpen size={13} /> Open folder
           </button>
-          <button className="btn btn-sm" onClick={reseed} disabled={copying} title={`Copy anything new from ${k.mainFolder}. Nothing in the shared folder is overwritten.`}>
+          <button className="btn btn-sm" onClick={reseed} disabled={copying} data-tip={`Copy anything new from ${k.mainFolder}. Nothing in the shared folder is overwritten.`}>
             {copying ? <Loader2 size={13} className="animate-spin" /> : <CopyPlus size={13} />} Copy new from {main}
           </button>
         </div>
@@ -253,7 +253,7 @@ function ItemSection({ label, items, empty }: { label: string; items: KnowledgeI
           {shown.map((i) => (
             <li
               key={i.path}
-              title={i.path}
+              data-tip={i.path}
               className={clsx(
                 'flex h-6 max-w-full items-center truncate rounded border border-rivet bg-ground px-2 text-ink',
                 FILE_KINDS.has(i.kind) ? 'code' : 'text-xs'
@@ -295,14 +295,14 @@ function UsedBy({ k }: { k: ProviderKnowledge }) {
                 <button
                   className="flex w-full flex-col items-start gap-1 rounded px-2 py-1.5 text-left hover:bg-raised"
                   onClick={() => go('accounts', ka.accountId)}
-                  title={`Open ${ka.label}`}
+                  data-tip={`Open ${ka.label}`}
                 >
                   <span className="flex min-w-0 max-w-full items-center gap-2">
                     {acc && <AccountDot account={acc} size={8} />}
                     <span className="truncate font-medium">{ka.label}</span>
                   </span>
                   {ka.isDefaultHome ? (
-                    <span className="text-xs text-muted" title={k.mainFolder}>
+                    <span className="text-xs text-muted" data-tip={k.mainFolder}>
                       Uses its own folder (main)
                     </span>
                   ) : ka.kinds.length === 0 ? (

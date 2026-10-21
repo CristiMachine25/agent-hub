@@ -102,7 +102,7 @@ function ContinueMenu({ index, account, onDone }: { index: number; account: Acco
             {!shared && usable && (
               <button
                 className="btn btn-ghost btn-sm mr-1 shrink-0 px-1.5"
-                title="Turn on chat history sharing for both accounts so the chat continues"
+                data-tip="Turn on chat history sharing for both accounts so the chat continues"
                 onClick={async () => {
                   for (const x of [account, a]) {
                     if (!x.isDefaultHome && !x.sharing.history)
@@ -169,7 +169,7 @@ function Header({ index, pane, account }: { index: number; pane: PaneConfig; acc
   return (
     <div className="pane-head relative flex h-9 shrink-0 items-center gap-2 border-b border-rivet bg-deck pl-3 pr-1">
       <AccountDot account={account} size={9} />
-      <span className="min-w-[4.5rem] truncate text-sm font-semibold" title={account.label}>
+      <span className="min-w-[4.5rem] truncate text-sm font-semibold" data-tip={account.label}>
         {account.label}
       </span>
       <span className="pane-provider flex shrink-0 items-center gap-1 text-xs text-muted">
@@ -177,22 +177,22 @@ function Header({ index, pane, account }: { index: number; pane: PaneConfig; acc
         {PROVIDER_META[account.providerId].short}
       </span>
       {left !== undefined && b && (
-        <span className="pane-meter ml-1 flex w-28 shrink-0 items-center gap-1.5" title={`${b.label}: ${formatPct(left)} left`}>
+        <span className="pane-meter ml-1 flex w-28 shrink-0 items-center gap-1.5" data-tip={`${b.label}: ${formatPct(left)} left`}>
           <Meter left={left} cells={10} size="xs" label={`${account.label} ${b.label} left`} />
           <span className="shrink-0 text-[11px] tabular-nums text-muted">{countdown ?? formatPct(left)}</span>
         </span>
       )}
       <span className={clsx('pane-status ml-auto shrink-0 truncate pl-2 text-xs', info?.exited ? 'text-muted' : 'text-faint')}>{status}</span>
       <div className="ml-auto flex shrink-0 items-center">
-        <button className="btn btn-ghost btn-sm px-1.5" title="Restart" aria-label="Restart" onClick={() => void restart(index, false)}>
+        <button className="btn btn-ghost btn-sm px-1.5" data-tip="Restart this CLI in a new session" aria-label="Restart" onClick={() => void restart(index, false)}>
           <RotateCw size={14} />
         </button>
-        <button className="btn btn-ghost btn-sm px-1.5" title="Restart and resume the last session" aria-label="Resume last session" onClick={() => void restart(index, true)}>
+        <button className="btn btn-ghost btn-sm px-1.5" data-tip="Restart and resume the last session" aria-label="Resume last session" onClick={() => void restart(index, true)}>
           <RotateCcw size={14} />
         </button>
         <button
           className={clsx('btn btn-ghost btn-sm px-1.5', menu && 'bg-raised text-ink')}
-          title="Continue on another account"
+          data-tip="Continue on another account"
           aria-label="Continue on another account"
           aria-haspopup="menu"
           aria-expanded={menu}
@@ -202,13 +202,13 @@ function Header({ index, pane, account }: { index: number; pane: PaneConfig; acc
         </button>
         <button
           className="btn btn-ghost btn-sm px-1.5"
-          title={maximized ? 'Restore (Ctrl+Shift+Enter)' : 'Maximize (Ctrl+Shift+Enter)'}
+          data-tip={maximized ? 'Restore (Ctrl+Shift+Enter)' : 'Maximize (Ctrl+Shift+Enter)'}
           aria-label={maximized ? 'Restore pane' : 'Maximize pane'}
           onClick={() => toggleMax(index)}
         >
           {maximized ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
         </button>
-        <button className="btn btn-ghost btn-sm px-1.5" title="Close" aria-label="Close pane" onClick={() => void close(index)}>
+        <button className="btn btn-ghost btn-sm px-1.5" data-tip="Close this pane and stop its CLI" aria-label="Close pane" onClick={() => void close(index)}>
           <X size={14} />
         </button>
       </div>
@@ -325,7 +325,7 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
           >
             <FolderOpen size={13} /> Folder
           </button>
-          <code className="code min-w-0 flex-1 truncate text-muted" title={cwd ?? defaultCwd}>
+          <code className="code min-w-0 flex-1 truncate text-muted" data-tip={cwd ?? defaultCwd}>
             {cwd ?? defaultCwd ?? 'Home folder'}
           </code>
           {cwd && (

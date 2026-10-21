@@ -94,7 +94,9 @@ export function Sidebar() {
           onClick={() => refresh()}
           disabled={refreshing}
           className="flex items-center gap-2 rounded px-1 py-1 text-xs text-muted hover:text-ink compact:justify-center"
-          title="Refresh usage for every account"
+          data-tip="Refresh usage for every account"
+          data-tip-side="right"
+          aria-label={collapsed ? 'Refresh usage for every account' : undefined}
         >
           <RefreshCw size={13} className={clsx(refreshing && 'animate-spin')} />
           <span className="compact:hidden">
@@ -111,7 +113,8 @@ export function Sidebar() {
           <button
             onClick={() => setCollapsed(!collapsed)}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink"
-            title={toggleLabel}
+            data-tip={toggleLabel}
+            data-tip-side="right"
             aria-label={toggleLabel}
             aria-expanded={!collapsed}
           >
@@ -129,7 +132,8 @@ function NavButton({ item, on, onClick, children }: { item: NavItem; on: boolean
     <button
       onClick={onClick}
       aria-current={on ? 'page' : undefined}
-      title={`${item.label} (${item.key})`}
+      data-tip={`${item.label} (${item.key})`}
+      data-tip-side="right"
       className={clsx(
         'relative flex h-9 w-full items-center gap-2.5 rounded px-2.5 text-sm transition-colors compact:justify-center',
         on ? 'bg-raised font-semibold text-ink' : 'text-muted hover:bg-raised/60 hover:text-ink'
@@ -137,7 +141,7 @@ function NavButton({ item, on, onClick, children }: { item: NavItem; on: boolean
     >
       {on && <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-hop" aria-hidden />}
       <Icon size={17} strokeWidth={on ? 2.2 : 1.8} />
-      <span className="flex-1 text-left compact:hidden">{item.label}</span>
+      <span className="flex-1 text-left compact:sr-only">{item.label}</span>
       {children}
     </button>
   )
