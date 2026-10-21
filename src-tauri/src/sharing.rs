@@ -59,13 +59,7 @@ pub fn apply_for_account(account: &Account, adapter: &dyn ProviderAdapter, knowl
     apply(home, sources, &account.sharing, &shareable, &creds)
 }
 
-pub fn apply(
-    home: &Path,
-    sources: Sources,
-    opts: &SharingOptions,
-    shareable: &[(ShareKind, Vec<&'static str>)],
-    credentials: &[&str],
-) -> SharingReport {
+pub fn apply(home: &Path, sources: Sources, opts: &SharingOptions, shareable: &[(ShareKind, Vec<&'static str>)], credentials: &[&str]) -> SharingReport {
     let mut report = SharingReport::default();
     // Sharing a home with itself would create self-referencing links.
     let usable = |s: Option<&Path>| s.filter(|s| util::path_key(s) != util::path_key(home)).map(Path::to_path_buf);

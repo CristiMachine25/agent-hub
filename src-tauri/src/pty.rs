@@ -250,9 +250,7 @@ enum Msg {
 
 impl Terminals {
     pub fn spawn(&self, req: PtySpawn, sink: Arc<dyn PtySink>) -> anyhow::Result<TerminalInfo> {
-        let pair = portable_pty::native_pty_system()
-            .openpty(pty_size(req.cols, req.rows))
-            .map_err(|e| anyhow!("could not open a terminal: {e}"))?;
+        let pair = portable_pty::native_pty_system().openpty(pty_size(req.cols, req.rows)).map_err(|e| anyhow!("could not open a terminal: {e}"))?;
         let (cmd, script) = build_command(&req.spec)?;
         let spawned = pair.slave.spawn_command(cmd);
         drop(pair.slave); // the child holds its own handle; ours would keep the pty open

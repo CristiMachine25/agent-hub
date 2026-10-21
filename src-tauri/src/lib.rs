@@ -146,9 +146,7 @@ fn sync_autostart(app: &AppHandle, state: &AppState) {
 }
 
 fn minimize_to_tray(app: &AppHandle) -> bool {
-    app.try_state::<Arc<AppState>>()
-        .and_then(|s| s.settings.try_read().ok().map(|s| s.minimize_to_tray))
-        .unwrap_or(true)
+    app.try_state::<Arc<AppState>>().and_then(|s| s.settings.try_read().ok().map(|s| s.minimize_to_tray)).unwrap_or(true)
 }
 
 fn show_main_window(app: &AppHandle) {
@@ -161,16 +159,14 @@ fn show_main_window(app: &AppHandle) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
     let menu = static_menu(app, &[])?;
-    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip(APP_NAME)
-        .menu(&menu)
-        .show_menu_on_left_click(false)
-        .on_menu_event(on_menu_event)
-        .on_tray_icon_event(|tray, event| {
-            if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                show_main_window(tray.app_handle());
-            }
-        });
+    let mut builder =
+        TrayIconBuilder::with_id(TRAY_ID).tooltip(APP_NAME).menu(&menu).show_menu_on_left_click(false).on_menu_event(on_menu_event).on_tray_icon_event(
+            |tray, event| {
+                if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                    show_main_window(tray.app_handle());
+                }
+            },
+        );
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
@@ -206,11 +202,7 @@ pub fn refresh_tray(app: &AppHandle) {
         let items: Vec<(String, String)> = accounts
             .iter()
             .map(|a| {
-                let left = latest
-                    .get(&a.id)
-                    .and_then(recommend::left_percent)
-                    .map(|l| format!(" \u{2014} {l:.0}% left"))
-                    .unwrap_or_default();
+                let left = latest.get(&a.id).and_then(recommend::left_percent).map(|l| format!(" \u{2014} {l:.0}% left")).unwrap_or_default();
                 (format!("launch:{}", a.id), format!("Launch {}{left}", notify::display_name(a)))
             })
             .collect();

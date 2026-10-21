@@ -116,12 +116,8 @@ pub fn scan_launcher_scripts(var: &str) -> Vec<(PathBuf, String)> {
 /// Sibling dirs of the user's home named `<prefix>*` (e.g. `.claude-` → ~/.claude-work).
 pub fn sibling_dirs(parent: &Path, prefix: &str) -> Vec<PathBuf> {
     let Ok(entries) = std::fs::read_dir(parent) else { return vec![] };
-    let mut dirs: Vec<PathBuf> = entries
-        .flatten()
-        .filter(|e| e.file_name().to_string_lossy().starts_with(prefix))
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
+    let mut dirs: Vec<PathBuf> =
+        entries.flatten().filter(|e| e.file_name().to_string_lossy().starts_with(prefix)).map(|e| e.path()).filter(|p| p.is_dir()).collect();
     dirs.sort();
     dirs
 }
@@ -194,9 +190,7 @@ pub fn local_date(ts: &str) -> Option<String> {
 
 /// Normalize an ISO timestamp to RFC 3339 (UTC); keeps the raw string if it does not parse.
 pub fn normalize_iso(ts: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(ts)
-        .map(|d| d.with_timezone(&chrono::Utc).to_rfc3339())
-        .unwrap_or_else(|_| ts.to_string())
+    chrono::DateTime::parse_from_rfc3339(ts).map(|d| d.with_timezone(&chrono::Utc).to_rfc3339()).unwrap_or_else(|_| ts.to_string())
 }
 
 /// Read a number that may be encoded as a JSON number or a numeric string.
@@ -357,11 +351,7 @@ pub fn env_unset(env: &mut HashMap<String, Option<String>>, keys: &[&str]) {
 #[cfg(windows)]
 pub fn msix_family(prefix: &str) -> Option<String> {
     let base = dirs::data_local_dir()?.join("Microsoft").join("WindowsApps");
-    std::fs::read_dir(base)
-        .ok()?
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().to_string())
-        .find(|n| n.starts_with(prefix))
+    std::fs::read_dir(base).ok()?.flatten().map(|e| e.file_name().to_string_lossy().to_string()).find(|n| n.starts_with(prefix))
 }
 
 #[cfg(test)]
@@ -382,7 +372,8 @@ mod tests {
 
     #[test]
     fn parses_sh_and_ps1() {
-        let s = "#!/bin/sh\nexport CODEX_HOME=\"$HOME/.codex-work\"\nCODEX_HOME=~/.codex-b exec codex \"$@\"\n$env:CODEX_HOME = 'C:\\x\\y'\nMY_CODEX_HOME=/nope\n";
+        let s =
+            "#!/bin/sh\nexport CODEX_HOME=\"$HOME/.codex-work\"\nCODEX_HOME=~/.codex-b exec codex \"$@\"\n$env:CODEX_HOME = 'C:\\x\\y'\nMY_CODEX_HOME=/nope\n";
         assert_eq!(parse_script_assignments(s, "CODEX_HOME"), vec!["$HOME/.codex-work", "~/.codex-b", "C:\\x\\y"]);
     }
 

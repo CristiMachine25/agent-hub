@@ -95,18 +95,14 @@ fn read_config(home: &Path) -> Option<Value> {
 
 /// The active user: lastLoggedInUser, else the first loggedInUsers entry.
 fn active_user(config: &Value) -> Option<GhUser> {
-    field(config, "lastLoggedInUser", "last_logged_in_user").and_then(parse_user).or_else(|| {
-        field(config, "loggedInUsers", "logged_in_users")?.as_array()?.iter().find_map(parse_user)
-    })
+    field(config, "lastLoggedInUser", "last_logged_in_user")
+        .and_then(parse_user)
+        .or_else(|| field(config, "loggedInUsers", "logged_in_users")?.as_array()?.iter().find_map(parse_user))
 }
 
 fn plaintext_token(config: &Value, user: &GhUser) -> Option<String> {
     let tokens = field(config, "copilotTokens", "copilot_tokens")?.as_object()?;
-    tokens
-        .get(&user.token_key())
-        .and_then(Value::as_str)
-        .filter(|t| !t.trim().is_empty())
-        .map(|t| t.trim().to_string())
+    tokens.get(&user.token_key()).and_then(Value::as_str).filter(|t| !t.trim().is_empty()).map(|t| t.trim().to_string())
 }
 
 fn read_identity_sync(home: &Path) -> Identity {
@@ -183,13 +179,7 @@ fn parse_usage(v: &Value) -> CopilotUsage {
             return;
         }
         if let Some(used) = q.used_percent() {
-            out.windows.push(UsageWindow {
-                id: id.into(),
-                label: label.into(),
-                used_percent: used,
-                resets_at: reset.clone(),
-                window_minutes: None,
-            });
+            out.windows.push(UsageWindow { id: id.into(), label: label.into(), used_percent: used, resets_at: reset.clone(), window_minutes: None });
         }
     };
     let premium = snap("premiumInteractions", "premium_interactions");
@@ -348,8 +338,7 @@ fn fold_copilot_events(content: &str, days: &mut DayMap) {
             "session.shutdown" => {
                 let data = ev.get("data").cloned().unwrap_or(Value::Null);
                 let totals = shutdown_totals(&data);
-                let cumulative = !prev.is_empty()
-                    && prev.iter().all(|(m, p)| totals.get(m).is_some_and(|t| t.iter().zip(p).all(|(a, b)| a >= b)));
+                let cumulative = !prev.is_empty() && prev.iter().all(|(m, p)| totals.get(m).is_some_and(|t| t.iter().zip(p).all(|(a, b)| a >= b)));
                 // Tokens are attributed to the day the run ended (the shutdown event's timestamp).
                 let d = days.entry(day).or_default();
                 for (model, t) in &totals {
@@ -370,9 +359,8 @@ fn fold_copilot_events(content: &str, days: &mut DayMap) {
 
 fn scan_copilot_activity(home: &Path, account_id: &str, since_days: u32) -> Vec<DailyActivity> {
     let cutoff = first_local_date(since_days);
-    let cutoff_time = std::time::SystemTime::now()
-        .checked_sub(Duration::from_secs(u64::from(since_days.max(1)) * 86_400 + 86_400))
-        .unwrap_or(std::time::UNIX_EPOCH);
+    let cutoff_time =
+        std::time::SystemTime::now().checked_sub(Duration::from_secs(u64::from(since_days.max(1)) * 86_400 + 86_400)).unwrap_or(std::time::UNIX_EPOCH);
     let mut days = DayMap::new();
     let Ok(sessions) = std::fs::read_dir(home.join("session-state")) else { return vec![] };
     for s in sessions.flatten() {
@@ -425,10 +413,7 @@ impl ProviderAdapter for CopilotAdapter {
     }
 
     fn default_home(&self) -> PathBuf {
-        std::env::var_os(HOME_ENV)
-            .filter(|v| !v.is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| util::home().join(".copilot"))
+        std::env::var_os(HOME_ENV).filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| util::home().join(".copilot"))
     }
 
     async fn detect_accounts(&self) -> Vec<DetectedAccount> {
@@ -518,11 +503,7 @@ impl ProviderAdapter for CopilotAdapter {
 
     async fn fetch_usage(&self, account: &Account, live: bool) -> UsageSnapshot {
         if !live {
-            return UsageSnapshot::failed(
-                account,
-                UsageSource::None,
-                "Copilot CLI keeps no local record of its limits; turn on live usage to see them",
-            );
+            return UsageSnapshot::failed(account, UsageSource::None, "Copilot CLI keeps no local record of its limits; turn on live usage to see them");
         }
         match self.fetch_live(account).await {
             Ok(s) => s,

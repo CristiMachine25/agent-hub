@@ -225,7 +225,11 @@ pub(crate) mod tests {
     #[test]
     fn exhausted_and_logged_out_rank_last() {
         let now = Utc::now();
-        let accts = vec![account("a", "Pro"), account("b", "Pro"), { let mut c = account("c", "Max"); c.status = AccountStatus::NeedsLogin; c }];
+        let accts = vec![account("a", "Pro"), account("b", "Pro"), {
+            let mut c = account("c", "Max");
+            c.status = AccountStatus::NeedsLogin;
+            c
+        }];
         let latest = HashMap::from([
             ("a".to_string(), snap("a", vec![window("five_hour", 100.0, Some(2), 300, now)])),
             ("b".to_string(), snap("b", vec![window("five_hour", 30.0, Some(2), 300, now)])),
@@ -279,7 +283,8 @@ pub(crate) mod tests {
         assert!(r.score > 10.0 && !r.reason.contains("limit reached"), "{r:?}");
 
         let opus = UsageWindow { id: "seven_day_opus".into(), label: "Weekly Opus".into(), ..sonnet.clone() };
-        let s = snap("a", vec![window("five_hour", 64.0, None, 300, now), window("seven_day", 41.0, None, 10080, now), UsageWindow { used_percent: 90.0, ..opus }]);
+        let s =
+            snap("a", vec![window("five_hour", 64.0, None, 300, now), window("seven_day", 41.0, None, 10080, now), UsageWindow { used_percent: 90.0, ..opus }]);
         assert_eq!(tightest(&s).map(|w| w.id.as_str()), Some("five_hour"));
 
         // With only model windows known, they still count.

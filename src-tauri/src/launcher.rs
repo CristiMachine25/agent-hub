@@ -189,17 +189,7 @@ pub fn mac_open_argv(terminal: &str, script: &Path) -> Vec<String> {
     vec!["open".into(), "-a".into(), app, script.to_string_lossy().into_owned()]
 }
 
-pub const LINUX_TERMINALS: &[&str] = &[
-    "x-terminal-emulator",
-    "gnome-terminal",
-    "konsole",
-    "xfce4-terminal",
-    "kitty",
-    "alacritty",
-    "wezterm",
-    "foot",
-    "xterm",
-];
+pub const LINUX_TERMINALS: &[&str] = &["x-terminal-emulator", "gnome-terminal", "konsole", "xfce4-terminal", "kitty", "alacritty", "wezterm", "foot", "xterm"];
 
 /// argv to run `bash -l <script>` in the given Linux terminal.
 pub fn linux_terminal_argv(terminal: &str, script: &Path) -> Vec<String> {
@@ -309,12 +299,7 @@ pub fn launch_desktop(spec: &CommandSpec) -> LaunchResult {
     }
     match spawn_detached(cmd) {
         Ok(()) => LaunchResult { ok: true, error: None, command_line: Some(shown), note: spec.note.clone() },
-        Err(e) => LaunchResult {
-            note: None,
-            ok: false,
-            error: Some(format!("Could not start {}: {e}", spec.program)),
-            command_line: Some(shown),
-        },
+        Err(e) => LaunchResult { note: None, ok: false, error: Some(format!("Could not start {}: {e}", spec.program)), command_line: Some(shown) },
     }
 }
 
@@ -479,12 +464,8 @@ mod tests {
         };
         let script = t.path().join("launch.cmd");
         std::fs::write(&script, windows_script(&spec, "test")).unwrap();
-        let status = Command::new("cmd.exe")
-            .raw_arg(format!("/d /c \"{}\"", script.display()))
-            .env("GONE", "should be unset")
-            .stdout(Stdio::null())
-            .status()
-            .unwrap();
+        let status =
+            Command::new("cmd.exe").raw_arg(format!("/d /c \"{}\"", script.display())).env("GONE", "should be unset").stdout(Stdio::null()).status().unwrap();
         assert!(status.success());
         let out = std::fs::read_to_string(dir.join("out.txt")).unwrap();
         let lines: Vec<&str> = out.lines().collect();

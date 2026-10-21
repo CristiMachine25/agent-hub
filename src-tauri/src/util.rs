@@ -34,11 +34,7 @@ pub async fn run_capture(program: &Path, args: &[&str], timeout: Duration) -> Op
 /// Shared HTTP client with a sane timeout.
 pub fn http() -> reqwest::Client {
     static CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(15))
-            .user_agent(concat!("switchyard/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .expect("http client")
+        reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(concat!("switchyard/", env!("CARGO_PKG_VERSION"))).build().expect("http client")
     });
     CLIENT.clone()
 }
@@ -224,10 +220,8 @@ pub mod gui_path {
         let shell = std::env::var("SHELL").ok().filter(|s| !s.is_empty()).unwrap_or_else(|| "/bin/zsh".into());
         let from_shell = login_shell_path(Path::new(&shell), Duration::from_secs(3));
         let home = super::home();
-        let fallbacks: Vec<PathBuf> = [home.join(".local/bin"), "/opt/homebrew/bin".into(), "/usr/local/bin".into()]
-            .into_iter()
-            .filter(|p| p.is_dir())
-            .collect();
+        let fallbacks: Vec<PathBuf> =
+            [home.join(".local/bin"), "/opt/homebrew/bin".into(), "/usr/local/bin".into()].into_iter().filter(|p| p.is_dir()).collect();
         let merged = merge_path(from_shell.as_deref(), &current, &fallbacks);
         if merged != current {
             std::env::set_var("PATH", merged);

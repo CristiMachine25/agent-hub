@@ -42,10 +42,7 @@ impl SkillRef {
             && repo.len() <= 100
             && !matches!(*repo, "." | "..")
             && repo.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
-        let skill_ok = !skill.is_empty()
-            && skill.len() <= 100
-            && skill_slug(skill) == *skill
-            && (!cfg!(windows) || sharing::windows_safe_name(skill));
+        let skill_ok = !skill.is_empty() && skill.len() <= 100 && skill_slug(skill) == *skill && (!cfg!(windows) || sharing::windows_safe_name(skill));
         (owner_ok && repo_ok && skill_ok).then(|| Self { owner: owner.to_string(), repo: repo.to_string(), skill: skill.to_string() })
     }
 
@@ -168,10 +165,7 @@ pub fn write_skill(skills_dir: &Path, r: &SkillRef, d: &Download) -> anyhow::Res
         bail!("A skill named {} is already in the shared folder", r.skill);
     }
     fs::create_dir_all(skills_dir).with_context(|| format!("creating {}", skills_dir.display()))?;
-    let tmp = skills_dir
-        .parent()
-        .unwrap_or(skills_dir)
-        .join(format!(".switchyard-install-{}", uuid::Uuid::new_v4().simple()));
+    let tmp = skills_dir.parent().unwrap_or(skills_dir).join(format!(".switchyard-install-{}", uuid::Uuid::new_v4().simple()));
     let written = fill(&tmp, r, d).and_then(|_| fs::rename(&tmp, &target).map_err(Into::into));
     if written.is_err() {
         let _ = fs::remove_dir_all(&tmp);
@@ -736,11 +730,14 @@ mod tests {
             { "path": "vendor/lib", "mode": "160000", "type": "commit" }
         ]});
         let files = parse_tree(&v).unwrap();
-        assert_eq!(files, [
-            TreeFile { path: "skills/pdf/SKILL.md".into(), size: 12, executable: false, link: false },
-            TreeFile { path: "skills/pdf/run.sh".into(), size: 3, executable: true, link: false },
-            TreeFile { path: "skills/pdf/latest".into(), size: 9, executable: false, link: true },
-        ]);
+        assert_eq!(
+            files,
+            [
+                TreeFile { path: "skills/pdf/SKILL.md".into(), size: 12, executable: false, link: false },
+                TreeFile { path: "skills/pdf/run.sh".into(), size: 3, executable: true, link: false },
+                TreeFile { path: "skills/pdf/latest".into(), size: 9, executable: false, link: true },
+            ]
+        );
         let cut = serde_json::json!({ "truncated": true, "tree": [] });
         assert!(parse_tree(&cut).unwrap_err().to_string().contains("too big"));
         assert!(parse_tree(&serde_json::json!({ "message": "Not Found" })).is_err());

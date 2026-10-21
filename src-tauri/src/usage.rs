@@ -148,12 +148,9 @@ pub fn looks_like_auth_error(msg: &str) -> bool {
     if network.iter().any(|k| m.contains(k)) {
         return false;
     }
-    [
-        "log in", "login", "logged in", "not logged", "sign in", "credential", "unauthorized", "401", "403",
-        "token", "auth", "expired",
-    ]
-    .iter()
-    .any(|k| m.contains(k))
+    ["log in", "login", "logged in", "not logged", "sign in", "credential", "unauthorized", "401", "403", "token", "auth", "expired"]
+        .iter()
+        .any(|k| m.contains(k))
 }
 
 /// Status from the latest fetch and offline identity.
@@ -267,9 +264,8 @@ pub async fn activity(state: &AppState, account_id: Option<&str>, days: u32) -> 
     let mut set = JoinSet::new();
     let mut result = Vec::new();
     for account in accounts {
-        let fresh = cache.get(&account.id).filter(|e| {
-            e.days >= days && util::parse_iso(&e.scanned_at).is_some_and(|t| (now - t).num_minutes() < ACTIVITY_TTL_MINUTES)
-        });
+        let fresh =
+            cache.get(&account.id).filter(|e| e.days >= days && util::parse_iso(&e.scanned_at).is_some_and(|t| (now - t).num_minutes() < ACTIVITY_TTL_MINUTES));
         if let Some(e) = fresh {
             result.extend(e.items.clone());
             continue;

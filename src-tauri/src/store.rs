@@ -84,11 +84,7 @@ impl AppState {
     }
 
     pub fn adapter(&self, id: ProviderId) -> anyhow::Result<Adapter> {
-        self.adapters
-            .iter()
-            .find(|a| a.id() == id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("no adapter for {}", id.as_str()))
+        self.adapters.iter().find(|a| a.id() == id).cloned().ok_or_else(|| anyhow::anyhow!("no adapter for {}", id.as_str()))
     }
 
     pub fn data_dir(&self) -> &Path {
@@ -255,11 +251,7 @@ fn append_history_file(path: &Path, points: &[UsageHistoryPoint]) -> anyhow::Res
     Ok(())
 }
 
-fn read_history_file(
-    path: &Path,
-    account_id: Option<&str>,
-    since: chrono::DateTime<chrono::Utc>,
-) -> Vec<UsageHistoryPoint> {
+fn read_history_file(path: &Path, account_id: Option<&str>, since: chrono::DateTime<chrono::Utc>) -> Vec<UsageHistoryPoint> {
     let Ok(f) = std::fs::File::open(path) else {
         return vec![];
     };
@@ -281,10 +273,7 @@ pub fn prune_history(path: &Path, now: chrono::DateTime<chrono::Utc>) -> anyhow:
     let mut kept = Vec::new();
     let mut dropped = 0usize;
     for line in std::io::BufReader::new(f).lines().map_while(Result::ok) {
-        let keep = serde_json::from_str::<UsageHistoryPoint>(&line)
-            .ok()
-            .and_then(|p| util::parse_iso(&p.t))
-            .is_some_and(|t| t >= cutoff);
+        let keep = serde_json::from_str::<UsageHistoryPoint>(&line).ok().and_then(|p| util::parse_iso(&p.t)).is_some_and(|t| t >= cutoff);
         if keep {
             kept.extend_from_slice(line.as_bytes());
             kept.push(b'\n');
@@ -315,10 +304,8 @@ fn migrate_legacy(legacy: &Path, dir: &Path) -> anyhow::Result<bool> {
     let old_profiles = legacy.join("profiles");
     if old_profiles.is_dir() {
         let settings_path = dir.join(SETTINGS_FILE);
-        let mut settings: serde_json::Value = std::fs::read_to_string(&settings_path)
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_else(|| serde_json::json!({}));
+        let mut settings: serde_json::Value =
+            std::fs::read_to_string(&settings_path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
         let unset = settings.get("profilesDir").and_then(|v| v.as_str()).is_none_or(|v| v.trim().is_empty());
         if let (true, Some(obj)) = (unset, settings.as_object_mut()) {
             obj.insert("profilesDir".into(), old_profiles.to_string_lossy().into_owned().into());

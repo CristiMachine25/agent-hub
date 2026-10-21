@@ -24,11 +24,7 @@ const PALETTE: [&str; 8] = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181
 
 /// First palette color no account uses yet, else rotate by count.
 fn next_color(accounts: &[Account]) -> String {
-    PALETTE
-        .iter()
-        .find(|c| !accounts.iter().any(|a| a.color.eq_ignore_ascii_case(c)))
-        .unwrap_or(&PALETTE[accounts.len() % PALETTE.len()])
-        .to_string()
+    PALETTE.iter().find(|c| !accounts.iter().any(|a| a.color.eq_ignore_ascii_case(c))).unwrap_or(&PALETTE[accounts.len() % PALETTE.len()]).to_string()
 }
 
 fn is_hex_color(s: &str) -> bool {
@@ -133,10 +129,7 @@ fn import_label(d: &DetectedAccount) -> String {
         return format!("{short} main");
     }
     let dir = Path::new(&d.home_dir).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-    let suffix = dir
-        .trim_start_matches('.')
-        .trim_start_matches(d.provider_id.as_str())
-        .trim_matches(|c: char| c == '-' || c == '_' || c == '.');
+    let suffix = dir.trim_start_matches('.').trim_start_matches(d.provider_id.as_str()).trim_matches(|c: char| c == '-' || c == '_' || c == '.');
     if suffix.is_empty() {
         return non_empty(d.email.clone()).unwrap_or_else(|| short.to_string());
     }
@@ -271,8 +264,8 @@ pub(crate) async fn create_account(app: &AppHandle, state: &Arc<AppState>, input
 
     let default_home = adapter.default_home();
     let is_default = util::path_key(&default_home) == key;
-    let shared_from = non_empty(input.shared_from.clone())
-        .or_else(|| (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()));
+    let shared_from =
+        non_empty(input.shared_from.clone()).or_else(|| (!is_default && default_home.is_dir()).then(|| default_home.to_string_lossy().into_owned()));
     let identity = adapter.read_identity(&home).await;
     let default_sharing = state.settings.read().await.default_sharing;
 
@@ -465,11 +458,7 @@ fn failed(msg: impl Into<String>) -> LaunchResult {
 }
 
 fn pick_cwd(req_cwd: Option<String>, default_cwd: Option<String>) -> String {
-    non_empty(req_cwd)
-        .into_iter()
-        .chain(non_empty(default_cwd))
-        .find(|c| Path::new(c).is_dir())
-        .unwrap_or_else(|| util::home().to_string_lossy().into_owned())
+    non_empty(req_cwd).into_iter().chain(non_empty(default_cwd)).find(|c| Path::new(c).is_dir()).unwrap_or_else(|| util::home().to_string_lossy().into_owned())
 }
 
 /// Command for a terminal target (CLI or login) with its cwd filled in. Re-applies sharing first
@@ -483,11 +472,7 @@ async fn terminal_command(
     extra_args: &[String],
     req_cwd: Option<String>,
 ) -> anyhow::Result<CommandSpec> {
-    let mut spec = if login {
-        adapter.login_command(account).await?
-    } else {
-        adapter.cli_command(account, resume, extra_args).await?
-    };
+    let mut spec = if login { adapter.login_command(account).await? } else { adapter.cli_command(account, resume, extra_args).await? };
     {
         let settings = state.settings.read().await;
         if !login {
@@ -528,12 +513,7 @@ pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchR
     let result = if req.target == LaunchTarget::Desktop {
         let spec = match adapter.desktop_command(&account).await {
             Ok(Some(spec)) => spec,
-            Ok(None) => {
-                return Ok(failed(format!(
-                    "{} has no desktop app that can run with a separate account",
-                    notify::provider_name(account.provider_id)
-                )))
-            }
+            Ok(None) => return Ok(failed(format!("{} has no desktop app that can run with a separate account", notify::provider_name(account.provider_id)))),
             Err(e) => return Ok(failed(format!("{e:#}"))),
         };
         tokio::task::spawn_blocking(move || launcher::launch_desktop(&spec)).await?
@@ -777,9 +757,7 @@ pub async fn knowledge_get(state: St<'_>) -> Res<Vec<ProviderKnowledge>> {
         }
         let shared = state.shared_dir(adapter.id());
         let (dir, ad) = (shared.clone(), adapter.clone());
-        let items = tokio::task::spawn_blocking(move || knowledge::list_items(&dir, &ad.shareable_paths(), &ad.credential_paths()))
-            .await
-            .unwrap_or_default();
+        let items = tokio::task::spawn_blocking(move || knowledge::list_items(&dir, &ad.shareable_paths(), &ad.credential_paths())).await.unwrap_or_default();
         out.push(ProviderKnowledge {
             provider_id: adapter.id(),
             folder: shared.to_string_lossy().into_owned(),
@@ -893,10 +871,7 @@ pub async fn skills_remove(state: St<'_>, id: String, provider_id: ProviderId) -
     let r = skill_ref(&id)?;
     let adapter = state.adapter(provider_id).map_err(err)?;
     let shared = state.shared_dir(provider_id);
-    tokio::task::spawn_blocking(move || skills::remove_from(&shared, adapter.as_ref(), &r))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(err)
+    tokio::task::spawn_blocking(move || skills::remove_from(&shared, adapter.as_ref(), &r)).await.map_err(|e| e.to_string())?.map_err(err)
 }
 
 /// Only skills.sh and GitHub pages, over https.
@@ -941,7 +916,15 @@ mod tests {
     fn opens_only_skills_sh_and_github_pages() {
         assert!(openable("https://skills.sh/anthropics/skills/pdf"));
         assert!(openable("https://github.com/anthropics/skills/tree/main/skills/pdf"));
-        for no in ["http://github.com/x", "https://github.com.evil.io/x", "https://evil.io/?u=https://github.com", "file:///etc/passwd", "javascript:alert(1)", "github.com/x", ""] {
+        for no in [
+            "http://github.com/x",
+            "https://github.com.evil.io/x",
+            "https://evil.io/?u=https://github.com",
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "github.com/x",
+            "",
+        ] {
             assert!(!openable(no), "{no}");
         }
     }

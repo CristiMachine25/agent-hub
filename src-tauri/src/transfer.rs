@@ -517,10 +517,8 @@ async fn plan_account(state: &Arc<AppState>, a: &ExportedAccount) -> anyhow::Res
         HomeRef::Elsewhere => (PathBuf::new(), false),
     };
     let accounts = state.accounts.read().await;
-    let same_login = |x: &&Account| {
-        x.provider_id == a.provider_id
-            && a.email.as_deref().is_some_and(|e| x.email.as_deref().is_some_and(|y| y.eq_ignore_ascii_case(e)))
-    };
+    let same_login =
+        |x: &&Account| x.provider_id == a.provider_id && a.email.as_deref().is_some_and(|e| x.email.as_deref().is_some_and(|y| y.eq_ignore_ascii_case(e)));
     let same_folder = |x: &&Account| !home.as_os_str().is_empty() && util::path_key(Path::new(&x.home_dir)) == util::path_key(&home);
     // Without an email to compare, the same name for the same tool counts as the same account.
     let same_name = |x: &&Account| x.provider_id == a.provider_id && x.label.trim().eq_ignore_ascii_case(a.label.trim());
@@ -734,15 +732,21 @@ mod tests {
         let claude = crate::providers::get(ProviderId::Claude);
         let gemini = crate::providers::get(ProviderId::Gemini);
         let root = Path::new("/shared/claude");
-        let f = |kind: &str, path: &str| BundleFile { provider_id: ProviderId::Claude, kind: kind.into(), path: path.into(), data: String::new(), executable: false };
+        let f = |kind: &str, path: &str| BundleFile {
+            provider_id: ProviderId::Claude,
+            kind: kind.into(),
+            path: path.into(),
+            data: String::new(),
+            executable: false,
+        };
         assert_eq!(bundle_target(root, claude.as_ref(), &f("skills", "skills/pdf/SKILL.md")), Some(root.join("skills/pdf/SKILL.md")));
         assert_eq!(bundle_target(root, claude.as_ref(), &f("agents", "commands/review.md")), Some(root.join("commands/review.md")));
         assert_eq!(bundle_target(root, claude.as_ref(), &f("instructions", "CLAUDE.md")), Some(root.join("CLAUDE.md")));
         for (kind, path) in [
-            ("skills", "settings.json"),       // a settings file named as a skill
-            ("settings", "settings.json"),     // settings are never carried
-            ("skills", "CLAUDE.md"),           // the wrong kind for that path
-            ("skills", "skillsx/a.md"),        // only inside the folder itself
+            ("skills", "settings.json"),   // a settings file named as a skill
+            ("settings", "settings.json"), // settings are never carried
+            ("skills", "CLAUDE.md"),       // the wrong kind for that path
+            ("skills", "skillsx/a.md"),    // only inside the folder itself
             ("skills", "skills/../settings.json"),
             ("instructions", ".credentials.json"),
             ("other", "plugins/x/plugin.json"),
