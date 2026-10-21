@@ -1,7 +1,7 @@
 //! Scores accounts 0..100 for "what should I use now", with a plain-language reason.
 //! 0 means it can't be used right now (signed out or at a limit); the UI never offers those.
 use crate::model::*;
-use crate::util;
+use crate::{notify, util};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 
@@ -73,20 +73,31 @@ fn tag_matches(account: &Account, task: TaskType) -> bool {
     account.tags.iter().any(|t| kws.contains(&t.trim().to_ascii_lowercase().as_str()))
 }
 
+/// Best first, ties by label. Accounts of a provider in `cli_missing` can still be used in its desktop
+/// app, so they score 1 (not 0) and sort after every other usable account, best quota first.
 pub fn recommend(
     task: TaskType,
     provider: Option<ProviderId>,
     accounts: &[Account],
     latest: &HashMap<String, UsageSnapshot>,
+    cli_missing: &[ProviderId],
     now: DateTime<Utc>,
 ) -> Vec<Recommendation> {
-    let mut out: Vec<(Recommendation, &str)> = accounts
+    let mut out: Vec<(Recommendation, bool, f64, &str)> = accounts
         .iter()
         .filter(|a| provider.is_none_or(|p| a.provider_id == p))
-        .map(|a| (score_account(a, task, latest.get(&a.id), now), a.label.as_str()))
+        .map(|a| {
+            let mut r = score_account(a, task, latest.get(&a.id), now);
+            let (missing, raw) = (cli_missing.contains(&a.provider_id), r.score);
+            if missing && raw > 0.0 {
+                r.score = 1.0;
+                r.reason = format!("The {} CLI isn't installed on this computer. {}", notify::provider_name(a.provider_id), r.reason);
+            }
+            (r, missing, raw, a.label.as_str())
+        })
         .collect();
-    out.sort_by(|(a, la), (b, lb)| b.score.total_cmp(&a.score).then_with(|| la.cmp(lb)));
-    out.into_iter().map(|(r, _)| r).collect()
+    out.sort_by(|(a, ma, ra, la), (b, mb, rb, lb)| b.score.total_cmp(&a.score).then(ma.cmp(mb)).then(rb.total_cmp(ra)).then_with(|| la.cmp(lb)));
+    out.into_iter().map(|(r, ..)| r).collect()
 }
 
 fn rec(account: &Account, score: f64, reason: String) -> Recommendation {
@@ -219,6 +230,7 @@ pub(crate) mod tests {
             email: None,
             credits: None,
             error: None,
+            error_kind: None,
             stale: None,
         }
     }
@@ -235,7 +247,7 @@ pub(crate) mod tests {
             ("a".to_string(), snap("a", vec![window("five_hour", 100.0, Some(2), 300, now)])),
             ("b".to_string(), snap("b", vec![window("five_hour", 30.0, Some(2), 300, now)])),
         ]);
-        let r = recommend(TaskType::Coding, None, &accts, &latest, now);
+        let r = recommend(TaskType::Coding, None, &accts, &latest, &[], now);
         assert_eq!(r[0].account_id, "b");
         assert!(r[0].reason.starts_with("70% of 5-hour session left"));
         assert!(r.iter().find(|x| x.account_id == "a").unwrap().reason.contains("limit reached"));
@@ -253,8 +265,8 @@ pub(crate) mod tests {
             ("max".to_string(), snap("max", vec![window("five_hour", 20.0, Some(3), 300, now)])),
             ("pro".to_string(), snap("pro", vec![window("five_hour", 60.0, Some(3), 300, now)])),
         ]);
-        assert_eq!(recommend(TaskType::LongRefactor, None, &accts, &latest, now)[0].account_id, "max");
-        assert_eq!(recommend(TaskType::QuickQuestion, None, &accts, &latest, now)[0].account_id, "pro");
+        assert_eq!(recommend(TaskType::LongRefactor, None, &accts, &latest, &[], now)[0].account_id, "max");
+        assert_eq!(recommend(TaskType::QuickQuestion, None, &accts, &latest, &[], now)[0].account_id, "pro");
     }
 
     #[test]
@@ -265,7 +277,7 @@ pub(crate) mod tests {
             ("a".to_string(), snap("a", vec![window("seven_day", 40.0, Some(10), 10080, now)])),
             ("b".to_string(), snap("b", vec![window("seven_day", 40.0, Some(100), 10080, now)])),
         ]);
-        let r = recommend(TaskType::Any, None, &accts, &latest, now);
+        let r = recommend(TaskType::Any, None, &accts, &latest, &[], now);
         assert_eq!(r[0].account_id, "a");
         assert!(r[0].reason.contains("Use it before it resets"), "{}", r[0].reason);
     }
@@ -305,6 +317,27 @@ pub(crate) mod tests {
         assert_eq!(score_account(&a, TaskType::QuickQuestion, Some(&full), now).score, 0.0);
     }
 
+    /// Same vectors as "sorts accounts without their CLI last" in src/lib/quota.test.ts.
+    #[test]
+    fn missing_cli_sorts_last_but_stays_usable() {
+        let now = Utc::now();
+        let codex = |id: &str, status: AccountStatus| Account { provider_id: ProviderId::Codex, status, ..account(id, "Pro") };
+        let accts = vec![account("a", "Pro"), codex("b", AccountStatus::Ok), codex("c", AccountStatus::Ok), codex("d", AccountStatus::NeedsLogin)];
+        let latest = HashMap::from([
+            ("a".to_string(), snap("a", vec![window("five_hour", 30.0, None, 300, now)])),
+            ("b".to_string(), snap("b", vec![window("five_hour", 90.0, None, 300, now)])),
+            ("c".to_string(), snap("c", vec![window("five_hour", 10.0, None, 300, now)])),
+        ]);
+        let r = recommend(TaskType::Any, None, &accts, &latest, &[ProviderId::Codex], now);
+        let order: Vec<_> = r.iter().map(|x| (x.account_id.as_str(), x.score)).collect();
+        // Still usable (its desktop app may work), so 1 and not 0; the one with more left comes first.
+        assert_eq!(order, [("a", 45.5), ("c", 1.0), ("b", 1.0), ("d", 0.0)]);
+        assert_eq!(r[1].reason, "The Codex CLI isn't installed on this computer. 90% of 5-hour session left.");
+        assert_eq!(r[3].reason, "Needs login before it can be used.");
+        // Without the CLI check the same accounts rank on quota alone.
+        assert_eq!(recommend(TaskType::Any, None, &accts, &latest, &[], now)[0].account_id, "c");
+    }
+
     #[test]
     fn provider_filter_and_tags() {
         let now = Utc::now();
@@ -313,7 +346,7 @@ pub(crate) mod tests {
         let mut other = account("o", "Pro");
         other.provider_id = ProviderId::Codex;
         let accts = vec![account("u", "Pro"), tagged, other];
-        let r = recommend(TaskType::Research, Some(ProviderId::Claude), &accts, &HashMap::new(), now);
+        let r = recommend(TaskType::Research, Some(ProviderId::Claude), &accts, &HashMap::new(), &[], now);
         assert_eq!(r.len(), 2);
         assert_eq!(r[0].account_id, "t");
         assert_eq!(tier(&account("x", "Copilot Pro+")), 3);

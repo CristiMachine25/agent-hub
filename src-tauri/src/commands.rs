@@ -314,7 +314,13 @@ pub async fn terminal_scrollback(terms: Terms<'_>, id: String) -> Res<String> {
 pub async fn recommend(state: St<'_>, task: TaskType, provider_id: Option<ProviderId>) -> Res<Vec<Recommendation>> {
     let accounts = state.accounts.read().await.clone();
     let latest = state.latest.read().await.clone();
-    Ok(recommend::recommend(task, provider_id, &accounts, &latest, chrono::Utc::now()))
+    let mut cli_missing = Vec::new();
+    for a in &state.adapters {
+        if !a.info().await.cli_installed {
+            cli_missing.push(a.id());
+        }
+    }
+    Ok(recommend::recommend(task, provider_id, &accounts, &latest, &cli_missing, chrono::Utc::now()))
 }
 
 #[tauri::command]

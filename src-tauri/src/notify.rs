@@ -52,14 +52,15 @@ fn reset_phrase(w: &UsageWindow, now: DateTime<Utc>) -> Option<String> {
     (t > now).then(|| format!("resets at {} ({})", util::local_clock(t, now), util::human_until(t, now)))
 }
 
-/// Best other usable account of the same provider, with its percent left.
+/// Best other usable account of the same provider, with its percent left. Its CLI is the one this
+/// account uses, so whether it is installed doesn't change the pick.
 fn best_alternative<'a>(
     account: &Account,
     accounts: &'a [Account],
     latest: &HashMap<String, UsageSnapshot>,
     now: DateTime<Utc>,
 ) -> Option<(&'a Account, Recommendation)> {
-    recommend::recommend(TaskType::Any, Some(account.provider_id), accounts, latest, now)
+    recommend::recommend(TaskType::Any, Some(account.provider_id), accounts, latest, &[], now)
         .into_iter()
         .filter(|r| r.account_id != account.id && r.score >= 10.0)
         .find_map(|r| accounts.iter().find(|a| a.id == r.account_id).map(|a| (a, r)))
@@ -211,10 +212,11 @@ fn limit_rules(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotifi
     }
 }
 
-/// A long window resets soon with a lot left: once per window cycle.
+/// A long window resets soon with a lot left: once per window cycle. Model-only windows are
+/// skipped, as in `computeAlerts` (src/lib/quota.ts).
 fn use_it_rule(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotification>) {
     let w = ctx.w;
-    if recommend::is_short_window(w) {
+    if recommend::is_short_window(w) || recommend::is_model_window(w) {
         return;
     }
     let Some(t) = w.resets_at.as_deref().and_then(util::parse_iso) else { return };
@@ -337,6 +339,18 @@ mod tests {
         assert!(run(&HashMap::new(), &short, &accts, &mut NotifyState::default(), now).is_empty());
         let far = one("a", window("seven_day", 20.0, Some(100), 10080, now));
         assert!(run(&HashMap::new(), &far, &accts, &mut NotifyState::default(), now).is_empty());
+    }
+
+    /// As `computeAlerts` in src/lib/quota.ts: a model-only window (Weekly Opus) going unused is no
+    /// reason to switch to the account, so it never fires "use it or lose it".
+    #[test]
+    fn use_it_or_lose_it_skips_model_only_windows() {
+        let now = Utc::now();
+        let accts = vec![account("a", "Max")];
+        let opus = UsageWindow { id: "seven_day_opus".into(), label: "Weekly Opus".into(), ..window("seven_day", 10.0, Some(10), 10080, now) };
+        let s = snap("a", vec![window("seven_day", 20.0, Some(100), 10080, now), opus]);
+        let new = HashMap::from([("a".to_string(), s)]);
+        assert!(run(&HashMap::new(), &new, &accts, &mut NotifyState::default(), now).is_empty());
     }
 
     #[test]

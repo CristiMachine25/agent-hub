@@ -359,7 +359,8 @@ export function createMockApi(platform: Platform): AgentHubApi {
     }),
     async recommend(task, providerId) {
       await wait(90)
-      return rankAccounts(task, providerId, db.accounts, db.usage)
+      const cliMissing = db.providers.filter((p) => !p.cliInstalled).map((p) => p.id)
+      return rankAccounts(task, providerId, db.accounts, db.usage, cliMissing)
     },
     notifications: {
       async list() {

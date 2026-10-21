@@ -18,7 +18,7 @@
 //! docs/copilot.md). We never read the keychain (that could pop OS prompts during background polls);
 //! the token comes from the plaintext store if present, else from GitHub CLI: `gh auth token --user <login>`.
 use super::common::{finish_days, first_local_date, local_date, num, parse_jsonc, scan_launcher_scripts, DayMap, VersionCache};
-use super::{CommandSpec, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -261,15 +261,15 @@ async fn gh_token(user: &GhUser) -> Option<String> {
 }
 
 impl CopilotAdapter {
-    async fn fetch_live(&self, account: &Account) -> Result<UsageSnapshot, String> {
+    async fn fetch_live(&self, account: &Account) -> Result<UsageSnapshot, FetchError> {
         let home = Path::new(&account.home_dir);
         let config = read_config(home);
         let Some(user) = config.as_ref().and_then(active_user) else {
-            return Err("Not signed in. Run `copilot login` for this account".into());
+            return Err(FetchError::auth("Not signed in. Run `copilot login` for this account"));
         };
         let token = match config.as_ref().and_then(|c| plaintext_token(c, &user)) {
             Some(t) => t,
-            None => gh_token(&user).await.ok_or(NEED_GH)?,
+            None => gh_token(&user).await.ok_or_else(|| FetchError::auth(NEED_GH))?,
         };
         let resp = util::http()
             .get(format!("{}/copilot_internal/user", user.api_base()))
@@ -281,22 +281,24 @@ impl CopilotAdapter {
             .header("X-Github-Api-Version", "2025-04-01")
             .send()
             .await
-            .map_err(|e| format!("Could not reach GitHub: {e}"))?;
+            .map_err(|e| FetchError::network(format!("Could not reach GitHub: {e}")))?;
         let status = resp.status().as_u16();
         match status {
             200..=299 => {}
-            401 => return Err(format!("GitHub rejected the token for {}. {NEED_GH}", user.login)),
-            403 | 404 => return Err(format!("{} has no Copilot access (HTTP {status})", user.login)),
-            _ => return Err(format!("Copilot usage request failed (HTTP {status})")),
+            401 => return Err(FetchError::auth(format!("GitHub rejected the token for {}. {NEED_GH}", user.login))),
+            403 | 404 => return Err(FetchError::other(format!("{} has no Copilot access (HTTP {status})", user.login))),
+            _ => return Err(FetchError::other(format!("Copilot usage request failed (HTTP {status})"))),
         }
-        let v: Value = resp.json().await.map_err(|_| "GitHub returned an unexpected Copilot usage response".to_string())?;
+        let v: Value = resp.json().await.map_err(|_| FetchError::other("GitHub returned an unexpected Copilot usage response"))?;
         let usage = parse_usage(&v);
+        let empty = usage.windows.is_empty() && usage.plan.is_none();
         Ok(UsageSnapshot {
             account_id: account.id.clone(),
             provider_id: ProviderId::Copilot,
             fetched_at: util::now_iso(),
             source: UsageSource::Api,
-            error: (usage.windows.is_empty() && usage.plan.is_none()).then(|| "GitHub returned no Copilot quotas".to_string()),
+            error: empty.then(|| "GitHub returned no Copilot quotas".to_string()),
+            error_kind: empty.then_some(ErrorKind::Other),
             windows: usage.windows,
             plan: usage.plan,
             email: Some(display_login(&user)),
@@ -503,12 +505,12 @@ impl ProviderAdapter for CopilotAdapter {
 
     async fn fetch_usage(&self, account: &Account, live: bool) -> UsageSnapshot {
         if !live {
-            return UsageSnapshot::failed(account, UsageSource::None, "Copilot CLI keeps no local record of its limits; turn on live usage to see them");
+            return FetchError::other("Copilot CLI keeps no local record of its limits; turn on live usage to see them").snapshot(account, UsageSource::None);
         }
         match self.fetch_live(account).await {
             Ok(s) => s,
             Err(e) => {
-                let mut s = UsageSnapshot::failed(account, UsageSource::Api, e);
+                let mut s = e.snapshot(account, UsageSource::Api);
                 s.email = read_identity_sync(Path::new(&account.home_dir)).email;
                 s
             }

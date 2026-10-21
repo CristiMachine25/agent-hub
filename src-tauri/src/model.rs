@@ -209,7 +209,23 @@ pub struct UsageSnapshot {
     pub email: Option<String>,
     pub credits: Option<Credits>,
     pub error: Option<String>,
+    /// What kind of failure `error` is. Only the poll that fetched the snapshot reads it, so it is
+    /// neither sent to the UI nor saved.
+    #[serde(skip)]
+    pub error_kind: Option<ErrorKind>,
     pub stale: Option<bool>,
+}
+
+/// Why a usage fetch failed, so account status doesn't have to be guessed from the message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+    /// No sign-in, or the provider rejected it: signing in again fixes it.
+    Auth,
+    /// The sign-in lapsed: opening the tool once (or signing in again) renews it.
+    Expired,
+    /// The provider could not be reached.
+    Network,
+    Other,
 }
 
 impl UsageSnapshot {
@@ -225,6 +241,7 @@ impl UsageSnapshot {
             email: None,
             credits: None,
             error: Some(error.into()),
+            error_kind: None,
             stale: None,
         }
     }
@@ -704,6 +721,7 @@ mod contract_tests {
             email: some("me@example.com"),
             credits: Some(Credits { used: 1.5, limit: Some(10.0), unit: s("USD") }),
             error: some("timed out"),
+            error_kind: Some(ErrorKind::Network), // never serialized
             stale: Some(true),
         };
         f.value("UsageSnapshot", "T.UsageSnapshot", &snapshot);
