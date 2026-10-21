@@ -24,7 +24,7 @@ export function MostUsed({ accounts, activity, metric }: { accounts: Account[]; 
   return (
     <ol className="space-y-2.5">
       {rows.map(({ a, v }) => (
-        <li key={a.id} className="grid grid-cols-[minmax(0,9.5rem)_1fr_3.5rem] items-center gap-3" title={`${Math.round((v / total) * 100)}% of all ${metric}`}>
+        <li key={a.id} className="grid grid-cols-[minmax(0,9.5rem)_1fr_3.5rem] items-center gap-3" data-tip={`${Math.round((v / total) * 100)}% of all ${metric}`}>
           <span className="truncate text-muted">{a.label}</span>
           <span className="block h-3 rounded-r-[3px] bg-[rgb(var(--cell-off))]">
             <span className="block h-full rounded-r-[3px]" style={{ width: `${Math.max(2, (v / max) * 100)}%`, background: a.color }} />

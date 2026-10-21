@@ -216,7 +216,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 <button
                   className="btn"
                   onClick={() => launch(a.id, 'desktop')}
-                  title={prov.desktopMultiAccount ? undefined : `${prov.desktopName} runs one account at a time; it opens with whichever account it last used`}
+                  data-tip={prov.desktopMultiAccount ? undefined : `${prov.desktopName} runs one account at a time; it opens with whichever account it last used`}
                 >
                   <AppWindow size={14} /> Open {prov.desktopName ?? 'desktop app'}
                 </button>
@@ -293,7 +293,7 @@ function AccountDetail({ account: a }: { account: Account }) {
           <section>
             <SectionTitle>Profile folder</SectionTitle>
             <div className="flex items-center gap-2 rounded border border-rivet bg-deck py-1 pl-3 pr-1">
-              <code className="code min-w-0 flex-1 truncate" title={a.homeDir}>
+              <code className="code min-w-0 flex-1 truncate" data-tip={a.homeDir}>
                 {a.homeDir}
               </code>
               <CopyButton text={a.homeDir} label="Copy path" />
@@ -383,7 +383,7 @@ function Drafts() {
                 useDrafts.getState().resume(d.id)
                 setAddOpen(true)
               }}
-              title="Finish creating this profile"
+              data-tip="Finish creating this profile"
             >
               <ProviderMark id={d.providerId} size={14} />
               <span className="min-w-0 flex-1">
@@ -396,7 +396,7 @@ function Drafts() {
             <button
               className="mr-1 flex h-7 w-7 shrink-0 items-center justify-center rounded text-faint opacity-0 hover:bg-ground hover:text-ink focus:opacity-100 group-hover:opacity-100"
               onClick={() => useDrafts.getState().remove(d.id)}
-              title="Delete draft"
+              data-tip="Delete draft"
               aria-label={`Delete draft ${d.label || ''}`.trim()}
             >
               <Trash2 size={13} />

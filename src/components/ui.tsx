@@ -110,7 +110,7 @@ export function Segmented<T extends string>({
             type="button"
             role="radio"
             aria-checked={on}
-            title={o.title}
+            data-tip={o.title}
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(o.id)}
             onKeyDown={(e) => {

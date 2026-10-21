@@ -108,7 +108,7 @@ export function Settings() {
           </Row>
           <Row label="Start in folder" help="The working directory for launches, unless you pick one.">
             <div className="flex min-w-0 items-center gap-2">
-              <code className="code max-w-[260px] truncate text-muted" title={s.defaultCwd}>
+              <code className="code max-w-[260px] truncate text-muted" data-tip={s.defaultCwd}>
                 {s.defaultCwd ?? 'Your home folder'}
               </code>
               <button

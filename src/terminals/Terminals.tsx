@@ -80,7 +80,7 @@ export function Terminals() {
                 key={id}
                 role="radio"
                 aria-checked={ws.layout === id}
-                title={LAYOUTS[id].label}
+                data-tip={LAYOUTS[id].label}
                 aria-label={LAYOUTS[id].label}
                 onClick={() => setLayout(id)}
                 className={clsx(
