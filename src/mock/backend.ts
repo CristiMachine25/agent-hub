@@ -16,7 +16,7 @@ import type {
   UsageWindow
 } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
-import { scoreAccounts } from '@/lib/recommend'
+import { recommend as rankAccounts } from '@/lib/recommend'
 import { ACCOUNT_COLORS, PROVIDER_ORDER } from '@/lib/providers'
 import { FEATURED, featuredFor, folderOf } from '@/lib/skills'
 import type { Platform } from '@/lib/platform'
@@ -339,8 +339,7 @@ export function createMockApi(platform: Platform): HopperApi {
     }),
     async recommend(task, providerId) {
       await wait(90)
-      const installed = Object.fromEntries(db.providers.map((p) => [p.id, p.cliInstalled]))
-      return scoreAccounts(db.accounts, db.usage, task, Date.now(), providerId, installed)
+      return rankAccounts(task, providerId, db.accounts, db.usage)
     },
     notifications: {
       async list() {

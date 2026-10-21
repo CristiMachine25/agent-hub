@@ -1,4 +1,5 @@
 //! Scores accounts 0..100 for "what should I use now", with a plain-language reason.
+//! 0 means it can't be used right now (signed out or at a limit); the UI never offers those.
 use crate::model::*;
 use crate::util;
 use chrono::{DateTime, Utc};
@@ -94,7 +95,7 @@ fn rec(account: &Account, score: f64, reason: String) -> Recommendation {
 
 pub fn score_account(account: &Account, task: TaskType, snap: Option<&UsageSnapshot>, now: DateTime<Utc>) -> Recommendation {
     if matches!(account.status, AccountStatus::NeedsLogin | AccountStatus::Expired) {
-        return rec(account, 3.0, "Needs login before it can be used.".into());
+        return rec(account, 0.0, "Needs login before it can be used.".into());
     }
     let tier = f64::from(tier(account));
     let fit = match task {
@@ -115,7 +116,7 @@ pub fn score_account(account: &Account, task: TaskType, snap: Option<&UsageSnaps
 
     if left < 1.0 {
         let when = resets.map(|t| format!(", resets {}", util::human_until(t, now))).unwrap_or_default();
-        return rec(account, 2.0, format!("{} limit reached{when}.", tight.label));
+        return rec(account, 0.0, format!("{} limit reached{when}.", tight.label));
     }
 
     let base = match task {
@@ -234,6 +235,9 @@ pub(crate) mod tests {
         assert!(r[0].reason.starts_with("70% of 5-hour session left"));
         assert!(r.iter().find(|x| x.account_id == "a").unwrap().reason.contains("limit reached"));
         assert!(r.iter().all(|x| (0.0..=100.0).contains(&x.score)));
+        // The UI's "Use now" only offers accounts scoring above 0.
+        let unusable: Vec<_> = r.iter().filter(|x| x.score == 0.0).map(|x| x.account_id.as_str()).collect();
+        assert_eq!(unusable, ["a", "c"]);
     }
 
     #[test]
