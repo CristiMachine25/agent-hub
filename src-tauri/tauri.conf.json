@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "label": "main", "title": "Agent Hub", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true }
+      { "label": "main", "title": "Agent Hub", "width": 1240, "height": 820, "minWidth": 900, "minHeight": 600, "titleBarStyle": "Overlay", "hiddenTitle": true, "trafficLightPosition": { "x": 16, "y": 30 } }
     ],
     "security": { "csp": null }
   },

@@ -69,7 +69,7 @@ export function SessionsPanel() {
       aria-label="Sessions"
       className="flex w-[216px] shrink-0 flex-col border-r border-rivet bg-well"
     >
-      <div className="flex h-14 shrink-0 items-center gap-1 border-b border-rivet pl-3 pr-1.5">
+      <div data-tauri-drag-region="deep" className="flex h-14 shrink-0 items-center gap-1 border-b border-rivet pl-3 pr-1.5">
         <span className="flex-1 text-xs font-semibold text-muted">
           Sessions
         </span>
