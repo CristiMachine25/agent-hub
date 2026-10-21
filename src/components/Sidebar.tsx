@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useEffect } from 'react'
-import { Bell, Gauge, Library, PanelLeftClose, PanelLeftOpen, RefreshCw, Rocket, Settings, SquareTerminal, Users } from 'lucide-react'
+import { Bell, Gauge, Library, PanelLeftClose, PanelLeftOpen, RefreshCw, Settings, SquareTerminal, Users } from 'lucide-react'
 import { useStore, type Screen } from '@/store'
 import { IS_MOCK, api } from '@/api'
 import { formatAgo } from '@/lib/format'
@@ -37,7 +37,6 @@ export function Sidebar() {
   const now = useStore((s) => s.now)
   const refreshing = useStore((s) => s.refreshing)
   const refresh = useStore((s) => s.refresh)
-  const setPalette = useStore((s) => s.setPalette)
   const [collapsed, setCollapsed] = useCollapsed('switchyard.sidebarCollapsed', () => window.innerWidth < 1000)
 
   useEffect(() => {
@@ -99,17 +98,6 @@ export function Sidebar() {
       </ul>
 
       <div className="mt-auto flex flex-col gap-2 p-3 compact:items-center compact:px-1">
-        <button
-          onClick={() => setPalette(true)}
-          className="btn w-full justify-between compact:w-10 compact:px-0"
-          title={`Quick launch (${modKey(api.platform)}+K)`}
-        >
-          <span className="flex items-center gap-2">
-            <Rocket size={15} />
-            <span className="compact:hidden">Quick launch</span>
-          </span>
-          <span className="kbd compact:hidden">{modKey(api.platform)} K</span>
-        </button>
         <button
           onClick={() => refresh()}
           disabled={refreshing}
