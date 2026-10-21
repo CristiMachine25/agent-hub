@@ -2,10 +2,12 @@
 //! account that links its skills gets them at once. The files come from the skill's GitHub
 //! repository at one commit. Nothing is ever overwritten, and only folders Switchyard installed
 //! (they carry a marker file) are ever removed.
-use crate::model::ShareKind;
+use crate::model::{DirectorySkill, ShareKind, SkillPreview};
 use crate::providers::ProviderAdapter;
 use crate::{sharing, util};
 use anyhow::{anyhow, bail, Context};
+use serde_json::Value;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -203,6 +205,185 @@ pub fn skills_dir(shared: &Path, adapter: &dyn ProviderAdapter) -> Option<PathBu
     rels.first().map(|rel| shared.join(rel))
 }
 
+/// Search results that can be installed (GitHub skills), in the directory's order, without repeats.
+pub fn parse_search(v: &Value) -> Vec<DirectorySkill> {
+    let mut seen = HashSet::new();
+    let found = v.get("skills").and_then(Value::as_array).into_iter().flatten();
+    found
+        .filter_map(|s| {
+            let r = SkillRef::parse(s.get("id")?.as_str()?)?;
+            let name = s.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty()).unwrap_or(&r.skill).to_string();
+            let installs = s.get("installs").and_then(Value::as_u64).unwrap_or(0);
+            seen.insert(r.id()).then(|| DirectorySkill { id: r.id(), name, source: r.source(), installs })
+        })
+        .collect()
+}
+
+/// A recursive GitHub tree listing as files. Submodules and folders are left out.
+pub fn parse_tree(v: &Value) -> anyhow::Result<Vec<TreeFile>> {
+    if v.get("truncated").and_then(Value::as_bool) == Some(true) {
+        bail!("This repository is too big to list, so the skill can't be installed from here");
+    }
+    let tree = v.get("tree").and_then(Value::as_array).ok_or_else(|| anyhow!("GitHub didn't list the repository's files"))?;
+    Ok(tree
+        .iter()
+        .filter(|e| e.get("type").and_then(Value::as_str) == Some("blob"))
+        .filter_map(|e| {
+            let mode = e.get("mode")?.as_str()?;
+            Some(TreeFile {
+                path: e.get("path")?.as_str()?.to_string(),
+                size: e.get("size").and_then(Value::as_u64).unwrap_or(0),
+                executable: mode == "100755",
+                link: mode == "120000",
+            })
+        })
+        .collect())
+}
+
+/// (name, description, body) of a SKILL.md. Only plain, quoted and folded (`>`, `|`) values are
+/// read: enough for the two fields every skill has.
+pub fn front_matter(md: &str) -> (Option<String>, Option<String>, &str) {
+    let Some(rest) = md.strip_prefix("---").and_then(|r| r.strip_prefix("\r\n").or_else(|| r.strip_prefix('\n'))) else {
+        return (None, None, md);
+    };
+    let mut offset = 0;
+    for line in rest.split_inclusive('\n') {
+        if line.trim_end() == "---" {
+            let head = &rest[..offset];
+            let body = rest[offset + line.len()..].trim_start_matches(['\r', '\n']);
+            return (field(head, "name"), field(head, "description"), body);
+        }
+        offset += line.len();
+    }
+    (None, None, md)
+}
+
+fn field(head: &str, key: &str) -> Option<String> {
+    let lines: Vec<&str> = head.lines().collect();
+    let at = lines.iter().position(|l| l.strip_prefix(key).is_some_and(|r| r.starts_with(':')))?;
+    let value = lines[at][key.len() + 1..].trim();
+    let text = if matches!(value, ">" | ">-" | ">+" | "|" | "|-" | "|+") {
+        let block = lines[at + 1..].iter().take_while(|l| l.starts_with([' ', '\t']) || l.trim().is_empty());
+        block.map(|l| l.trim()).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ")
+    } else {
+        ['"', '\''].iter().find_map(|q| value.strip_prefix(*q).and_then(|v| v.strip_suffix(*q))).unwrap_or(value).to_string()
+    };
+    (!text.is_empty()).then_some(text)
+}
+
+/// The skill folders in `skills_dir`, with the directory id of those Switchyard installed.
+pub fn list_installed(skills_dir: &Path) -> Vec<(String, Option<String>)> {
+    let Ok(entries) = fs::read_dir(skills_dir) else { return Vec::new() };
+    let mut out: Vec<(String, Option<String>)> = entries
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().into_string().ok().filter(|n| !n.starts_with('.')).map(|n| (n, installed_id(&e.path()))))
+        .collect();
+    out.sort();
+    out
+}
+
+// ---------- network ----------
+
+const DIRECTORY: &str = "https://skills.sh";
+
+/// Files downloaded at the same time.
+const PARALLEL: usize = 8;
+
+/// The directory's search, best matches first. Queries need at least two characters.
+pub async fn search(query: &str) -> anyhow::Result<Vec<DirectorySkill>> {
+    let url = reqwest::Url::parse_with_params(&format!("{DIRECTORY}/api/search"), &[("q", query), ("limit", "50")])?;
+    let v: Value = send(util::http().get(url)).await?.json().await?;
+    Ok(parse_search(&v))
+}
+
+/// The skill's SKILL.md from the directory's copy of it, to read before installing.
+pub async fn preview(r: &SkillRef) -> anyhow::Result<SkillPreview> {
+    let mut url = reqwest::Url::parse(DIRECTORY)?;
+    url.path_segments_mut().map_err(|_| anyhow!("bad directory url"))?.extend(["api", "download", &r.owner, &r.repo, &r.skill]);
+    let v: Value = send(util::http().get(url)).await?.json().await?;
+    let files = v.get("files").and_then(Value::as_array).ok_or_else(|| anyhow!("skills.sh has no copy of this skill"))?;
+    let md = files
+        .iter()
+        .find(|f| f.get("path").and_then(Value::as_str).is_some_and(|p| p.eq_ignore_ascii_case("SKILL.md")))
+        .and_then(|f| f.get("contents")?.as_str())
+        .ok_or_else(|| anyhow!("The skill has no SKILL.md"))?;
+    let (name, description, body) = front_matter(md);
+    Ok(SkillPreview {
+        id: r.id(),
+        name: name.unwrap_or_else(|| r.skill.clone()),
+        description: description.unwrap_or_default(),
+        body: body.to_string(),
+        files: files.len(),
+    })
+}
+
+/// The skill's files from its GitHub repository, all from the commit HEAD points at now.
+pub async fn download(r: &SkillRef) -> anyhow::Result<Download> {
+    let http = util::http();
+    let api = format!("https://api.github.com/repos/{}/{}", r.owner, r.repo);
+    let head = http.get(format!("{api}/commits/HEAD")).header(reqwest::header::ACCEPT, "application/vnd.github.sha");
+    let commit = send(head).await?.text().await?.trim().to_string();
+    if commit.len() != 40 || !commit.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!("GitHub didn't say which version of {} to download", r.source());
+    }
+    let listing = http.get(format!("{api}/git/trees/{commit}?recursive=1")).header(reqwest::header::ACCEPT, "application/vnd.github+json");
+    let files = parse_tree(&send(listing).await?.json().await?)?;
+    let folder = pick_folder(&files, &r.skill).ok_or_else(|| anyhow!("{} has no skill named {}", r.source(), r.skill))?;
+    let mut pending = plan_files(&files, &folder)?.into_iter();
+    let mut running = tokio::task::JoinSet::new();
+    let mut got = Vec::new();
+    loop {
+        while running.len() < PARALLEL {
+            let Some(f) = pending.next() else { break };
+            running.spawn(fetch_raw(http.clone(), r.clone(), commit.clone(), folder.clone(), f));
+        }
+        match running.join_next().await {
+            Some(done) => got.push(done??),
+            None => break,
+        }
+    }
+    got.sort_by(|a: &(TreeFile, Vec<u8>), b| a.0.path.cmp(&b.0.path));
+    Ok(Download { commit, folder, files: got })
+}
+
+async fn fetch_raw(http: reqwest::Client, r: SkillRef, commit: String, folder: String, f: TreeFile) -> anyhow::Result<(TreeFile, Vec<u8>)> {
+    let mut url = reqwest::Url::parse("https://raw.githubusercontent.com/")?;
+    url.path_segments_mut()
+        .map_err(|_| anyhow!("bad download url"))?
+        .extend([r.owner.as_str(), r.repo.as_str(), commit.as_str()])
+        .extend(folder.split('/').filter(|s| !s.is_empty()))
+        .extend(f.path.split('/'));
+    let bytes = send(http.get(url)).await?.bytes().await?;
+    if bytes.len() as u64 != f.size {
+        bail!("{} didn't download completely", f.path);
+    }
+    Ok((f, bytes.to_vec()))
+}
+
+/// Send a GET and turn failures into sentences: offline, GitHub's hourly limit, not found.
+async fn send(req: reqwest::RequestBuilder) -> anyhow::Result<reqwest::Response> {
+    let resp = req.send().await.map_err(|e| {
+        let host = e.url().and_then(|u| u.host_str()).unwrap_or("the server").to_string();
+        anyhow!("Couldn't reach {host}{}", if e.is_timeout() { ": it took too long to answer" } else { ". Check your connection." })
+    })?;
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp);
+    }
+    let host = resp.url().host_str().unwrap_or_default().to_string();
+    let header = |name: &str| resp.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string);
+    if host == "api.github.com" && (status.as_u16() == 429 || header("x-ratelimit-remaining").as_deref() == Some("0")) {
+        let reset = header("x-ratelimit-reset").and_then(|s| s.parse::<i64>().ok()).and_then(|s| chrono::DateTime::from_timestamp(s, 0));
+        let when = reset.map(|t| format!(" Try again at {}.", util::local_clock(t, chrono::Utc::now()))).unwrap_or_default();
+        bail!("GitHub's hourly download limit for this network is used up.{when}");
+    }
+    if status == reqwest::StatusCode::NOT_FOUND {
+        bail!("Not found on {host}. The skill or its repository may have moved.");
+    }
+    bail!("{host} answered {status}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,5 +573,79 @@ mod tests {
         assert_eq!(skills_dir(shared, gemini.as_ref()), Some(shared.join(".gemini/skills")));
         let claude = crate::providers::get(crate::model::ProviderId::Claude);
         assert_eq!(skills_dir(Path::new("/shared/claude"), claude.as_ref()), Some(PathBuf::from("/shared/claude/skills")));
+    }
+
+    #[test]
+    fn keeps_installable_search_results_once() {
+        let v = serde_json::json!({ "query": "pdf", "skills": [
+            { "id": "anthropics/skills/pdf", "source": "anthropics/skills", "skillId": "pdf", "name": "pdf", "installs": 120 },
+            { "id": "open.feishu.cn/lark-pdf", "source": "open.feishu.cn", "skillId": "lark-pdf", "name": "lark-pdf", "installs": 90 },
+            { "id": "anthropics/skills/pdf", "source": "anthropics/skills", "skillId": "pdf", "name": "pdf", "installs": 120 },
+            { "id": "someone/tools/pdf-tools", "name": "PDF Tools" },
+            { "name": "no id" }
+        ]});
+        let found = parse_search(&v);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found[0], DirectorySkill { id: "anthropics/skills/pdf".into(), name: "pdf".into(), source: "anthropics/skills".into(), installs: 120 });
+        assert_eq!((found[1].name.as_str(), found[1].source.as_str(), found[1].installs), ("PDF Tools", "someone/tools", 0));
+        assert!(parse_search(&serde_json::json!({ "error": "Query must be at least 2 characters" })).is_empty());
+    }
+
+    #[test]
+    fn reads_github_trees() {
+        let v = serde_json::json!({ "sha": "t", "truncated": false, "tree": [
+            { "path": "skills", "mode": "040000", "type": "tree" },
+            { "path": "skills/pdf/SKILL.md", "mode": "100644", "type": "blob", "size": 12 },
+            { "path": "skills/pdf/run.sh", "mode": "100755", "type": "blob", "size": 3 },
+            { "path": "skills/pdf/latest", "mode": "120000", "type": "blob", "size": 9 },
+            { "path": "vendor/lib", "mode": "160000", "type": "commit" }
+        ]});
+        let files = parse_tree(&v).unwrap();
+        assert_eq!(files, [
+            TreeFile { path: "skills/pdf/SKILL.md".into(), size: 12, executable: false, link: false },
+            TreeFile { path: "skills/pdf/run.sh".into(), size: 3, executable: true, link: false },
+            TreeFile { path: "skills/pdf/latest".into(), size: 9, executable: false, link: true },
+        ]);
+        let cut = serde_json::json!({ "truncated": true, "tree": [] });
+        assert!(parse_tree(&cut).unwrap_err().to_string().contains("too big"));
+        assert!(parse_tree(&serde_json::json!({ "message": "Not Found" })).is_err());
+    }
+
+    #[test]
+    fn reads_skill_front_matter() {
+        let md = "---\nname: pdf\ndescription: \"Read, merge and split PDFs.\"\nlicense: MIT\n---\n\n# PDF\nBody";
+        assert_eq!(front_matter(md), (Some("pdf".into()), Some("Read, merge and split PDFs.".into()), "# PDF\nBody"));
+        let folded = "---\r\nname: 'x'\r\ndescription: >\r\n  Two lines\r\n  of text.\r\nmetadata:\r\n  a: b\r\n---\r\nHi";
+        assert_eq!(front_matter(folded), (Some("x".into()), Some("Two lines of text.".into()), "Hi"));
+        assert_eq!(front_matter("# No front matter"), (None, None, "# No front matter"));
+        assert_eq!(front_matter("---\nname: open"), (None, None, "---\nname: open"), "unclosed front matter is body");
+    }
+
+    #[test]
+    fn lists_installed_skill_folders() {
+        let t = tempfile::tempdir().unwrap();
+        assert!(list_installed(&t.path().join("missing")).is_empty());
+        write_skill(t.path(), &pdf(), &download(&[("SKILL.md", "s")])).unwrap();
+        fs::create_dir_all(t.path().join("mine")).unwrap();
+        fs::create_dir_all(t.path().join(".hidden")).unwrap();
+        fs::write(t.path().join("notes.txt"), "x").unwrap();
+        assert_eq!(list_installed(t.path()), [("mine".to_string(), None), ("pdf".to_string(), Some("anthropics/skills/pdf".to_string()))]);
+    }
+
+    /// Talks to skills.sh and GitHub: `cargo test skills::tests::live -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_search_preview_and_install() {
+        let found = search("pdf").await.unwrap();
+        assert!(found.iter().any(|s| s.id == "anthropics/skills/pdf"), "{found:?}");
+        let shown = preview(&pdf()).await.unwrap();
+        assert_eq!(shown.name, "pdf");
+        assert!(!shown.description.is_empty() && shown.files > 1);
+        let d = super::download(&pdf()).await.unwrap();
+        assert_eq!(d.folder, "skills/pdf");
+        let t = tempfile::tempdir().unwrap();
+        let target = write_skill(t.path(), &pdf(), &d).unwrap();
+        assert!(target.join("SKILL.md").is_file());
+        assert_eq!(installed_id(&target).as_deref(), Some("anthropics/skills/pdf"));
     }
 }
