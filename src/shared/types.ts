@@ -316,6 +316,41 @@ export interface ProviderKnowledge {
   accounts: KnowledgeAccount[]
 }
 
+/** A skill in the public skills.sh directory. */
+export interface DirectorySkill {
+  /** "owner/repo/skill" */
+  id: string
+  name: string
+  /** The GitHub repository, "owner/repo". */
+  source: string
+  installs: number
+}
+
+/** A skill's SKILL.md, read before installing. */
+export interface SkillPreview {
+  id: string
+  name: string
+  description: string
+  /** SKILL.md without its front matter. */
+  body: string
+  /** Files the skill brings, SKILL.md included. */
+  files: number
+}
+
+/** A skill folder in a tool's shared skills folder. */
+export interface InstalledSkill {
+  providerId: ProviderId
+  /** The folder name. */
+  name: string
+  /** The directory id when Switchyard installed it; null for skills copied from the main folder or added by hand. */
+  id: string | null
+}
+
+export interface SkillInstallOutcome {
+  providerId: ProviderId
+  error: string | null
+}
+
 /** Start a CLI inside an embedded terminal pane (the in-app grid) instead of an external window. */
 export interface TerminalSpawnRequest {
   accountId: string
@@ -397,8 +432,21 @@ export interface HopperApi {
     /** Copy anything new from the tool's main folder into its shared folder. Never overwrites. */
     reseed(providerId: ProviderId): Promise<{ added: number; kept: number }>
   }
+  skills: {
+    /** Search skills.sh. Fewer than two characters finds nothing. */
+    search(query: string): Promise<DirectorySkill[]>
+    preview(id: string): Promise<SkillPreview>
+    /** Skill folders in the shared folder of every tool that has accounts. */
+    installed(): Promise<InstalledSkill[]>
+    /** Download once, then add to each tool's shared folder. Never overwrites. */
+    install(id: string, providerIds: ProviderId[]): Promise<SkillInstallOutcome[]>
+    /** Only removes a copy Switchyard installed. */
+    remove(id: string, providerId: ProviderId): Promise<void>
+  }
   system: {
     openPath(path: string): Promise<void>
+    /** Open a skills.sh or GitHub page in the browser. */
+    openUrl(url: string): Promise<void>
     pickDirectory(): Promise<string | null>
     /** Ask where to save a file; null when cancelled. */
     pickSavePath(defaultName: string): Promise<string | null>
@@ -440,7 +488,13 @@ export const COMMANDS = {
   settingsSet: 'settings_set', // { patch }
   knowledgeGet: 'knowledge_get',
   knowledgeReseed: 'knowledge_reseed', // { providerId }
+  skillsSearch: 'skills_search', // { query }
+  skillsPreview: 'skills_preview', // { id }
+  skillsInstalled: 'skills_installed',
+  skillsInstall: 'skills_install', // { id, providerIds }
+  skillsRemove: 'skills_remove', // { id, providerId }
   systemOpenPath: 'system_open_path', // { path }
+  systemOpenUrl: 'system_open_url', // { url }
   terminalSpawn: 'terminal_spawn', // { req }
   terminalWrite: 'terminal_write', // { id, data }
   terminalResize: 'terminal_resize', // { id, cols, rows }

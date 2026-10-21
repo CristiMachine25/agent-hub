@@ -49,7 +49,7 @@ export function UsageOverTime({
       .filter((r) => r.data.length > 1)
   }, [accounts, usage, history, days, start])
 
-  if (!rows.length) return <p className="py-10 text-center text-muted">No history yet. It fills in as Switchyard checks usage.</p>
+  if (!rows.length) return <p className="py-10 text-center text-muted">No history yet. It fills in as Agent Hub checks usage.</p>
 
   const ticks = [0, 1, 2, 3].map((i) => start + ((end - start) * i) / 3)
   return (

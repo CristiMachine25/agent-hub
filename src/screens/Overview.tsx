@@ -47,7 +47,7 @@ export function Overview() {
       <Page title="Overview">
         <EmptyState
           title="No accounts yet"
-          body="Switchyard can find the Claude, Codex, Gemini and Copilot profiles already on this computer, or create a fresh profile for another login."
+          body="Agent Hub can find the Claude, Codex, Gemini and Copilot profiles already on this computer, or create a fresh profile for another login."
           action={
             <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
               <Search size={15} /> Find accounts on this computer
@@ -111,15 +111,25 @@ export function Overview() {
   )
 }
 
+/** A screen: a fixed toolbar like the terminal grid's, with the content scrolling below it. */
 export function Page({ title, actions, children }: { title: string; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex w-full max-w-[1280px] flex-col gap-6 px-7 pb-10 pt-5 max-[999px]:px-5">
-      <header className="flex min-h-9 items-center justify-between gap-4">
-        <h1 className="font-serif text-[24px] font-semibold leading-8">{title}</h1>
-        <div className="flex items-center gap-2">{actions}</div>
-      </header>
-      {children}
+    <div className="flex h-full flex-col">
+      <Toolbar title={title}>{actions}</Toolbar>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex flex-col gap-6 px-5 pb-10 pt-5">{children}</div>
+      </div>
     </div>
+  )
+}
+
+/** The 56px bar at the top of a screen. It doubles as the window's title bar, so empty parts of it drag the window. */
+export function Toolbar({ title, children }: { title: React.ReactNode; children?: React.ReactNode }) {
+  return (
+    <header data-tauri-drag-region="deep" className="flex h-14 shrink-0 items-center gap-4 border-b border-rivet px-5">
+      <h1 className="min-w-0 truncate font-serif text-lg font-semibold">{title}</h1>
+      <div className="ml-auto flex shrink-0 items-center gap-2">{children}</div>
+    </header>
   )
 }
 

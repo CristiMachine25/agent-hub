@@ -14,7 +14,7 @@ import { Meter, WindowGauge } from '@/components/Meter'
 import { AccountDot, Dialog, EmptyState, ProviderMark, Segmented, SectionTitle, Switch } from '@/components/ui'
 import { CopyButton } from '@/components/Toasts'
 import { DailyTokens, WindowHistory } from '@/charts/AccountCharts'
-import { Page } from './Overview'
+import { Page, Toolbar } from './Overview'
 
 export function Accounts() {
   const accounts = useStore((s) => s.accounts)
@@ -30,7 +30,7 @@ export function Accounts() {
       <Page title="Accounts">
         <EmptyState
           title="No accounts yet"
-          body="Start by letting Switchyard look for the CLI profiles already on this computer. Nothing is changed until you import."
+          body="Start by letting Agent Hub look for the CLI profiles already on this computer. Nothing is changed until you import."
           action={
             <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
               <Search size={15} /> Find accounts on this computer
@@ -45,14 +45,14 @@ export function Accounts() {
 
   return (
     <div className="flex h-full min-h-0">
-      <aside aria-label="Accounts" className="flex w-[272px] shrink-0 flex-col border-r border-rivet max-[999px]:w-[230px]">
-        <div className="flex h-14 items-center justify-between px-4">
-          <h1 className="font-serif text-[24px] font-semibold leading-8">Accounts</h1>
+      <aside aria-label="Accounts" className="flex w-[272px] shrink-0 flex-col border-r border-rivet bg-well max-[999px]:w-[230px]">
+        <div data-tauri-drag-region="deep" className="flex h-14 shrink-0 items-center justify-between border-b border-rivet pl-4 pr-3">
+          <h1 className="font-serif text-lg font-semibold">Accounts</h1>
           <button className="btn btn-sm" onClick={() => setAddOpen(true)}>
             <Plus size={14} /> Add
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-1">
           <Drafts />
           {PROVIDER_ORDER.map((p) => {
             const list = accounts.filter((a) => a.providerId === p)
@@ -91,7 +91,7 @@ export function Accounts() {
           })}
         </div>
       </aside>
-      <div className="min-w-0 flex-1 overflow-y-auto">{selected && <AccountDetail key={selected.id} account={selected} />}</div>
+      <div className="flex min-w-0 flex-1 flex-col">{selected && <AccountDetail key={selected.id} account={selected} />}</div>
     </div>
   )
 }
@@ -141,212 +141,218 @@ function AccountDetail({ account: a }: { account: Account }) {
     })
 
   return (
-    <div className="mx-auto flex max-w-[980px] flex-col gap-7 px-7 pb-10 pt-4 max-[999px]:px-5">
-      <header>
-        <div className="flex items-start gap-3">
-          <AccountDot account={a} size={14} />
-          <div className="-mt-1.5 min-w-0 flex-1">
-            <h2 className="truncate font-serif text-[26px] font-semibold leading-8">{a.label}</h2>
+    <>
+      <Toolbar
+        title={
+          <span className="flex items-center gap-2.5">
+            <AccountDot account={a} size={10} />
+            <span className="truncate">{a.label}</span>
+          </span>
+        }
+      >
+        <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>
+          <Pencil size={13} /> Edit
+        </button>
+      </Toolbar>
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex flex-col gap-7 px-5 pb-10 pt-4">
+          <header>
             <p className="flex flex-wrap items-center gap-x-1.5 text-muted">
               <ProviderMark id={a.providerId} size={14} />
               {meta.product}
               {a.plan ? `, ${a.plan} plan` : ''}
               {a.email ? (signedOut ? `, ${a.email}` : `, signed in as ${a.email}`) : ''}
             </p>
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>
-            <Pencil size={13} /> Edit
-          </button>
-        </div>
 
-        {signedOut && (
-          <div className="mt-4 flex items-center gap-3 rounded border border-rivet bg-deck px-4 py-2.5">
-            <LogIn size={16} className="shrink-0 text-hop" />
-            <p className="flex-1">{a.statusMessage ?? 'This account is signed out.'}</p>
-            <button className="btn btn-primary btn-sm" onClick={() => launch(a.id, 'login')}>
-              Sign in
-            </button>
-          </div>
-        )}
-        {!signedOut && (snap?.stale || snap?.error) && (
-          <div className="mt-4 flex items-center gap-3 rounded border border-rivet px-4 py-2.5">
-            <Info size={16} className="shrink-0 text-muted" />
-            <p className="flex-1 text-muted">{snap.error ?? `These numbers are from ${formatAgo(snap.fetchedAt, now)}.`}</p>
-            {snap.stale && (
-              <button className="btn btn-sm" onClick={() => refresh(a.id)}>
-                <RefreshCw size={13} /> Check again
-              </button>
+            {signedOut && (
+              <div className="mt-4 flex items-center gap-3 rounded border border-rivet bg-deck px-4 py-2.5">
+                <LogIn size={16} className="shrink-0 text-hop" />
+                <p className="flex-1">{a.statusMessage ?? 'This account is signed out.'}</p>
+                <button className="btn btn-primary btn-sm" onClick={() => launch(a.id, 'login')}>
+                  Sign in
+                </button>
+              </div>
             )}
-          </div>
-        )}
+            {!signedOut && (snap?.stale || snap?.error) && (
+              <div className="mt-4 flex items-center gap-3 rounded border border-rivet px-4 py-2.5">
+                <Info size={16} className="shrink-0 text-muted" />
+                <p className="flex-1 text-muted">{snap.error ?? `These numbers are from ${formatAgo(snap.fetchedAt, now)}.`}</p>
+                {snap.stale && (
+                  <button className="btn btn-sm" onClick={() => refresh(a.id)}>
+                    <RefreshCw size={13} /> Check again
+                  </button>
+                )}
+              </div>
+            )}
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          {!signedOut && (
-            <button className="btn btn-primary" onClick={() => launch(a.id, 'cli')} disabled={launching === a.id + 'cli'}>
-              <Play size={14} fill="currentColor" /> {launchVerb(a.providerId)}
-            </button>
-          )}
-          {!signedOut && (
-            <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} title="Run it in a pane of the terminal grid">
-              <SquareTerminal size={14} /> Open in grid
-            </button>
-          )}
-          {!signedOut && (
-            <button className="btn" onClick={() => launch(a.id, 'cli', { resume: true })}>
-              <RotateCcw size={14} /> Resume last session
-            </button>
-          )}
-          {!signedOut && (
-            <button
-              className="btn"
-              onClick={async () => {
-                const dir = await api.system.pickDirectory()
-                if (dir) void launch(a.id, 'cli', { cwd: dir })
-              }}
-            >
-              <FolderSearch size={14} /> Launch in a folder…
-            </button>
-          )}
-          {prov?.desktopInstalled && !signedOut && (
-            <button
-              className="btn"
-              onClick={() => launch(a.id, 'desktop')}
-              title={prov.desktopMultiAccount ? undefined : `${prov.desktopName} runs one account at a time; it opens with whichever account it last used`}
-            >
-              <AppWindow size={14} /> Open {prov.desktopName ?? 'desktop app'}
-            </button>
-          )}
-          {!signedOut && (
-            <button className="btn btn-ghost" onClick={() => launch(a.id, 'login')}>
-              <LogIn size={14} /> Sign in again
-            </button>
-          )}
-        </div>
-        {prov && !prov.cliInstalled && (
-          <div className="mt-3 flex items-center gap-2 rounded border border-rivet bg-ground py-1 pl-3 pr-1 text-muted">
-            <span className="text-xs">{prov.name} isn't installed. Install it with</span>
-            <code className="code flex-1 truncate text-ink">{prov.installHint}</code>
-            <CopyButton text={prov.installHint} label="Copy install command" />
-          </div>
-        )}
-      </header>
-
-      <section>
-        <SectionTitle aside={snap && <span className="text-xs text-muted">Checked {formatAgo(snap.fetchedAt, now)}</span>}>Limits</SectionTitle>
-        {snap && snap.windows.length ? (
-          <div className="grid grid-cols-1 gap-x-8 gap-y-5 min-[1100px]:grid-cols-2">
-            {snap.windows.map((w) => (
-              <WindowGauge key={w.id} w={w} now={now} stale={snap.stale} />
-            ))}
-            {snap.credits && <p className="self-end text-muted">{creditsText(snap.credits)}.</p>}
-          </div>
-        ) : (
-          <p className="text-muted">
-            {signedOut
-              ? 'Sign in to see this account’s limits.'
-              : snap?.credits
-                ? `${creditsText(snap.credits)}.`
-                : snap?.error
-                  ? 'No limits to show for this account.'
-                  : 'No usage data yet. Switchyard checks every few minutes.'}
-          </p>
-        )}
-        {!signedOut && (!snap || snap.source === 'none' || snap.source === 'manual' || !snap.windows.length) && <ManualLimits account={a} />}
-      </section>
-
-      <section>
-        <SectionTitle
-          aside={
-            <Segmented
-              size="sm"
-              label="Time range"
-              value={range}
-              onChange={setRange}
-              options={[
-                { id: '7', label: '7 days' },
-                { id: '30', label: '30 days' }
-              ]}
-            />
-          }
-        >
-          Usage over time
-        </SectionTitle>
-        <WindowHistory windows={snap?.windows ?? []} history={history} />
-      </section>
-
-      <section>
-        <SectionTitle>Activity from local sessions</SectionTitle>
-        <dl className="mb-3 grid grid-cols-4 gap-4">
-          <Fact label="Tokens" value={formatTokens(totals.tokens)} />
-          <Fact label="Messages" value={totals.messages.toLocaleString()} />
-          <Fact label="Sessions" value={totals.sessions.toLocaleString()} />
-          <Fact label="Main model" value={topModel ?? 'None yet'} />
-        </dl>
-        <DailyTokens activity={activity} color={a.color} span={Number(range)} />
-      </section>
-
-      <section>
-        <SectionTitle>Profile folder</SectionTitle>
-        <div className="flex items-center gap-2 rounded border border-rivet bg-deck py-1 pl-3 pr-1">
-          <code className="code min-w-0 flex-1 truncate" title={a.homeDir}>
-            {a.homeDir}
-          </code>
-          <CopyButton text={a.homeDir} label="Copy path" />
-          <button className="btn btn-sm" onClick={() => api.system.openPath(a.homeDir)}>
-            <FolderOpen size={13} /> Open folder
-          </button>
-        </div>
-        <p className="mt-2 text-xs text-muted">
-          {a.isDefaultHome ? (
-            <>This is {meta.short}'s main folder, so it launches without any override. </>
-          ) : prov?.homeEnvVar ? (
-            <>
-              Launched with <code className="code">{prov.homeEnvVar}</code> pointing here.{' '}
-            </>
-          ) : null}
-          {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from Switchyard yet.'}
-        </p>
-      </section>
-
-      <section>
-        <SectionTitle>Shared with your main setup</SectionTitle>
-        {a.isDefaultHome ? (
-          <p className="text-muted">This is your main {meta.short} setup. Other {meta.short} accounts can share its skills, plugins and history.</p>
-        ) : (
-          <>
-            <p className="mb-3 text-muted">
-              Shared items are linked, not copied: change them in one place and every account sees it. Sign-in tokens are never shared.
-              {a.sharedFrom && (
-                <>
-                  {' '}
-                  Source: <code className="code">{a.sharedFrom}</code>
-                </>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {!signedOut && (
+                <button className="btn btn-primary" onClick={() => launch(a.id, 'cli')} disabled={launching === a.id + 'cli'}>
+                  <Play size={14} fill="currentColor" /> {launchVerb(a.providerId)}
+                </button>
               )}
+              {!signedOut && (
+                <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} title="Run it in a pane of the terminal grid">
+                  <SquareTerminal size={14} /> Open in grid
+                </button>
+              )}
+              {!signedOut && (
+                <button className="btn" onClick={() => launch(a.id, 'cli', { resume: true })}>
+                  <RotateCcw size={14} /> Resume last session
+                </button>
+              )}
+              {!signedOut && (
+                <button
+                  className="btn"
+                  onClick={async () => {
+                    const dir = await api.system.pickDirectory()
+                    if (dir) void launch(a.id, 'cli', { cwd: dir })
+                  }}
+                >
+                  <FolderSearch size={14} /> Launch in a folder…
+                </button>
+              )}
+              {prov?.desktopInstalled && !signedOut && (
+                <button
+                  className="btn"
+                  onClick={() => launch(a.id, 'desktop')}
+                  title={prov.desktopMultiAccount ? undefined : `${prov.desktopName} runs one account at a time; it opens with whichever account it last used`}
+                >
+                  <AppWindow size={14} /> Open {prov.desktopName ?? 'desktop app'}
+                </button>
+              )}
+              {!signedOut && (
+                <button className="btn btn-ghost" onClick={() => launch(a.id, 'login')}>
+                  <LogIn size={14} /> Sign in again
+                </button>
+              )}
+            </div>
+            {prov && !prov.cliInstalled && (
+              <div className="mt-3 flex items-center gap-2 rounded border border-rivet bg-ground py-1 pl-3 pr-1 text-muted">
+                <span className="text-xs">{prov.name} isn't installed. Install it with</span>
+                <code className="code flex-1 truncate text-ink">{prov.installHint}</code>
+                <CopyButton text={prov.installHint} label="Copy install command" />
+              </div>
+            )}
+          </header>
+
+          <section>
+            <SectionTitle aside={snap && <span className="text-xs text-muted">Checked {formatAgo(snap.fetchedAt, now)}</span>}>Limits</SectionTitle>
+            {snap && snap.windows.length ? (
+              <div className="grid grid-cols-1 gap-x-8 gap-y-5 min-[1100px]:grid-cols-2">
+                {snap.windows.map((w) => (
+                  <WindowGauge key={w.id} w={w} now={now} stale={snap.stale} />
+                ))}
+                {snap.credits && <p className="self-end text-muted">{creditsText(snap.credits)}.</p>}
+              </div>
+            ) : (
+              <p className="text-muted">
+                {signedOut
+                  ? 'Sign in to see this account’s limits.'
+                  : snap?.credits
+                    ? `${creditsText(snap.credits)}.`
+                    : snap?.error
+                      ? 'No limits to show for this account.'
+                      : 'No usage data yet. Agent Hub checks every few minutes.'}
+              </p>
+            )}
+            {!signedOut && (!snap || snap.source === 'none' || snap.source === 'manual' || !snap.windows.length) && <ManualLimits account={a} />}
+          </section>
+
+          <section>
+            <SectionTitle
+              aside={
+                <Segmented
+                  size="sm"
+                  label="Time range"
+                  value={range}
+                  onChange={setRange}
+                  options={[
+                    { id: '7', label: '7 days' },
+                    { id: '30', label: '30 days' }
+                  ]}
+                />
+              }
+            >
+              Usage over time
+            </SectionTitle>
+            <WindowHistory windows={snap?.windows ?? []} history={history} />
+          </section>
+
+          <section>
+            <SectionTitle>Activity from local sessions</SectionTitle>
+            <dl className="mb-3 grid grid-cols-4 gap-4">
+              <Fact label="Tokens" value={formatTokens(totals.tokens)} />
+              <Fact label="Messages" value={totals.messages.toLocaleString()} />
+              <Fact label="Sessions" value={totals.sessions.toLocaleString()} />
+              <Fact label="Main model" value={topModel ?? 'None yet'} />
+            </dl>
+            <DailyTokens activity={activity} color={a.color} span={Number(range)} />
+          </section>
+
+          <section>
+            <SectionTitle>Profile folder</SectionTitle>
+            <div className="flex items-center gap-2 rounded border border-rivet bg-deck py-1 pl-3 pr-1">
+              <code className="code min-w-0 flex-1 truncate" title={a.homeDir}>
+                {a.homeDir}
+              </code>
+              <CopyButton text={a.homeDir} label="Copy path" />
+              <button className="btn btn-sm" onClick={() => api.system.openPath(a.homeDir)}>
+                <FolderOpen size={13} /> Open folder
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-muted">
+              {a.isDefaultHome ? (
+                <>This is {meta.short}'s main folder, so it launches without any override. </>
+              ) : prov?.homeEnvVar ? (
+                <>
+                  Launched with <code className="code">{prov.homeEnvVar}</code> pointing here.{' '}
+                </>
+              ) : null}
+              {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from Agent Hub yet.'}
             </p>
-            <ul className="divide-y divide-rivet rounded-lg border border-rivet">
-              {SHARING_ITEMS.map((s) => (
-                <li key={s.key} className="flex items-center gap-4 px-4 py-2.5">
-                  <label htmlFor={`share-${s.key}`} className="min-w-0 flex-1">
-                    <span className="block font-medium">{s.label}</span>
-                    <span className="block text-xs text-muted">{s.explain}</span>
-                  </label>
-                  <Switch id={`share-${s.key}`} checked={a.sharing[s.key]} onChange={(v) => setSharing(s.key, v)} label={`Share ${s.label}`} />
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </section>
+          </section>
 
-      <section className="border-t border-rivet pt-5">
-        <button className="btn btn-danger" onClick={() => setRemoving(true)}>
-          <Trash2 size={14} /> Remove account
-        </button>
-      </section>
+          <section>
+            <SectionTitle>Shared with your main setup</SectionTitle>
+            {a.isDefaultHome ? (
+              <p className="text-muted">This is your main {meta.short} setup. Other {meta.short} accounts can share its skills, plugins and history.</p>
+            ) : (
+              <>
+                <p className="mb-3 text-muted">
+                  Shared items are linked, not copied: change them in one place and every account sees it. Sign-in tokens are never shared.
+                  {a.sharedFrom && (
+                    <>
+                      {' '}
+                      Source: <code className="code">{a.sharedFrom}</code>
+                    </>
+                  )}
+                </p>
+                <ul className="divide-y divide-rivet rounded-lg border border-rivet">
+                  {SHARING_ITEMS.map((s) => (
+                    <li key={s.key} className="flex items-center gap-4 px-4 py-2.5">
+                      <label htmlFor={`share-${s.key}`} className="min-w-0 flex-1">
+                        <span className="block font-medium">{s.label}</span>
+                        <span className="block text-xs text-muted">{s.explain}</span>
+                      </label>
+                      <Switch id={`share-${s.key}`} checked={a.sharing[s.key]} onChange={(v) => setSharing(s.key, v)} label={`Share ${s.label}`} />
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </section>
 
+          <section className="border-t border-rivet pt-5">
+            <button className="btn btn-danger" onClick={() => setRemoving(true)}>
+              <Trash2 size={14} /> Remove account
+            </button>
+          </section>
+        </div>
+      </div>
       <EditDialog open={editing} onClose={() => setEditing(false)} account={a} />
       <RemoveDialog open={removing} onClose={() => setRemoving(false)} account={a} />
-    </div>
+    </>
   )
 }
 
@@ -559,14 +565,14 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
       }
     >
       <p className="text-muted">
-        Switchyard stops tracking and launching this account. Its sign-in and chats stay in the profile folder unless you delete it.
+        Agent Hub stops tracking and launching this account. Its sign-in and chats stay in the profile folder unless you delete it.
       </p>
       <label className={clsx('mt-4 flex items-start gap-2.5', a.isDefaultHome && 'opacity-60')}>
         <input type="checkbox" className="mt-0.5" checked={deleteHome} disabled={a.isDefaultHome} onChange={(e) => setDeleteHome(e.target.checked)} />
         <span>
           <span className="block">Also delete the profile folder</span>
           <span className="code block break-all text-muted">{a.homeDir}</span>
-          {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Switchyard never deletes it.</span>}
+          {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Agent Hub never deletes it.</span>}
           {deleteHome && <span className="block text-xs text-empty">This can't be undone. Sessions not shared with another account are lost.</span>}
         </span>
       </label>
@@ -649,7 +655,7 @@ function ManualLimits({ account }: { account: Account }) {
         }
       >
         <p className="mb-3 text-muted">
-          Copy what the provider's usage page shows. Switchyard uses these for recommendations and warnings until live limits are available.
+          Copy what the provider's usage page shows. Agent Hub uses these for recommendations and warnings until live limits are available.
         </p>
         <div className="grid grid-cols-[1fr_88px_104px_28px] items-center gap-2 text-xs text-muted">
           <span>Window</span>

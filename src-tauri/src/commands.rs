@@ -3,7 +3,7 @@
 use crate::model::*;
 use crate::providers::{self, Adapter, CommandSpec};
 use crate::store::AppState;
-use crate::{knowledge, launcher, notify, pty, recommend, sharing, usage, util};
+use crate::{knowledge, launcher, notify, pty, recommend, sharing, skills, usage, util};
 use anyhow::{anyhow, Context};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -814,6 +814,103 @@ pub async fn knowledge_reseed(app: AppHandle, state: St<'_>, provider_id: Provid
     Ok(ReseedResult { added: count.added, kept: count.kept })
 }
 
+// ---------- skills directory ----------
+
+fn skill_ref(id: &str) -> Res<skills::SkillRef> {
+    skills::SkillRef::parse(id).ok_or_else(|| format!("{id} isn't a skill Agent Hub can install"))
+}
+
+/// Search skills.sh. Shorter than two characters finds nothing, as the directory requires.
+#[tauri::command]
+pub async fn skills_search(query: String) -> Res<Vec<DirectorySkill>> {
+    let q = query.trim();
+    if q.chars().count() < 2 {
+        return Ok(Vec::new());
+    }
+    skills::search(q).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn skills_preview(id: String) -> Res<SkillPreview> {
+    skills::preview(&skill_ref(&id)?).await.map_err(err)
+}
+
+/// The skill folders in the shared folder of every tool that has accounts.
+#[tauri::command]
+pub async fn skills_installed(state: St<'_>) -> Res<Vec<InstalledSkill>> {
+    let used: HashSet<ProviderId> = state.accounts.read().await.iter().map(|a| a.provider_id).collect();
+    let mut out = Vec::new();
+    for adapter in state.adapters.iter().filter(|a| used.contains(&a.id())) {
+        let Some(dir) = skills::skills_dir(&state.shared_dir(adapter.id()), adapter.as_ref()) else { continue };
+        let provider_id = adapter.id();
+        let found = tokio::task::spawn_blocking(move || skills::list_installed(&dir)).await.unwrap_or_default();
+        out.extend(found.into_iter().map(|(name, id)| InstalledSkill { provider_id, name, id }));
+    }
+    Ok(out)
+}
+
+/// Download the skill once and add it to each tool's shared folder, then relink the accounts
+/// that share skills so a skills folder made just now shows up in them too.
+#[tauri::command]
+pub async fn skills_install(app: AppHandle, state: St<'_>, id: String, provider_ids: Vec<ProviderId>) -> Res<Vec<SkillInstallOutcome>> {
+    let r = skill_ref(&id)?;
+    let mut seen = HashSet::new();
+    let targets: Vec<ProviderId> = provider_ids.into_iter().filter(|p| seen.insert(*p)).collect();
+    if targets.is_empty() {
+        return Err("Pick at least one tool to install it for".into());
+    }
+    let state = state.inner().clone();
+    let download = Arc::new(skills::download(&r).await.map_err(err)?);
+    let accounts = state.accounts.read().await.clone();
+    let mut out = Vec::new();
+    for provider_id in targets {
+        let adapter = match state.adapter(provider_id) {
+            Ok(a) => a,
+            Err(e) => {
+                out.push(SkillInstallOutcome { provider_id, error: Some(err(e)) });
+                continue;
+            }
+        };
+        let (shared, ad, r, d) = (state.shared_dir(provider_id), adapter.clone(), r.clone(), download.clone());
+        let written = tokio::task::spawn_blocking(move || skills::install_into(&shared, ad.as_ref(), &r, &d)).await.map_err(|e| e.to_string())?;
+        if written.is_ok() {
+            let sharing_skills = |a: &&Account| a.provider_id == provider_id && !a.is_default_home && a.sharing.enabled(ShareKind::Skills);
+            for a in accounts.iter().filter(sharing_skills) {
+                apply_sharing(&app, &state, a, adapter.clone()).await;
+            }
+        }
+        out.push(SkillInstallOutcome { provider_id, error: written.err().map(err) });
+    }
+    Ok(out)
+}
+
+/// Remove a skill Switchyard installed from one tool's shared folder.
+#[tauri::command]
+pub async fn skills_remove(state: St<'_>, id: String, provider_id: ProviderId) -> Res<()> {
+    let r = skill_ref(&id)?;
+    let adapter = state.adapter(provider_id).map_err(err)?;
+    let shared = state.shared_dir(provider_id);
+    tokio::task::spawn_blocking(move || skills::remove_from(&shared, adapter.as_ref(), &r))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(err)
+}
+
+/// Only skills.sh and GitHub pages, over https.
+fn openable(url: &str) -> bool {
+    reqwest::Url::parse(url).is_ok_and(|u| u.scheme() == "https" && matches!(u.host_str(), Some("skills.sh" | "github.com")))
+}
+
+/// Open a skill's page in the browser.
+#[tauri::command]
+pub async fn system_open_url(app: AppHandle, url: String) -> Res<()> {
+    use tauri_plugin_opener::OpenerExt;
+    if !openable(&url) {
+        return Err(format!("Agent Hub only opens skills.sh and GitHub links, not {url}"));
+    }
+    app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 pub async fn system_open_path(app: AppHandle, path: String) -> Res<()> {
     use tauri_plugin_opener::OpenerExt;
@@ -826,6 +923,15 @@ pub async fn system_open_path(app: AppHandle, path: String) -> Res<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opens_only_skills_sh_and_github_pages() {
+        assert!(openable("https://skills.sh/anthropics/skills/pdf"));
+        assert!(openable("https://github.com/anthropics/skills/tree/main/skills/pdf"));
+        for no in ["http://github.com/x", "https://github.com.evil.io/x", "https://evil.io/?u=https://github.com", "file:///etc/passwd", "javascript:alert(1)", "github.com/x", ""] {
+            assert!(!openable(no), "{no}");
+        }
+    }
 
     #[test]
     fn colors_tags_and_cwd() {

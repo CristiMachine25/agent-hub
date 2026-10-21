@@ -493,3 +493,47 @@ pub struct ReseedResult {
     /// Files already in the shared folder, left as they were.
     pub kept: usize,
 }
+
+/// A skill listed in the skills.sh directory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectorySkill {
+    /// "owner/repo/skill"
+    pub id: String,
+    pub name: String,
+    /// The GitHub repository, "owner/repo".
+    pub source: String,
+    pub installs: u64,
+}
+
+/// A skill's SKILL.md, read before installing it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillPreview {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    /// SKILL.md without its front matter.
+    pub body: String,
+    /// How many files the skill brings, SKILL.md included.
+    pub files: usize,
+}
+
+/// A skill folder in a tool's shared skills folder.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSkill {
+    pub provider_id: ProviderId,
+    /// The folder name.
+    pub name: String,
+    /// The directory id when Switchyard installed it, else None (copied from the main folder or added by hand).
+    pub id: Option<String>,
+}
+
+/// How installing a skill into one tool went.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillInstallOutcome {
+    pub provider_id: ProviderId,
+    pub error: Option<String>,
+}

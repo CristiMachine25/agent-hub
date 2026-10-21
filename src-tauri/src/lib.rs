@@ -8,6 +8,7 @@ pub mod providers;
 pub mod pty;
 pub mod recommend;
 pub mod sharing;
+pub mod skills;
 pub mod store;
 pub mod transfer;
 pub mod usage;
@@ -22,13 +23,15 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
 /// User-facing product name for Rust-side strings (tray, messages). Rename here only.
-pub const APP_NAME: &str = "Switchyard";
+pub const APP_NAME: &str = "Agent Hub";
 const TRAY_ID: &str = "main";
 const MAIN_WINDOW: &str = "main";
 /// Passed by the login item; the app then starts hidden in the tray.
 const MINIMIZED_ARG: &str = "--minimized";
 
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    util::gui_path::fix();
     let app = tauri::Builder::default()
         // Must be the first plugin: a second launch just focuses the running window.
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main_window(app)))
@@ -93,15 +96,25 @@ pub fn run() {
             commands::system_open_path,
             commands::knowledge_get,
             commands::knowledge_reseed,
+            commands::skills_search,
+            commands::skills_preview,
+            commands::skills_installed,
+            commands::skills_install,
+            commands::skills_remove,
+            commands::system_open_url,
         ])
         .build(tauri::generate_context!());
     match app {
-        Ok(app) => app.run(|app, event| {
-            if let RunEvent::Exit = event {
+        Ok(app) => app.run(|app, event| match event {
+            RunEvent::Exit => {
                 if let Some(terms) = app.try_state::<pty::Terminals>() {
                     terms.kill_all();
                 }
             }
+            // Dock icon clicked while the window is hidden in the tray.
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { has_visible_windows: false, .. } => show_main_window(app),
+            _ => {}
         }),
         Err(e) => {
             eprintln!("{APP_NAME} failed to start: {e}");

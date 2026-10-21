@@ -3,7 +3,9 @@ import type {
   Account,
   AppEvents,
   AppSettings,
+  DirectorySkill,
   HopperApi,
+  InstalledSkill,
   KnowledgeItem,
   LaunchRequest,
   LaunchResult,
@@ -16,6 +18,7 @@ import type {
 import { DEFAULT_SHARING } from '@shared/types'
 import { scoreAccounts } from '@/lib/recommend'
 import { ACCOUNT_COLORS, PROVIDER_ORDER } from '@/lib/providers'
+import { FEATURED, featuredFor, folderOf } from '@/lib/skills'
 import type { Platform } from '@/lib/platform'
 import { buildMockDb, homeRoot } from './data'
 import { createMockTerminals } from './terminals'
@@ -149,6 +152,10 @@ export function createMockApi(platform: Platform): HopperApi {
         }))
     }
   }
+
+  // The skills directory: the featured skills and a few more. Installs land in the shared folders above.
+  const directory = mockDirectory()
+  const installedFrom = new Map<string, string>() // "<provider>/<folder>" -> directory id
 
   const api: HopperApi = {
     platform,
@@ -377,9 +384,57 @@ export function createMockApi(platform: Platform): HopperApi {
         return { added, kept }
       }
     },
+    skills: {
+      async search(query) {
+        const terms = query.toLowerCase().split(/\s+/).filter(Boolean)
+        if (query.trim().length < 2) return []
+        await wait(250)
+        return clone(directory.filter((s) => terms.every((t) => s.id.includes(t))).sort((a, b) => b.installs - a.installs))
+      },
+      async preview(id) {
+        await wait(350)
+        const name = folderOf(id)
+        const description = featuredFor(id)?.blurb ?? 'A skill from the skills.sh directory.'
+        const body = `# ${name}\n\n${description}\n\n## When to use it\n\nWhen the task matches the description above, the agent reads the rest of this file and follows it.\n\n## Steps\n\n1. Read the request.\n2. Follow the checklist.\n3. Report what changed.`
+        return { id, name, description, body, files: 3 }
+      },
+      async installed() {
+        await wait(120)
+        const used = new Set(db.accounts.map((a) => a.providerId))
+        return PROVIDER_ORDER.filter((p) => used.has(p)).flatMap((providerId) =>
+          knowledge[providerId].items
+            .filter(([kind]) => kind === 'skills')
+            .map(([, name]): InstalledSkill => ({ providerId, name, id: installedFrom.get(`${providerId}/${name}`) ?? null }))
+        )
+      },
+      async install(id, providerIds) {
+        await wait(1100)
+        const folder = folderOf(id)
+        return providerIds.map((providerId) => {
+          const items = knowledge[providerId].items
+          if (items.some(([kind, name]) => kind === 'skills' && name === folder)) {
+            return { providerId, error: `A skill named ${folder} is already in the shared folder` }
+          }
+          items.push(['skills', folder, 'skills'])
+          installedFrom.set(`${providerId}/${folder}`, id)
+          return { providerId, error: null }
+        })
+      },
+      async remove(id, providerId) {
+        await wait(300)
+        const folder = folderOf(id)
+        if (installedFrom.get(`${providerId}/${folder}`) !== id) throw new Error("Agent Hub didn't install this copy, so it was left alone")
+        const k = knowledge[providerId]
+        k.items = k.items.filter(([kind, name]) => !(kind === 'skills' && name === folder))
+        installedFrom.delete(`${providerId}/${folder}`)
+      }
+    },
     system: {
       async openPath(path) {
         console.info('[mock] open folder', path)
+      },
+      async openUrl(url) {
+        console.info('[mock] open link', url)
       },
       async pickDirectory() {
         await wait(200)
@@ -451,6 +506,12 @@ export function createMockApi(platform: Platform): HopperApi {
   }, 45_000)
 
   return api
+}
+
+/** The featured skills plus a few others, with made-up install counts. */
+function mockDirectory(): DirectorySkill[] {
+  const ids = [...FEATURED.flatMap((g) => g.skills.map((s) => s.id)), 'designed-by-ai/skills/design-mobile-apps', 'mattpocock/skills/codebase-design', 'anthropics/skills/web-artifacts-builder']
+  return ids.map((id, i) => ({ id, name: folderOf(id), source: id.slice(0, id.lastIndexOf('/')), installs: 1_040_000 - i * 37_311 }))
 }
 
 /** [kind, name, subfolder]: items at the top of the shared folder have no subfolder. */

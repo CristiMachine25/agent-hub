@@ -133,7 +133,7 @@ export function Knowledge() {
       )}
 
       {data && data.length === 0 && (
-        <EmptyState title="Nothing shared yet" body="Add an account and Switchyard sets up a shared profile for its tool." />
+        <EmptyState title="Nothing shared yet" body="Add an account and Agent Hub sets up a shared profile for its tool." />
       )}
 
       {data?.map((k) => <ProviderCard key={k.providerId} k={k} onChanged={load} />)}
@@ -220,7 +220,7 @@ function PermissionRow({ providerId }: { providerId: ProviderId }) {
     <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 border-b border-rivet px-5 py-3">
       <div className="min-w-0 max-w-[440px]">
         <div className="font-medium">Permission mode</div>
-        <div className="text-xs text-muted">Used every time Switchyard starts {tool}, for every account.</div>
+        <div className="text-xs text-muted">Used every time Agent Hub starts {tool}, for every account.</div>
         {UNGUARDED.has(value) && (
           <div className="mt-1 flex items-center gap-1.5 text-xs text-low">
             <AlertTriangle size={12} className="shrink-0" /> Runs commands without asking. Use it only in folders you trust.

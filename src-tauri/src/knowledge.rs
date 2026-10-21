@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use tauri::AppHandle;
 
 /// Written once the shared folder has been seeded, so later starts don't copy again.
-const SEEDED_MARKER: &str = ".seeded";
+pub(crate) const SEEDED_MARKER: &str = ".seeded";
 
 pub const KNOWLEDGE_KINDS: [ShareKind; 6] =
     [ShareKind::Skills, ShareKind::Plugins, ShareKind::Agents, ShareKind::Instructions, ShareKind::Settings, ShareKind::Mcp];

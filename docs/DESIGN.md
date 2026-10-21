@@ -1,4 +1,4 @@
-# Switchyard: design plan
+# Agent Hub: design plan
 
 ## The one question
 
@@ -48,7 +48,7 @@ Account identity colors come from a validated categorical set (dataviz reference
 
 ## Type
 
-Claude's interface pairs a book serif for headings and answers with a plain sans for controls. Switchyard does the same:
+Claude's interface pairs a book serif for headings and answers with a plain sans for controls. Agent Hub does the same:
 
 - **Source Serif 4** (variable, bundled with @fontsource): screen titles, section headings, the account name and
   the big percentage in "Best account right now", the app name. Semibold, tabular figures for numbers that tick.
@@ -80,7 +80,7 @@ usable at 900×600, never scrolls horizontally.
 
 ```
 ┌────────────┬──────────────────────────────────────────────────────────────┐
-│ ◆ Switchyard    │ Overview                                    Refresh  Ctrl K   │
+│ ◆ Agent Hub     │ Overview                                    Refresh  Ctrl K   │
 │            │ ┌ Use now ───────────────────────────────────────────────────┐│
 │ Overview   │ │ For: [Coding] Long refactor  Quick question  Research  …    ││
 │ Accounts   │ │                                                              ││
@@ -109,7 +109,7 @@ Adding an account is a two-step dialog (find on this computer, or create a new i
 3. **Quiet chrome.** Flat surfaces, 1px lines, one radius (6px), no gradients, no shadows except on overlays.
 4. **Show what ran.** Every launch toasts the exact command line in mono, with a copy button.
 5. **Motion only for change.** Meters animate when a value changes; nothing else moves. `prefers-reduced-motion` disables it.
-6. **Keyboard first.** Visible violet focus ring, `Ctrl/Cmd+K` palette, `1–6` jump between screens, Enter launches.
+6. **Keyboard first.** Visible violet focus ring, `Ctrl/Cmd+K` palette, `1–7` jump between screens, Enter launches.
 
 ## Review against the brief (revisions made)
 

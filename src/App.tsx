@@ -9,11 +9,12 @@ import { AddAccountDialog } from './components/AddAccountDialog'
 import { Overview } from './screens/Overview'
 import { Accounts } from './screens/Accounts'
 import { Knowledge } from './screens/Knowledge'
+import { Skills } from './screens/Skills'
 import { Notifications } from './screens/Notifications'
 import { Settings } from './screens/Settings'
 import { Terminals } from './terminals/Terminals'
 
-const SCREENS: Screen[] = ['overview', 'accounts', 'knowledge', 'terminals', 'notifications', 'settings']
+const SCREENS: Screen[] = ['overview', 'accounts', 'knowledge', 'skills', 'terminals', 'notifications', 'settings']
 
 function useTheme() {
   const pref = useStore((s) => s.settings?.theme ?? 'dark')
@@ -103,7 +104,7 @@ export function App() {
       <div className="flex h-full flex-col">
         <TitleBar />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-md font-semibold">Switchyard couldn't load its data</p>
+          <p className="text-md font-semibold">Agent Hub couldn't load its data</p>
           <p className="max-w-md text-muted">{loadError}</p>
           <button className="btn btn-primary" onClick={() => init()}>
             Try again
@@ -117,10 +118,11 @@ export function App() {
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TitleBar />
-        <main className={screen === 'terminals' ? 'min-h-0 flex-1 overflow-hidden' : 'min-h-0 flex-1 overflow-y-auto'} id="main">
+        <main className="min-h-0 flex-1 overflow-hidden" id="main">
           {screen === 'overview' && <Overview />}
           {screen === 'accounts' && <Accounts />}
           {screen === 'knowledge' && <Knowledge />}
+          {screen === 'skills' && <Skills />}
           {screen === 'terminals' && <Terminals />}
           {screen === 'notifications' && <Notifications />}
           {screen === 'settings' && <Settings />}

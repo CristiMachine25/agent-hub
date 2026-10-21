@@ -387,12 +387,12 @@ fn open(passphrase: &str, s: &Sealed) -> Option<Vec<u8>> {
 
 fn read_file(path: &Path) -> anyhow::Result<SetupFile> {
     let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
-    let file: SetupFile = serde_json::from_str(&text).map_err(|_| anyhow!("This isn't a Switchyard setup file"))?;
+    let file: SetupFile = serde_json::from_str(&text).map_err(|_| anyhow!("This isn't an Agent Hub setup file"))?;
     if file.format != FORMAT {
-        bail!("This isn't a Switchyard setup file");
+        bail!("This isn't an Agent Hub setup file");
     }
     if file.version > VERSION {
-        bail!("This file comes from a newer Switchyard. Update Switchyard on this computer first.");
+        bail!("This file comes from a newer Agent Hub. Update Agent Hub on this computer first.");
     }
     Ok(file)
 }
