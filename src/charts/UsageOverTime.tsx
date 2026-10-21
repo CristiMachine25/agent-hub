@@ -92,7 +92,7 @@ export function UsageOverTime({
                 </ResponsiveContainer>
               </div>
               <span className="text-right text-xs tabular-nums text-muted" data-tip="Used now">
-                {Math.round(last)}%
+                {Math.round(last)}%<span className="sr-only"> used now</span>
               </span>
             </li>
           )

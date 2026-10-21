@@ -18,6 +18,7 @@ import type {
 } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
 import { recommend as rankAccounts } from '@/lib/recommend'
+import { canDeleteHome, profilesDir } from '@/lib/profiles'
 import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { FEATURED, featuredFor, folderOf } from '@/lib/skills'
 import type { Platform } from '@/lib/platform'
@@ -271,12 +272,13 @@ export function createMockApi(platform: Platform): AgentHubApi {
       },
       async remove(id, opts) {
         await wait(300)
-        find(id)
+        const acc = find(id)
         db.accounts = db.accounts.filter((a) => a.id !== id)
         delete db.usage[id]
         accountsChanged()
         emit('usage-updated', db.usage)
-        return opts.deleteHome
+        // Like remove_account: a folder outside the profiles folder is never deleted.
+        return opts.deleteHome && canDeleteHome(acc, profilesDir(db.settings, appData), platform)
       }
     },
     usage: {
@@ -464,6 +466,9 @@ export function createMockApi(platform: Platform): AgentHubApi {
       async pickSetupFile() {
         await wait(150)
         return `${home}${sep}Downloads${sep}agent-hub-setup.agenthub`
+      },
+      async appDataDir() {
+        return appData
       }
     },
     transfer: {

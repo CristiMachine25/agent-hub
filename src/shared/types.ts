@@ -455,6 +455,8 @@ export interface AgentHubApi {
     pickSavePath(defaultName: string): Promise<string | null>
     /** Ask for a setup file to open; null when cancelled. */
     pickSetupFile(): Promise<string | null>
+    /** The app data folder (Tauri `appDataDir`); profiles go in its "profiles" folder unless settings.profilesDir is set. */
+    appDataDir(): Promise<string>
   }
   transfer: {
     export(path: string, opts: ExportOptions): Promise<ExportSummary>

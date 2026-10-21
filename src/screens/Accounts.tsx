@@ -9,6 +9,7 @@ import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, PROVIDER_META, PROVIDER_ORDER, SHA
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { PLANS, findPlan, planLabel } from '@/lib/plans'
 import { useDrafts } from '@/lib/drafts'
+import { canDeleteHome, profilesDir } from '@/lib/profiles'
 import { creditsText, formatAgo, formatPct, formatTokens, plural } from '@/lib/format'
 import { Meter, WindowGauge } from '@/components/Meter'
 import { AccountDot, Dialog, EmptyState, ProviderMark, Segmented, SectionTitle, Switch } from '@/components/ui'
@@ -539,11 +540,20 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
 
 function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: () => void; account: Account }) {
   const removeAccount = useStore((s) => s.removeAccount)
+  const settings = useStore((s) => s.settings)
   const [deleteHome, setDeleteHome] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [appData, setAppData] = useState<string>()
   useEffect(() => {
     if (open) setDeleteHome(false)
   }, [open])
+  // Without the path the box stays available; the backend still refuses folders outside profiles.
+  useEffect(() => {
+    api.system.appDataDir().then(setAppData, () => {})
+  }, [])
+  // The backend only deletes folders inside the profiles folder (an imported ~/.claude-x is left alone).
+  const outside = !a.isDefaultHome && appData !== undefined && !canDeleteHome(a, profilesDir(settings, appData), api.platform)
+  const locked = a.isDefaultHome || outside
   return (
     <Dialog
       open={open}
@@ -573,12 +583,13 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
       <p className="text-muted">
         Agent Hub stops tracking and launching this account. Its sign-in and chats stay in the profile folder unless you delete it.
       </p>
-      <label className={clsx('mt-4 flex items-start gap-2.5', a.isDefaultHome && 'opacity-60')}>
-        <input type="checkbox" className="mt-0.5" checked={deleteHome} disabled={a.isDefaultHome} onChange={(e) => setDeleteHome(e.target.checked)} />
+      <label className={clsx('mt-4 flex items-start gap-2.5', locked && 'opacity-60')}>
+        <input type="checkbox" className="mt-0.5" checked={deleteHome} disabled={locked} onChange={(e) => setDeleteHome(e.target.checked)} />
         <span>
           <span className="block">Also delete the profile folder</span>
           <span className="code block break-all text-muted">{a.homeDir}</span>
           {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Agent Hub never deletes it.</span>}
+          {outside && <span className="block text-xs text-muted">This folder is outside Agent Hub's profiles folder, so Agent Hub never deletes it.</span>}
           {deleteHome && <span className="block text-xs text-empty">This can't be undone. Sessions not shared with another account are lost.</span>}
         </span>
       </label>
