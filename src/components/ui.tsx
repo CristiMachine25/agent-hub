@@ -185,9 +185,10 @@ export function Dialog({
     })
     watch.observe(el, { childList: true, subtree: true })
     const onKey = (e: KeyboardEvent) => {
-      // Another modal on top (the ⌘K palette) owns the keys; Escape there must not close this one too.
-      const modal = (document.activeElement as HTMLElement | null)?.closest('[aria-modal="true"]')
-      if (modal && !el.contains(modal)) return
+      // A modal opened on top (the ⌘K palette) owns the keys, even before it has taken focus;
+      // Escape there must not close this one too.
+      const modals = document.querySelectorAll('[aria-modal="true"]')
+      if (modals[modals.length - 1] !== el) return
       if (e.key === 'Escape') {
         e.stopPropagation()
         ;(dismiss.current ?? close.current)()
