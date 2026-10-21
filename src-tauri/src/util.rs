@@ -102,16 +102,6 @@ pub fn path_key(p: &Path) -> String {
     }
 }
 
-/// Unix-ms timestamp to ISO-8601.
-pub fn ms_to_iso(ms: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp_millis(ms).map(|d| d.to_rfc3339())
-}
-
-/// Unix-seconds timestamp to ISO-8601.
-pub fn secs_to_iso(s: i64) -> Option<String> {
-    chrono::DateTime::from_timestamp(s, 0).map(|d| d.to_rfc3339())
-}
-
 /// Serialize `value` as pretty JSON and write it atomically, creating parent dirs.
 pub fn write_json_atomic<T: serde::Serialize + ?Sized>(path: &Path, value: &T) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
