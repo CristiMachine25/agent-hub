@@ -61,6 +61,21 @@ describe('bindingWindow', () => {
     ])
     expect(bindingWindow(s)?.id).toBe('five_hour')
   })
+  // Same vectors as recommend::tests::model_only_windows_do_not_bind on the Rust side.
+  it('keeps an account usable when only a model window is used up', () => {
+    const s = snap('a', [
+      { id: 'five_hour', label: '5-hour session', usedPercent: 20 },
+      { id: 'seven_day', label: 'Weekly', usedPercent: 30 },
+      { id: 'seven_day_sonnet', label: 'Weekly Sonnet', usedPercent: 100 }
+    ])
+    const w = bindingWindow(s)
+    expect(w?.id).toBe('seven_day')
+    expect(w && leftOf(w)).toBe(70)
+  })
+  it('counts model windows when nothing else is known', () => {
+    const s = snap('a', [{ id: 'seven_day_sonnet', label: 'Weekly Sonnet', usedPercent: 100 }])
+    expect(bindingWindow(s)?.id).toBe('seven_day_sonnet')
+  })
 })
 
 describe('computeAlerts', () => {

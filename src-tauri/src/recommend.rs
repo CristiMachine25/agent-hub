@@ -7,9 +7,18 @@ use std::collections::HashMap;
 /// A window that resets within this many hours with plenty left earns a "use it or lose it" bonus.
 const RESET_SOON_HOURS: i64 = 24;
 
-/// The window with the least headroom (highest usedPercent).
+/// Windows that only cap one model (e.g. "Weekly Opus"): running out still leaves the account usable.
+/// Same rule as `isModelWindow` in src/lib/quota.ts.
+pub fn is_model_window(w: &UsageWindow) -> bool {
+    let id = w.id.to_ascii_lowercase();
+    ["opus", "sonnet", "haiku"].iter().any(|m| id.contains(m))
+}
+
+/// The window with the least headroom (highest usedPercent): the one that limits the account.
+/// Model-only windows are ignored when a general window exists (as `bindingWindow` in src/lib/quota.ts).
 pub fn tightest(snapshot: &UsageSnapshot) -> Option<&UsageWindow> {
-    snapshot.windows.iter().max_by(|a, b| a.used_percent.total_cmp(&b.used_percent))
+    let only_model = snapshot.windows.iter().all(is_model_window);
+    snapshot.windows.iter().filter(|w| only_model || !is_model_window(w)).max_by(|a, b| a.used_percent.total_cmp(&b.used_percent))
 }
 
 /// Percent left in the tightest window, if any usage is known.
@@ -250,6 +259,29 @@ pub(crate) mod tests {
         let r = recommend(TaskType::Any, None, &accts, &latest, now);
         assert_eq!(r[0].account_id, "a");
         assert!(r[0].reason.contains("Use it before it resets"), "{}", r[0].reason);
+    }
+
+    /// Same vectors as `bindingWindow` in src/lib/quota.test.ts: a model-only window (Weekly Sonnet)
+    /// running out leaves the account usable, so it never counts as the tightest window.
+    #[test]
+    fn model_only_windows_do_not_bind() {
+        let now = Utc::now();
+        let mut sonnet = window("seven_day_sonnet", 100.0, Some(30), 10080, now);
+        sonnet.label = "Weekly Sonnet".into();
+        let s = snap("a", vec![window("five_hour", 20.0, Some(2), 300, now), window("seven_day", 30.0, Some(100), 10080, now), sonnet.clone()]);
+        assert_eq!(tightest(&s).map(|w| w.id.as_str()), Some("seven_day"));
+        assert_eq!(left_percent(&s), Some(70.0));
+        let r = score_account(&account("a", "Pro"), TaskType::Any, Some(&s), now);
+        assert!(r.score > 10.0 && !r.reason.contains("limit reached"), "{r:?}");
+
+        let opus = UsageWindow { id: "seven_day_opus".into(), label: "Weekly Opus".into(), ..sonnet.clone() };
+        let s = snap("a", vec![window("five_hour", 64.0, None, 300, now), window("seven_day", 41.0, None, 10080, now), UsageWindow { used_percent: 90.0, ..opus }]);
+        assert_eq!(tightest(&s).map(|w| w.id.as_str()), Some("five_hour"));
+
+        // With only model windows known, they still count.
+        let s = snap("a", vec![sonnet]);
+        assert_eq!(tightest(&s).map(|w| w.id.as_str()), Some("seven_day_sonnet"));
+        assert_eq!(left_percent(&s), Some(0.0));
     }
 
     #[test]
