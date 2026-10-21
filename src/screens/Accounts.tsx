@@ -140,6 +140,9 @@ function AccountDetail({ account: a }: { account: Account }) {
       if (ok) useStore.getState().toast({ kind: 'success', title: `${SHARING_ITEMS.find((s) => s.key === key)!.label} ${v ? 'now shared' : 'now private'} for ${a.label}` })
     })
 
+  const openFolder = () =>
+    api.system.openPath(a.homeDir).catch((e) => useStore.getState().toast({ kind: 'error', title: "Couldn't open the folder", body: errorText(e) }))
+
   return (
     <>
       <Toolbar
@@ -297,7 +300,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 {a.homeDir}
               </code>
               <CopyButton text={a.homeDir} label="Copy path" />
-              <button className="btn btn-sm" onClick={() => api.system.openPath(a.homeDir)}>
+              <button className="btn btn-sm" onClick={openFolder}>
                 <FolderOpen size={13} /> Open folder
               </button>
             </div>
