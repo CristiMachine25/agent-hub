@@ -457,7 +457,7 @@ async fn send(req: reqwest::RequestBuilder) -> anyhow::Result<reqwest::Response>
     if host == "api.github.com" && (status.as_u16() == 429 || header("x-ratelimit-remaining").as_deref() == Some("0")) {
         let reset = header("x-ratelimit-reset").and_then(|s| s.parse::<i64>().ok()).and_then(|s| chrono::DateTime::from_timestamp(s, 0));
         let when = reset.map(|t| format!(" Try again at {}.", util::local_clock(t, chrono::Utc::now()))).unwrap_or_default();
-        bail!("GitHub's hourly download limit for this network is used up.{when}");
+        bail!("GitHub's hourly limit for skill previews and downloads on this network is used up.{when}");
     }
     if status == reqwest::StatusCode::NOT_FOUND {
         bail!("Not found on {host}. The skill or its repository may have moved.");
