@@ -43,6 +43,20 @@ pub fn http() -> reqwest::Client {
     CLIENT.clone()
 }
 
+/// HTTP client for downloads (skill files): the same 15 s to connect, but a whole response may
+/// take up to 2 minutes, since the shared client's 15 s limit includes reading the body.
+pub fn download_http() -> reqwest::Client {
+    static CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
+        reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(120))
+            .user_agent(concat!("switchyard/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("http client")
+    });
+    CLIENT.clone()
+}
+
 pub fn read_json(path: &Path) -> Option<serde_json::Value> {
     let s = std::fs::read_to_string(path).ok()?;
     serde_json::from_str(&s).ok()
