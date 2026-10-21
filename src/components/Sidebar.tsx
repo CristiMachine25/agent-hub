@@ -68,18 +68,9 @@ export function Sidebar() {
       )}
     >
       {MAC_TRAFFIC_LIGHTS && <div data-tauri-drag-region className="h-7 shrink-0" />}
-      <div data-tauri-drag-region className="flex h-14 items-center gap-2.5 pl-4 pr-2 compact:justify-center compact:px-0">
-        {!collapsed && <Logo size={26} />}
-        {!collapsed && <span className="flex-1 font-serif text-[19px] font-semibold">Switchyard</span>}
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="flex h-8 w-8 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink"
-          title={toggleLabel}
-          aria-label={toggleLabel}
-          aria-expanded={!collapsed}
-        >
-          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-        </button>
+      <div data-tauri-drag-region="deep" className="flex h-14 items-center gap-2.5 px-4 compact:justify-center compact:px-0">
+        <Logo size={26} />
+        <span className="flex-1 font-serif text-[19px] font-semibold compact:hidden">Agent Hub</span>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
         {NAV.map((n) => (
@@ -115,7 +106,18 @@ export function Sidebar() {
             Browser preview with demo data. Nothing here touches your real accounts.
           </p>
         )}
-        <NavButton item={SETTINGS} on={screen === SETTINGS.id} onClick={() => go(SETTINGS.id)} />
+        <div className="flex w-full items-center gap-1 compact:flex-col">
+          <NavButton item={SETTINGS} on={screen === SETTINGS.id} onClick={() => go(SETTINGS.id)} />
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink"
+            title={toggleLabel}
+            aria-label={toggleLabel}
+            aria-expanded={!collapsed}
+          >
+            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+        </div>
       </div>
     </nav>
   )
