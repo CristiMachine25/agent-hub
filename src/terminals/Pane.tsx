@@ -47,9 +47,9 @@ function useAccount(id: string | undefined): Account | undefined {
 /** "Claude H2 (100% left)" style candidate text. */
 function leftText(a: Account, usage: ReturnType<typeof useStore.getState>['usage']): string {
   const b = bindingWindow(usage[a.id])
-  if (isSignedOut(a)) return 'signed out'
-  if (!b) return 'no live limits'
-  return atLimit(usage[a.id]) ? 'at its limit' : `${formatPct(leftOf(b))} left`
+  if (isSignedOut(a)) return 'Signed out'
+  if (!b) return 'No live limits'
+  return atLimit(usage[a.id]) ? 'Limit reached' : `${formatPct(leftOf(b))} left`
 }
 
 function ContinueMenu({ index, account, onDone }: { index: number; account: Account; onDone(): void }) {

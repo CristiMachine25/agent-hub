@@ -78,7 +78,7 @@ export function Accounts() {
                           <span className="flex items-center gap-2">
                             <AccountDot account={a} size={8} />
                             <span className={clsx('flex-1 truncate', on && 'font-semibold')}>{a.label}</span>
-                            <span className="text-xs tabular-nums text-muted">{signedOut ? 'Signed out' : left === null ? '' : left <= 0.5 ? 'At limit' : formatPct(left)}</span>
+                            <span className="text-xs tabular-nums text-muted">{signedOut ? 'Signed out' : left === null ? '' : left <= 0.5 ? 'Limit reached' : formatPct(left)}</span>
                           </span>
                           {left !== null && !signedOut && <Meter left={left} cells={20} size="xs" label={`${a.label} quota left`} className="mt-1.5 pl-4" />}
                         </button>
@@ -143,6 +143,7 @@ function AccountDetail({ account: a }: { account: Account }) {
   return (
     <>
       <Toolbar
+        level={2}
         title={
           <span className="flex items-center gap-2.5">
             <AccountDot account={a} size={10} />
@@ -192,7 +193,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                 </button>
               )}
               {!signedOut && (
-                <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} title="Run it in a pane of the terminal grid">
+                <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} data-tip="Run it in a pane of the terminal grid">
                   <SquareTerminal size={14} /> Open in grid
                 </button>
               )}
@@ -408,6 +409,9 @@ function Drafts() {
   )
 }
 
+/** Spoken names for ACCOUNT_COLORS, in the same order. */
+const COLOR_NAMES = ['Blue', 'Orange', 'Green', 'Amber', 'Pink', 'Violet', 'Red', 'Dark green']
+
 function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () => void; account: Account }) {
   const updateAccount = useStore((s) => s.updateAccount)
   const [label, setLabel] = useState(a.label)
@@ -489,11 +493,11 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
         <fieldset>
           <legend className="mb-1.5 font-medium">Color</legend>
           <div className="flex gap-2">
-            {ACCOUNT_COLORS.map((c) => (
+            {ACCOUNT_COLORS.map((c, i) => (
               <button
                 key={c}
                 type="button"
-                aria-label={`Color ${c}`}
+                aria-label={COLOR_NAMES[i] ?? c}
                 aria-pressed={c.toLowerCase() === color.toLowerCase()}
                 onClick={() => setColor(c)}
                 className={clsx('h-7 w-7 rounded-full border-2', c.toLowerCase() === color.toLowerCase() ? 'border-ink' : 'border-transparent')}
