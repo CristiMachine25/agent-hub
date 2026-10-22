@@ -84,6 +84,8 @@ export function CommandPalette() {
         })
         continue
       }
+      // A blocked account's CLI refuses to start; its details stay reachable below.
+      if (a.status === 'blocked') continue
       out.push({
         id: `cli-${a.id}`,
         group: 'Launch',

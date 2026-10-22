@@ -114,8 +114,9 @@ pub async fn publish(app: &AppHandle, state: &AppState, prev: &HashMap<String, U
 }
 
 /// Keep the last good windows when a fetch fails or returns nothing; manual entries stay as entered.
+/// A blocked account keeps nothing: its old numbers no longer mean anything.
 pub fn merge_snapshot(prev: Option<&UsageSnapshot>, new: UsageSnapshot) -> UsageSnapshot {
-    if !new.windows.is_empty() {
+    if !new.windows.is_empty() || new.error_kind == Some(ErrorKind::Blocked) {
         return new;
     }
     match prev.filter(|p| !p.windows.is_empty()) {
@@ -154,6 +155,7 @@ pub fn derive_status(snap: &UsageSnapshot, identity: Option<&Identity>) -> (Acco
     let status = match snap.error_kind.unwrap_or(ErrorKind::Other) {
         ErrorKind::Auth => AccountStatus::NeedsLogin,
         ErrorKind::Expired => AccountStatus::Expired,
+        ErrorKind::Blocked => AccountStatus::Blocked,
         // A transient failure with last-known numbers is still usable.
         _ if !snap.windows.is_empty() => AccountStatus::Ok,
         _ => AccountStatus::Error,
@@ -307,6 +309,24 @@ mod tests {
         let fresh = merge_snapshot(Some(&m), good.clone());
         assert_eq!(fresh.stale, None);
         assert_eq!(fresh.error_kind, None);
+    }
+
+    /// A blocked account's last numbers mean nothing now: drop them instead of keeping them stale.
+    #[test]
+    fn a_blocked_fetch_drops_last_known_windows() {
+        let now = Utc::now();
+        let mut good = snap("a", vec![window("five_hour", 40.0, Some(2), 300, now)]);
+        good.credits = Some(Credits { used: 1.0, limit: Some(10.0), unit: "USD".into() });
+        let fetched = failed(FetchError::blocked("No Claude Code on the Free plan."));
+        let m = merge_snapshot(Some(&good), fetched.clone());
+        assert!(m.windows.is_empty());
+        assert!(m.credits.is_none());
+        assert_eq!(m.stale, None);
+        let f = Fetched { account_id: "a".into(), snapshot: fetched, identity: Some(Identity { logged_in: true, ..Identity::default() }) };
+        let mut a = account("a", "Max");
+        apply_fetch(&mut a, &f, &m);
+        assert_eq!(a.status, AccountStatus::Blocked);
+        assert_eq!(a.status_message.as_deref(), Some("No Claude Code on the Free plan."));
     }
 
     #[test]

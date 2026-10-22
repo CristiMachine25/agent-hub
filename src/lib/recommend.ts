@@ -84,6 +84,7 @@ function useItOrLoseIt(snap: UsageSnapshot, now: number): [UsageWindow, number] 
 
 export function scoreAccount(account: Account, task: TaskType, snap: UsageSnapshot | undefined, now: number): Recommendation {
   if (account.status === 'needs-login' || account.status === 'expired') return rec(account, 0, 'Needs login before it can be used.')
+  if (account.status === 'blocked') return rec(account, 0, `Can't be used: ${account.statusMessage ?? 'this account has no access.'}`)
   const t = tier(account)
   const fit =
     task === 'long-refactor' ? t * 8 : task === 'coding' ? t * 5 : task === 'research' || task === 'review' ? t * 2 : task === 'quick-question' ? -t * 4 : 0
@@ -124,7 +125,7 @@ export function scoreAccount(account: Account, task: TaskType, snap: UsageSnapsh
 }
 
 /**
- * recommend::recommend: best first, ties by label. 0 = can't be used now (signed out or at a limit).
+ * recommend::recommend: best first, ties by label. 0 = can't be used now (signed out, blocked or at a limit).
  * Accounts of a provider in `cliMissing` can still be used in its desktop app, so they score 1 (not 0)
  * and sort after every other usable account, best quota first.
  */

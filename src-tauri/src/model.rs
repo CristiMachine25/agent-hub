@@ -121,6 +121,8 @@ pub enum AccountStatus {
     Expired,
     Error,
     Unknown,
+    /// Signed in, but the plan doesn't include the tool (e.g. a canceled subscription).
+    Blocked,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -234,6 +236,8 @@ pub enum ErrorKind {
     Expired,
     /// The provider could not be reached.
     Network,
+    /// Signed in, but the account can't use the tool at all. Signing in again won't help.
+    Blocked,
     Other,
 }
 
@@ -863,7 +867,7 @@ mod contract_tests {
         f.value("ImportReport", "T.ImportReport", &report);
 
         f.values("ProviderId", "T.ProviderId", &variants!(ProviderId: Claude, Codex, Gemini, Copilot));
-        f.values("AccountStatus", "T.AccountStatus", &variants!(AccountStatus: Ok, NeedsLogin, Expired, Error, Unknown));
+        f.values("AccountStatus", "T.AccountStatus", &variants!(AccountStatus: Ok, NeedsLogin, Expired, Error, Unknown, Blocked));
         f.values("UsageSource", "T.UsageSnapshot['source']", &variants!(UsageSource: Api, Cli, LocalLogs, Manual, None));
         f.values("LaunchTarget", "T.LaunchTarget", &variants!(LaunchTarget: Cli, Desktop, Login));
         f.values(

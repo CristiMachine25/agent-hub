@@ -4,7 +4,7 @@ import { ArrowRightLeft, FolderOpen, History, Loader2, LogIn, Maximize2, Minimiz
 import type { Account } from '@shared/types'
 import { api } from '@/api'
 import { useStore } from '@/store'
-import { atLimit, continueCandidates, historyShared, isSignedOut, loginLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
+import { atLimit, continueCandidates, historyShared, isBlocked, isSignedOut, isUsable, loginLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { formatCountdown, formatPct, windowName } from '@/lib/format'
 import { PROVIDER_META } from '@/lib/providers'
@@ -83,7 +83,7 @@ function ContinueMenu({ index, account, onDone }: { index: number; account: Acco
       </p>
       {list.length === 0 && <p className="px-2 py-2 text-sm text-muted">No other {PROVIDER_META[account.providerId].short} accounts yet.</p>}
       {list.map((a) => {
-        const usable = !isSignedOut(a) && !atLimit(usage[a.id])
+        const usable = isUsable(a, usage)
         const shared = historyShared(account, a)
         return (
           <div key={a.id} className="flex items-center gap-1 rounded hover:bg-raised">
@@ -128,7 +128,7 @@ function LimitBanner({ index, account }: { index: number; account: Account }) {
   const recs = useStore((s) => s.recs)
   const continueOn = useGrid((s) => s.continueOn)
   const b = bindingWindow(usage[account.id])
-  const next = continueCandidates(account, accounts, usage, recs).find((a) => !isSignedOut(a) && !atLimit(usage[a.id]))
+  const next = continueCandidates(account, accounts, usage, recs).find((a) => isUsable(a, usage))
   return (
     <div className="flex items-center gap-3 border-b border-rivet bg-raised px-3 py-2 text-sm" role="status">
       <span className="h-2 w-2 shrink-0 rounded-full bg-empty" aria-hidden />
@@ -231,12 +231,13 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
   const groups = pickerGroups(accounts, recs)
   // Until the user picks, follow the best account (recommendations can arrive after the pane mounts).
   const [picked, setAccountId] = useState<string | undefined>(pane.accountId)
-  const accountId = picked ?? groups[0]?.accounts.find((a) => !isSignedOut(a))?.id
+  const accountId = picked ?? groups[0]?.accounts.find((a) => !isSignedOut(a) && !isBlocked(a))?.id
   const [target, setTarget] = useState<PaneTarget>(pane.target)
   const [cwd, setCwd] = useState<string | undefined>(pane.cwd)
   const [resume, setResume] = useState(!!pane.resume)
   const chosen = accounts.find((a) => a.id === accountId)
   const prov = chosen ? providers.find((p) => p.id === chosen.providerId) : undefined
+  const blocked = !!chosen && isBlocked(chosen) && target === 'cli'
   // The account list's one Tab stop: the chosen account, or the first one while none is.
   const stop = chosen ? chosen.id : groups[0]?.accounts[0]?.id
 
@@ -346,12 +347,13 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
             {prov.name} isn't installed. Install it with <code className="code text-ink">{prov.installHint}</code>
           </p>
         )}
+        {blocked && <p className="text-xs text-muted">{chosen.statusMessage ?? `${chosen.label} can't use ${PROVIDER_META[chosen.providerId].product}.`}</p>}
         {error && (
           <p role="alert" className="text-xs text-empty">
             {error}
           </p>
         )}
-        <button type="submit" className="btn btn-primary" disabled={!accountId || starting || (!!prov && !prov.cliInstalled)}>
+        <button type="submit" className="btn btn-primary" disabled={!accountId || starting || blocked || (!!prov && !prov.cliInstalled)}>
           {starting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
           {starting ? 'Starting…' : chosen ? `Start as ${chosen.label}` : 'Pick an account'}
         </button>

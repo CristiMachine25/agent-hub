@@ -1,5 +1,5 @@
 //! Scores accounts 0..100 for "what should I use now", with a plain-language reason.
-//! 0 means it can't be used right now (signed out or at a limit); the UI never offers those.
+//! 0 means it can't be used right now (signed out, blocked or at a limit); the UI never offers those.
 use crate::model::*;
 use crate::util;
 use chrono::{DateTime, Utc};
@@ -109,6 +109,10 @@ fn rec(account: &Account, score: f64, reason: String) -> Recommendation {
 pub fn score_account(account: &Account, task: TaskType, snap: Option<&UsageSnapshot>, now: DateTime<Utc>) -> Recommendation {
     if matches!(account.status, AccountStatus::NeedsLogin | AccountStatus::Expired) {
         return rec(account, 0.0, "Needs login before it can be used.".into());
+    }
+    if account.status == AccountStatus::Blocked {
+        let why = account.status_message.as_deref().unwrap_or("this account has no access.");
+        return rec(account, 0.0, format!("Can't be used: {why}"));
     }
     let tier = f64::from(tier(account));
     let fit = match task {
@@ -257,6 +261,22 @@ pub(crate) mod tests {
         // The UI's "Use now" only offers accounts scoring above 0.
         let unusable: Vec<_> = r.iter().filter(|x| x.score == 0.0).map(|x| x.account_id.as_str()).collect();
         assert_eq!(unusable, ["a", "c"]);
+    }
+
+    /// Same vectors as "never recommends a blocked account" in src/lib/quota.test.ts.
+    #[test]
+    fn blocked_accounts_are_never_recommended() {
+        let now = Utc::now();
+        let mut a = account("a", "Max");
+        a.status = AccountStatus::Blocked;
+        a.status_message = Some("This account's subscription was canceled.".into());
+        // Neither without usage nor with last-known room left.
+        let s = snap("a", vec![window("five_hour", 10.0, Some(2), 300, now)]);
+        for snap in [None, Some(&s)] {
+            let r = score_account(&a, TaskType::Any, snap, now);
+            assert_eq!(r.score, 0.0);
+            assert_eq!(r.reason, "Can't be used: This account's subscription was canceled.");
+        }
     }
 
     #[test]

@@ -9,6 +9,7 @@ import {
   fitPanes,
   historyShared,
   isSignedOut,
+  isUsable,
   layoutFor,
   loginLabel,
   neighbor,
@@ -254,6 +255,20 @@ describe('accounts in panes', () => {
     expect(loginLabel(accounts[3]!)).toBe('Signed out')
     expect(loginLabel(accounts[0]!)).toBeNull()
     expect(continueCandidates(accounts[2]!, [...accounts, expired], usage, []).map((a) => a.id)).toEqual(['h2', 'exp', 'h1', 'out'])
+  })
+
+  it('never offers a blocked account: signing in again won\'t fix it', () => {
+    const blocked = acc('blk', 'claude', { status: 'blocked' })
+    expect(isSignedOut(blocked)).toBe(false)
+    expect(isUsable(blocked, usage)).toBe(false)
+    expect(isUsable(accounts[1]!, usage)).toBe(true)
+    expect(loginLabel(blocked)).toBe('No Claude Code access')
+    const recs = [
+      { accountId: 'h1', score: 0, reason: '' },
+      { accountId: 'blk', score: 0, reason: '' }
+    ]
+    expect(continueCandidates(accounts[2]!, [blocked, ...accounts], usage, recs).map((a) => a.id)).toEqual(['h2', 'h1', 'blk', 'out'])
+    expect(pickerGroups([blocked, ...accounts.slice(0, 4)], recs)[0]!.accounts.map((a) => a.id)).toEqual(['h1', 'h2', 'h3', 'out', 'blk'])
   })
 
   it('knows when history is shared', () => {

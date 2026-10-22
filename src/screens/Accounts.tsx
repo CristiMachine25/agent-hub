@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useId, useState } from 'react'
 import clsx from 'clsx'
-import { AppWindow, Info, FolderOpen, FolderSearch, LogIn, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SquareTerminal, Trash2 } from 'lucide-react'
+import { AppWindow, Ban, Info, FolderOpen, FolderSearch, LogIn, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, SquareTerminal, Trash2 } from 'lucide-react'
 import type { Account, DailyActivity, UsageWindow, SharingOptions, TaskType, UsageHistoryPoint } from '@shared/types'
 import { api, errorText } from '@/api'
 import { useStore } from '@/store'
 import { useGrid } from '@/terminals/store'
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
-import { isSignedOut, loginLabel } from '@/lib/grid'
+import { isBlocked, isSignedOut, loginLabel } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { PLANS, findPlan, planLabel } from '@/lib/plans'
 import { useDrafts } from '@/lib/drafts'
@@ -107,6 +107,9 @@ function AccountDetail({ account: a }: { account: Account }) {
   const prov = providers.find((p) => p.id === a.providerId)
   const meta = PROVIDER_META[a.providerId]
   const signedOut = isSignedOut(a)
+  const blocked = isBlocked(a)
+  // A blocked account's CLI refuses to start, so its launch buttons are hidden.
+  const canLaunch = !signedOut && !blocked
 
   const [range, setRange] = useState<'7' | '30'>('7')
   const [history, setHistory] = useState<UsageHistoryPoint[]>([])
@@ -179,7 +182,13 @@ function AccountDetail({ account: a }: { account: Account }) {
                 </button>
               </div>
             )}
-            {!signedOut && (snap?.stale || snap?.error) && (
+            {blocked && (
+              <div className="mt-4 flex items-center gap-3 rounded border border-rivet bg-deck px-4 py-2.5">
+                <Ban size={16} className="shrink-0 text-empty" aria-hidden />
+                <p className="flex-1">{a.statusMessage ?? `This account can't use ${meta.product}.`}</p>
+              </div>
+            )}
+            {canLaunch && (snap?.stale || snap?.error) && (
               <div className="mt-4 flex items-center gap-3 rounded border border-rivet px-4 py-2.5">
                 <Info size={16} className="shrink-0 text-muted" />
                 <p className="flex-1 text-muted">{snap.error ?? `These numbers are from ${formatAgo(snap.fetchedAt, now)}.`}</p>
@@ -192,22 +201,22 @@ function AccountDetail({ account: a }: { account: Account }) {
             )}
 
             <div className="mt-4 flex flex-wrap gap-2">
-              {!signedOut && (
+              {canLaunch && (
                 <button className="btn btn-primary" onClick={() => launch(a.id, 'cli')} disabled={launching === a.id + 'cli'}>
                   <Play size={14} fill="currentColor" /> {launchVerb(a.providerId)}
                 </button>
               )}
-              {!signedOut && (
+              {canLaunch && (
                 <button className="btn" onClick={() => void useGrid.getState().openInGrid(a.id)} data-tip="Run it in a pane of the terminal grid">
                   <SquareTerminal size={14} /> Open in grid
                 </button>
               )}
-              {!signedOut && (
+              {canLaunch && (
                 <button className="btn" onClick={() => launch(a.id, 'cli', { resume: true })}>
                   <RotateCcw size={14} /> Resume last session
                 </button>
               )}
-              {!signedOut && (
+              {canLaunch && (
                 <button
                   className="btn"
                   onClick={async () => {
@@ -255,14 +264,16 @@ function AccountDetail({ account: a }: { account: Account }) {
               <p className="text-muted">
                 {signedOut
                   ? 'Sign in to see this account’s limits.'
-                  : snap?.credits
+                  : blocked
+                    ? `No limits to show: this account can't use ${meta.product}.`
+                    : snap?.credits
                     ? `${creditsText(snap.credits)}.`
                     : snap?.error
                       ? 'No limits to show for this account.'
                       : 'No usage data yet. Agent Hub checks every few minutes.'}
               </p>
             )}
-            {!signedOut && (!snap || snap.source === 'none' || snap.source === 'manual' || !snap.windows.length) && <ManualLimits account={a} />}
+            {canLaunch && (!snap || snap.source === 'none' || snap.source === 'manual' || !snap.windows.length) && <ManualLimits account={a} />}
           </section>
 
           <section>

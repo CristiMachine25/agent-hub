@@ -21,6 +21,8 @@ use std::time::Duration;
 use super::common::*;
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
+/// Plan and subscription status; read only to explain why usage is blocked.
+const PROFILE_URL: &str = "https://api.anthropic.com/api/oauth/profile";
 /// From Claude Code's bundled OAuth config (`TOKEN_URL`, `CLIENT_ID`).
 const TOKEN_URL: &str = "https://platform.claude.com/v1/oauth/token";
 const CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -249,6 +251,30 @@ fn identity_from(creds: Option<&OAuthCreds>, oauth_account: Option<&Value>, logg
 // Usage API
 // ---------------------------------------------------------------------------------------------
 
+const ORG_BLOCKED: &str =
+    "This account's organization doesn't allow Claude Code with a subscription login. Signing in again won't help; use another account or ask an admin.";
+
+/// Why Claude Code is blocked for this account, from its `/api/oauth/profile` answer.
+fn blocked_reason(profile: Option<&Value>) -> String {
+    let org = profile.and_then(|p| p.get("organization"));
+    let field = |k: &str| org.and_then(|o| str_field(o, k));
+    let free = field("organization_type") == Some("claude_free");
+    let canceled = field("subscription_status") == Some("canceled");
+    match (free, canceled) {
+        (true, true) => "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.",
+        (true, false) => "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Agent Hub.",
+        (false, true) => "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.",
+        (false, false) => ORG_BLOCKED,
+    }
+    .into()
+}
+
+/// The plan the profile reports, e.g. "Free" after a canceled subscription.
+fn profile_plan(profile: &Value) -> Option<String> {
+    let org = profile.get("organization")?;
+    plan_label(str_field(org, "organization_type"), str_field(org, "rate_limit_tier"))
+}
+
 #[derive(Debug, PartialEq)]
 enum ApiError {
     Unauthorized,
@@ -261,9 +287,9 @@ enum ApiError {
     Parse,
 }
 
-async fn fetch_usage_json(access_token: &str, user_agent: &str) -> Result<Value, ApiError> {
+async fn fetch_oauth_json(url: &str, access_token: &str, user_agent: &str) -> Result<Value, ApiError> {
     let resp = util::http()
-        .get(USAGE_URL)
+        .get(url)
         .bearer_auth(access_token)
         .header("anthropic-beta", OAUTH_BETA)
         .header("Accept", "application/json")
@@ -1119,11 +1145,15 @@ impl ProviderAdapter for ClaudeAdapter {
         }
 
         let ua = self.user_agent().await;
-        let mut result = fetch_usage_json(&creds.access_token, &ua).await;
+        let mut token = creds.access_token.clone();
+        let mut result = fetch_oauth_json(USAGE_URL, &token, &ua).await;
         // A token revoked before its expiry: one refresh attempt, file credentials only.
         if matches!(result, Err(ApiError::Unauthorized)) && !refreshed && creds.source == CredSource::File {
             match refresh_file_creds(&home, &creds).await {
-                Ok(c) => result = fetch_usage_json(&c.access_token, &ua).await,
+                Ok(c) => {
+                    token = c.access_token;
+                    result = fetch_oauth_json(USAGE_URL, &token, &ua).await;
+                }
                 Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, FetchError::auth(LOGIN_INVALID)),
                 Err(RefreshError::Other(_)) => {}
             }
@@ -1146,11 +1176,12 @@ impl ProviderAdapter for ClaudeAdapter {
                 &ident,
                 FetchError::auth("This login cannot read usage (missing user:profile scope). Sign in again with `claude auth login`."),
             ),
-            Err(ApiError::OrgBlocked) => self.no_data(
-                account,
-                &ident,
-                FetchError::other("This account's organization doesn't allow Claude Code with a subscription login. Signing in again won't help; use another account or ask an admin."),
-            ),
+            Err(ApiError::OrgBlocked) => {
+                let profile = fetch_oauth_json(PROFILE_URL, &token, &ua).await.ok();
+                let mut s = self.no_data(account, &ident, FetchError::blocked(blocked_reason(profile.as_ref())));
+                s.plan = profile.as_ref().and_then(profile_plan).or(s.plan);
+                s
+            }
             Err(ApiError::RateLimited) => {
                 let mut s = self.no_data(account, &ident, FetchError::other("Claude's usage API is rate-limiting requests; will retry later."));
                 s.stale = Some(true);
@@ -1351,6 +1382,33 @@ mod tests {
         assert!(!c.needs_refresh(1792520000000 - 120_000));
         assert!(parse_creds(&json!({"claudeAiOauth": {"accessToken": ""}}), CredSource::File).is_none());
         assert!(parse_creds(&json!({}), CredSource::File).is_none());
+    }
+
+    /// As `/api/oauth/profile` answered for an account whose Max subscription was canceled.
+    const CANCELED_PROFILE: &str = r#"{"account":{"has_claude_max":false,"has_claude_pro":false},
+        "organization":{"organization_type":"claude_free","billing_type":"none","rate_limit_tier":"default_claude_ai",
+        "seat_tier":null,"has_extra_usage_enabled":false,"subscription_status":"canceled"},
+        "application":{"name":"Claude Code","slug":"claude-code"},"enabled_plugins":[]}"#;
+
+    #[test]
+    fn blocked_reason_names_a_canceled_subscription() {
+        let canceled: Value = serde_json::from_str(CANCELED_PROFILE).unwrap();
+        assert_eq!(
+            blocked_reason(Some(&canceled)),
+            "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub."
+        );
+        assert_eq!(profile_plan(&canceled).as_deref(), Some("Free"));
+        let free = json!({"organization": {"organization_type": "claude_free", "subscription_status": null}});
+        assert_eq!(
+            blocked_reason(Some(&free)),
+            "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Agent Hub."
+        );
+        // A paid organization that turned Claude Code off, or no profile at all: the admin decides.
+        let team = json!({"organization": {"organization_type": "claude_team", "subscription_status": "active", "rate_limit_tier": "default_claude_ai"}});
+        assert_eq!(blocked_reason(Some(&team)), ORG_BLOCKED);
+        assert_eq!(profile_plan(&team).as_deref(), Some("Team"));
+        assert_eq!(blocked_reason(None), ORG_BLOCKED);
+        assert_eq!(profile_plan(&json!({})), None);
     }
 
     #[test]

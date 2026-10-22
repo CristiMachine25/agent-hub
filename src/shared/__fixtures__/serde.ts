@@ -347,7 +347,7 @@ export const ImportReport = {
 export const ProviderId = ["claude","codex","gemini","copilot"] as const
 export const _ProviderId: Same<(typeof ProviderId)[number], T.ProviderId> = true
 
-export const AccountStatus = ["ok","needs-login","expired","error","unknown"] as const
+export const AccountStatus = ["ok","needs-login","expired","error","unknown","blocked"] as const
 export const _AccountStatus: Same<(typeof AccountStatus)[number], T.AccountStatus> = true
 
 export const UsageSource = ["api","cli","local-logs","manual","none"] as const

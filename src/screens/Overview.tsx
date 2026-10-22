@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { AlertTriangle, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
+import { AlertTriangle, Ban, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
 import type { Account, DailyActivity, ProviderId, Recommendation, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
 import { api } from '@/api'
 import { modKey } from '@/lib/platform'
 import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER, TASKS, launchVerb } from '@/lib/providers'
-import { isSignedOut, loginLabel } from '@/lib/grid'
+import { isBlocked, isSignedOut, loginLabel } from '@/lib/grid'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
 import { creditsText, formatAgo, formatCountdown, formatMoney, formatPct, plural, resetText, windowName } from '@/lib/format'
 import { Meter, WindowGauge, LEVEL_TEXT } from '@/components/Meter'
@@ -134,10 +134,10 @@ function UseNow() {
   const launching = useStore((s) => s.launching)
   const { launch, go } = useStore.getState()
 
-  // Signed-out accounts can't be launched usefully, so they never appear as a pick here.
+  // Signed-out and blocked accounts can't be launched usefully, so they never appear as a pick here.
   const usable = recs.filter((r) => {
     const a = accounts.find((x) => x.id === r.accountId)
-    return r.score > 0 && !!a && a.status !== 'needs-login' && a.status !== 'expired'
+    return r.score > 0 && !!a && a.status !== 'needs-login' && a.status !== 'expired' && !isBlocked(a)
   })
   const top = usable[0]
   const acc = top && accounts.find((a) => a.id === top.accountId)
@@ -286,6 +286,8 @@ function alertCopy(al: Alert, a: Account, snap: UsageSnapshot | undefined, now: 
       return `${a.label} has only ${formatPct(al.left ?? 0)} of its ${name} left. ${resetText(al.resetsAt, now) ?? ''}.`
     case 'needs-login':
       return `${a.label} is signed out, so its limits aren't tracked.`
+    case 'blocked':
+      return `${a.label}: ${a.statusMessage ?? `this account can't use ${PROVIDER_META[a.providerId].product}.`}`
     case 'stale':
       return `${a.label}: usage last checked ${formatAgo(snap?.fetchedAt, now)}. ${snap?.error ?? ''}`
   }
@@ -296,6 +298,7 @@ const ALERT_ICON = {
   'limit-reached': AlertTriangle,
   'nearly-exhausted': AlertTriangle,
   'needs-login': LogIn,
+  blocked: Ban,
   stale: WifiOff
 }
 
@@ -303,7 +306,7 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
   const accounts = useStore((s) => s.accounts)
   const usage = useStore((s) => s.usage)
   const now = useStore((s) => s.now)
-  const { launch, refresh } = useStore.getState()
+  const { launch, refresh, go } = useStore.getState()
   const [all, setAll] = useState(false)
   const shown = all ? alerts : alerts.slice(0, 3)
   return (
@@ -314,7 +317,13 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
           if (!a) return null
           const Icon = ALERT_ICON[al.kind]
           const tone =
-            al.kind === 'use-it-or-lose-it' ? 'text-hop' : al.kind === 'limit-reached' ? 'text-empty' : al.kind === 'nearly-exhausted' ? 'text-low' : 'text-muted'
+            al.kind === 'use-it-or-lose-it'
+              ? 'text-hop'
+              : al.kind === 'limit-reached' || al.kind === 'blocked'
+                ? 'text-empty'
+                : al.kind === 'nearly-exhausted'
+                  ? 'text-low'
+                  : 'text-muted'
           return (
             <li key={i} className="flex items-center gap-3 px-4 py-2">
               <Icon size={15} className={clsx('shrink-0', tone)} aria-hidden />
@@ -327,6 +336,11 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
               {al.kind === 'needs-login' && (
                 <button className="btn btn-sm" onClick={() => launch(a.id, 'login')}>
                   Sign in
+                </button>
+              )}
+              {al.kind === 'blocked' && (
+                <button className="btn btn-sm" onClick={() => go('accounts', a.id)} aria-label={`Details for ${a.label}`}>
+                  Details
                 </button>
               )}
               {al.kind === 'stale' && (
@@ -388,6 +402,7 @@ function Board() {
 function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot; now: number; provider: ProviderId }) {
   const { launch, go } = useStore.getState()
   const signedOut = isSignedOut(a)
+  const blocked = isBlocked(a)
   const bind = bindingWindow(snap)
   const atLimit = bind ? leftOf(bind) <= 0.5 : false
   return (
@@ -405,6 +420,8 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
       <div className="min-w-0">
         {signedOut ? (
           <p className="text-muted">{a.statusMessage ?? 'Sign in to see this account’s limits.'}</p>
+        ) : blocked ? (
+          <p className="text-muted">{a.statusMessage ?? `This account can't use ${PROVIDER_META[provider].product}.`}</p>
         ) : snap && snap.windows.length ? (
           <div className="grid grid-cols-3 gap-5">
             {snap.windows.slice(0, 3).map((w) => (
@@ -428,6 +445,7 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
           <button
             className="btn btn-sm w-[92px]"
             onClick={() => launch(a.id, 'cli')}
+            disabled={blocked}
             data-tip={atLimit ? 'Limit reached: the CLI opens but will refuse new messages until the reset' : undefined}
             aria-label={`${launchVerb(a.providerId)} as ${a.label}`}
           >
