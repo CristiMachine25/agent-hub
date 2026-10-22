@@ -10,7 +10,7 @@
 //!
 //! Verified against @google/gemini-cli 0.64.0 (npm bundle) and steipete/CodexBar docs/gemini.md.
 use super::common::{finish_days, first_local_date, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, DayMap, VersionCache};
-use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -826,9 +826,9 @@ impl ProviderAdapter for GeminiAdapter {
         Ok(())
     }
 
-    async fn cli_command(&self, account: &Account, resume: bool, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
+    async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut spec = base_command(account);
-        if resume {
+        if resume != Resume::No {
             spec.args.extend(["--resume".to_string(), "latest".to_string()]);
         }
         spec.args.extend(extra_args.iter().cloned());
@@ -1059,7 +1059,7 @@ mod tests {
         a.init_home(dir.path()).await.unwrap();
         assert!(dir.path().join(".gemini").is_dir());
         let acc = account(dir.path());
-        let spec = a.cli_command(&acc, true, &["-m".into(), "gemini-2.5-pro".into()]).await.unwrap();
+        let spec = a.cli_command(&acc, Resume::Last, &["-m".into(), "gemini-2.5-pro".into()]).await.unwrap();
         assert_eq!(spec.env.get(HOME_ENV).cloned().flatten().as_deref(), Some(acc.home_dir.as_str()));
         assert_eq!(spec.env.get("GEMINI_API_KEY"), Some(&None));
         assert_eq!(spec.args, ["--resume", "latest", "-m", "gemini-2.5-pro"]);

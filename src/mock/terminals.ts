@@ -166,6 +166,9 @@ export function createMockTerminals(deps: Deps): AgentHubApi['terminals'] {
     },
     async scrollback(id) {
       return terms.get(id)?.scrollback ?? ''
+    },
+    async session() {
+      return null
     }
   }
 }

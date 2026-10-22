@@ -36,7 +36,8 @@ function createTauriApi(): AgentHubApi {
       resize: (id, cols, rows) => call(COMMANDS.terminalResize, { id, cols, rows }),
       kill: (id) => call(COMMANDS.terminalKill, { id }),
       list: () => call(COMMANDS.terminalList),
-      scrollback: (id) => call(COMMANDS.terminalScrollback, { id })
+      scrollback: (id) => call(COMMANDS.terminalScrollback, { id }),
+      session: (id) => call(COMMANDS.terminalSession, { id })
     },
     recommend: (task, providerId) => call(COMMANDS.recommend, { task, providerId: providerId ?? null }),
     notifications: {

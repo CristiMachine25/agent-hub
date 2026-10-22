@@ -2,7 +2,7 @@
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
 use crate::accounts::{self, apply_sharing, emit_accounts};
 use crate::model::*;
-use crate::providers::{self, Adapter, CommandSpec};
+use crate::providers::{self, Adapter, CommandSpec, Resume};
 use crate::store::AppState;
 use crate::util::non_empty;
 use crate::{knowledge, launcher, notify, pty, recommend, settings, skills, usage, util};
@@ -127,25 +127,28 @@ fn pick_cwd(req_cwd: Option<String>, default_cwd: Option<String>) -> String {
 }
 
 /// Command for a terminal target (CLI or login) with its cwd filled in. Re-applies sharing first
-/// so skills/plugins added to the shared home since the last launch are picked up.
+/// so skills/plugins added to the shared home since the last launch are picked up. `resume` is
+/// None for a new conversation, else the one to reopen (None inside: let `resume_target` pick).
 async fn terminal_command(
     state: &AppState,
     account: &Account,
     adapter: &Adapter,
     login: bool,
-    resume: bool,
+    resume: Option<Option<String>>,
     extra_args: &[String],
     req_cwd: Option<String>,
 ) -> anyhow::Result<CommandSpec> {
+    let cwd = pick_cwd(req_cwd, state.settings.read().await.default_cwd.clone());
+    let resume = match resume.filter(|_| !login) {
+        Some(session) => resume_target(state, account, adapter, session, &cwd).await?,
+        None => Resume::No,
+    };
     let mut spec = if login { adapter.login_command(account).await? } else { adapter.cli_command(account, resume, extra_args).await? };
-    {
-        let settings = state.settings.read().await;
-        if !login {
-            providers::apply_permission_mode(account.provider_id, &settings.permission_modes, &mut spec.args);
-        }
-        if spec.cwd.is_none() {
-            spec.cwd = Some(pick_cwd(req_cwd, settings.default_cwd.clone()));
-        }
+    if !login {
+        providers::apply_permission_mode(account.provider_id, &state.settings.read().await.permission_modes, &mut spec.args);
+    }
+    if spec.cwd.is_none() {
+        spec.cwd = Some(cwd);
     }
     if account.shared_from.is_some() || knowledge::shares_any(&account.sharing) {
         let (a, ad) = (account.clone(), adapter.clone());
@@ -153,6 +156,29 @@ async fn terminal_command(
         let _ = tokio::task::spawn_blocking(move || knowledge::apply_for_account(&a, ad.as_ref(), &shared)).await;
     }
     Ok(spec)
+}
+
+/// How long a pane's process that was just stopped may still look alive, until the system reaps it.
+const SESSION_RELEASE_WAIT: Duration = Duration::from_millis(1500);
+
+/// The conversation a resume reopens: the one asked for, else this account's own newest one in
+/// `cwd`, else the CLI's most recent. Refuses one that another live process still has open, since
+/// two of them writing one conversation tangle it.
+async fn resume_target(state: &AppState, account: &Account, adapter: &Adapter, session: Option<String>, cwd: &str) -> anyhow::Result<Resume> {
+    let Some(id) = non_empty(session).or_else(|| adapter.last_session(account, Path::new(cwd))) else { return Ok(Resume::Last) };
+    let accounts = state.accounts.read().await.clone();
+    let started = std::time::Instant::now();
+    loop {
+        let (ad, all, wanted) = (adapter.clone(), accounts.clone(), id.clone());
+        let Some((holder, pid)) = tokio::task::spawn_blocking(move || ad.session_open_in(&all, &wanted)).await? else {
+            return Ok(Resume::Session(id));
+        };
+        if started.elapsed() >= SESSION_RELEASE_WAIT {
+            let who = accounts.iter().find(|a| a.id == holder).map_or_else(|| "another window".to_string(), notify::display_name);
+            anyhow::bail!("This conversation is still open in {who} (process {pid}). Close it there first, then resume it here.");
+        }
+        tokio::time::sleep(Duration::from_millis(150)).await;
+    }
 }
 
 /// Bump lastLaunchedAt/launchCount and tell the UI.
@@ -184,7 +210,7 @@ pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchR
         tokio::task::spawn_blocking(move || launcher::launch_desktop(&spec)).await?
     } else {
         let login = req.target == LaunchTarget::Login;
-        let spec = match terminal_command(state, &account, &adapter, login, req.resume.unwrap_or(false), &extra, req.cwd.clone()).await {
+        let spec = match terminal_command(state, &account, &adapter, login, req.resume.unwrap_or(false).then_some(None), &extra, req.cwd.clone()).await {
             Ok(s) => s,
             Err(e) => return Ok(failed(format!("{e:#}"))),
         };
@@ -263,7 +289,8 @@ async fn spawn_terminal(app: &AppHandle, state: &Arc<AppState>, terms: pty::Term
     let adapter = state.adapter(account.provider_id)?;
     let extra = req.extra_args.clone().unwrap_or_default();
     let login = req.target == TerminalTarget::Login;
-    let spec = terminal_command(state, &account, &adapter, login, req.resume.unwrap_or(false), &extra, req.cwd.clone()).await?;
+    let spec =
+        terminal_command(state, &account, &adapter, login, req.resume.unwrap_or(false).then(|| req.resume_session.clone()), &extra, req.cwd.clone()).await?;
     let title = notify::display_name(&account);
     let spawn = pty::PtySpawn { account_id: account.id.clone(), title, spec, cols: req.cols, rows: req.rows };
     let sink: Arc<dyn pty::PtySink> = Arc::new(EventSink(app.clone()));
@@ -302,6 +329,17 @@ pub async fn terminal_kill(terms: Terms<'_>, id: String) -> Res<()> {
 #[tauri::command]
 pub async fn terminal_list(terms: Terms<'_>) -> Res<Vec<TerminalInfo>> {
     Ok(terms.list())
+}
+
+/// The conversation the CLI in a terminal is in (or, once it exited, its account's newest one in
+/// that folder), so a restart or a move to another account reopens that one.
+#[tauri::command]
+pub async fn terminal_session(state: St<'_>, terms: Terms<'_>, id: String) -> Res<Option<String>> {
+    let Some(info) = terms.list().into_iter().find(|t| t.id == id) else { return Ok(None) };
+    let Some(account) = state.account(&info.account_id).await else { return Ok(None) };
+    let adapter = state.adapter(account.provider_id).map_err(err)?;
+    let running = info.pid.filter(|_| !info.exited).and_then(|pid| adapter.running_session(&account, pid));
+    Ok(running.or_else(|| adapter.last_session(&account, Path::new(&info.cwd))))
 }
 
 #[tauri::command]
@@ -557,6 +595,38 @@ pub async fn system_open_path(app: AppHandle, state: St<'_>, path: String) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn resume_reopens_the_accounts_own_conversation_unless_it_is_open_elsewhere() {
+        let t = tempfile::tempdir().unwrap();
+        let (h1, h2) = (t.path().join("one"), t.path().join("two"));
+        std::fs::create_dir_all(h1.join("projects/-work")).unwrap();
+        std::fs::create_dir_all(h2.join("sessions")).unwrap();
+        let line = serde_json::json!({"project": "/work", "sessionId": "s", "timestamp": 1}).to_string();
+        std::fs::write(h1.join("history.jsonl"), line).unwrap();
+        std::fs::write(h1.join("projects/-work/s.jsonl"), "{}").unwrap();
+        let mk = |id: &str, home: &Path| Account { home_dir: home.to_string_lossy().into(), ..crate::recommend::tests::account(id, "max") };
+        let (a1, a2) = (mk("a1", &h1), mk("a2", &h2));
+        let state = AppState::load(t.path().join("data")).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().build().unwrap();
+        rt.block_on(async {
+            *state.accounts.write().await = vec![a1.clone(), a2.clone()];
+            let adapter = state.adapter(ProviderId::Claude).unwrap();
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work").await.unwrap(), Resume::Session("s".into()));
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/elsewhere").await.unwrap(), Resume::Last);
+            assert_eq!(resume_target(&state, &a2, &adapter, Some("p".into()), "/work").await.unwrap(), Resume::Session("p".into()));
+
+            // The same conversation, still running in a2's window (this test's own process stands in).
+            let me = std::process::id();
+            let out = std::process::Command::new("/bin/ps").args(["-o", "lstart=", "-p", &me.to_string()]).env("TZ", "UTC").output().unwrap();
+            let started = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let file = serde_json::json!({"pid": me, "sessionId": "s", "procStart": started}).to_string();
+            std::fs::write(h2.join(format!("sessions/{me}.json")), file).unwrap();
+            let e = resume_target(&state, &a1, &adapter, None, "/work").await.unwrap_err().to_string();
+            assert!(e.starts_with("This conversation is still open in a2"), "{e}");
+        });
+    }
 
     #[test]
     fn opens_only_skills_sh_and_github_pages() {

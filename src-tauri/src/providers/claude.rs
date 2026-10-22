@@ -8,7 +8,7 @@
 //! - `.claude.json` → `oauthAccount {emailAddress, organizationType, organizationRateLimitTier, ...}`.
 //!   For the default home this file is ~/.claude.json, outside ~/.claude.
 //! - `projects/**/*.jsonl` → transcripts with per-message token usage.
-use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -249,10 +249,12 @@ fn identity_from(creds: Option<&OAuthCreds>, oauth_account: Option<&Value>, logg
 // Usage API
 // ---------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum ApiError {
     Unauthorized,
     MissingScope,
+    /// The account's organization turned off Claude Code with a subscription login.
+    OrgBlocked,
     RateLimited,
     Http(u16),
     Network(String),
@@ -271,13 +273,20 @@ async fn fetch_usage_json(access_token: &str, user_agent: &str) -> Result<Value,
         .map_err(|e| ApiError::Network(if e.is_timeout() { "timed out".into() } else { "network error".into() }))?;
     let status = resp.status().as_u16();
     let body = resp.text().await.unwrap_or_default();
+    if status == 200 {
+        return serde_json::from_str(&body).map_err(|_| ApiError::Parse);
+    }
+    Err(api_error(status, &body))
+}
+
+fn api_error(status: u16, body: &str) -> ApiError {
     match status {
-        200 => serde_json::from_str(&body).map_err(|_| ApiError::Parse),
-        401 => Err(ApiError::Unauthorized),
-        403 if body.contains("user:profile") || body.contains("scope") => Err(ApiError::MissingScope),
-        403 => Err(ApiError::Unauthorized),
-        429 => Err(ApiError::RateLimited),
-        s => Err(ApiError::Http(s)),
+        401 => ApiError::Unauthorized,
+        403 if body.contains("oauth_not_allowed_for_organization") => ApiError::OrgBlocked,
+        403 if body.contains("user:profile") || body.contains("scope") => ApiError::MissingScope,
+        403 => ApiError::Unauthorized,
+        429 => ApiError::RateLimited,
+        s => ApiError::Http(s),
     }
 }
 
@@ -411,6 +420,118 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
         log::warn!("claude: could not write refreshed credentials for {}: {e}", home.display());
     }
     parse_creds(&file, CredSource::File).ok_or_else(|| RefreshError::Other(FetchError::other(REFRESH_BAD_RESPONSE)))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Keychain login renewal (macOS)
+// ---------------------------------------------------------------------------------------------
+//
+// The access token lasts 8 hours. Claude Code renews it under a lock that its own processes
+// share, and drops a login whose renewal the server refuses. Renewing it here would race those
+// processes, so Agent Hub asks Claude Code to do it: `claude mcp list` loads the claude.ai
+// connectors, which renews the login first, and makes no model request (so it uses no quota).
+
+const RENEW_ARGS: [&str; 2] = ["mcp", "list"];
+const RENEW_TIMEOUT: Duration = Duration::from_secs(45);
+/// After a renewal that left the login expired, wait this long before asking Claude Code again.
+const RENEW_RETRY_MS: i64 = 30 * 60_000;
+const LOGIN_RENEW_FAILED: &str = "Claude Code could not renew this login. Sign in again.";
+const LOGIN_RENEW_LATER: &str = "The login expired and Claude Code could not renew it yet; will try again in 30 minutes. Opening Claude once also renews it.";
+
+/// Claude Code processes renewing logins at once.
+static RENEW_SLOTS: once_cell::sync::Lazy<tokio::sync::Semaphore> = once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(2));
+/// When a renewal last left each home's login expired.
+static RENEW_FAILED_AT: once_cell::sync::Lazy<std::sync::Mutex<HashMap<String, i64>>> = once_cell::sync::Lazy::new(Default::default);
+
+fn renew_due(failed_at: Option<i64>, now_ms: i64) -> bool {
+    failed_at.is_none_or(|t| now_ms - t >= RENEW_RETRY_MS)
+}
+
+/// What a renewal left behind, judged from the login as it reads afterwards.
+fn renew_outcome(after: Option<OAuthCreds>, now_ms: i64) -> Result<OAuthCreds, FetchError> {
+    match after {
+        Some(c) if !c.needs_refresh(now_ms) => Ok(c),
+        Some(_) => Err(FetchError::expired(LOGIN_RENEW_LATER)),
+        // Claude Code removes a login once the server refuses to renew it.
+        None => Err(FetchError::auth(LOGIN_RENEW_FAILED)),
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------------------------
+//
+// `history.jsonl` holds each prompt typed in a home, with its folder and conversation. Every
+// running Claude Code process writes `sessions/<pid>.json` naming the conversation it is in, and
+// removes it on a clean exit (a killed process leaves it behind).
+
+/// The conversation of the newest prompt typed in `cwd` from this home, if its transcript is
+/// still there to reopen.
+fn last_session_in(home: &Path, cwd: &Path) -> Option<String> {
+    let history = std::fs::read_to_string(home.join("history.jsonl")).ok()?;
+    let want = util::path_key(cwd);
+    let mut tried = HashSet::new();
+    history
+        .lines()
+        .rev()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|v| str_field(v, "project").is_some_and(|p| util::path_key(Path::new(p)) == want))
+        .filter_map(|v| str_field(&v, "sessionId").map(str::to_string))
+        .filter(|id| tried.insert(id.clone()))
+        .find(|id| transcript_exists(home, id))
+}
+
+fn transcript_exists(home: &Path, id: &str) -> bool {
+    let file = format!("{id}.jsonl");
+    std::fs::read_dir(home.join("projects")).is_ok_and(|dirs| dirs.flatten().any(|d| d.path().join(&file).is_file()))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct LiveSession {
+    pid: u32,
+    session_id: String,
+    /// When the process started, as `ps -o lstart` prints it in UTC.
+    proc_start: Option<String>,
+}
+
+fn live_sessions(home: &Path) -> Vec<LiveSession> {
+    let Ok(entries) = std::fs::read_dir(home.join("sessions")) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter(|e| e.path().extension().is_some_and(|x| x == "json"))
+        .filter_map(|e| util::read_json(&e.path()))
+        .filter_map(|v| {
+            Some(LiveSession {
+                pid: num(v.get("pid")).and_then(|p| u32::try_from(p as i64).ok())?,
+                session_id: str_field(&v, "sessionId")?.to_string(),
+                proc_start: str_field(&v, "procStart").map(str::to_string),
+            })
+        })
+        .collect()
+}
+
+/// Whether the process a sessions file names still runs. A file left by a killed process can name
+/// a pid the system has since given to another program, so the start time has to match too.
+#[cfg(unix)]
+fn process_is_running(s: &LiveSession) -> bool {
+    // SAFETY: signal 0 only checks that the pid exists; nothing is sent.
+    let exists = unsafe { libc::kill(s.pid as i32, 0) } == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+    if !exists || s.pid <= 1 {
+        return false;
+    }
+    let Some(want) = &s.proc_start else { return true };
+    let out = std::process::Command::new("/bin/ps").args(["-o", "lstart=", "-p", &s.pid.to_string()]).env("TZ", "UTC").output();
+    out.is_ok_and(|o| same_words(&String::from_utf8_lossy(&o.stdout), want))
+}
+
+#[cfg(not(unix))]
+fn process_is_running(_s: &LiveSession) -> bool {
+    false
+}
+
+/// `ps` pads single-digit days ("Oct  1"), so compare word by word.
+fn same_words(a: &str, b: &str) -> bool {
+    a.split_whitespace().eq(b.split_whitespace())
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -589,6 +710,47 @@ impl ClaudeAdapter {
 
     fn program(&self) -> String {
         which_str("claude").unwrap_or_else(|| "claude".into())
+    }
+
+    /// Has Claude Code renew an expired Keychain login, then reads it again. Without the CLI, or
+    /// within RENEW_RETRY_MS of a renewal that didn't help, it reports the login as expired.
+    async fn renew_keychain_login(&self, account: &Account, home: &Path, is_default: bool) -> Result<OAuthCreds, FetchError> {
+        let expired = || FetchError::expired("Login token expired. Open Claude once to refresh the login.");
+        let Some(program) = which_str("claude") else { return Err(expired()) };
+        let key = util::path_key(home);
+        if !renew_due(RENEW_FAILED_AT.lock().unwrap().get(&key).copied(), now_ms()) {
+            return Err(FetchError::expired(LOGIN_RENEW_LATER));
+        }
+        let _slot = RENEW_SLOTS.acquire().await.map_err(|_| expired())?;
+        // Another poll may have renewed it while this one waited.
+        if let Some(c) = read_creds(home, is_default).await.filter(|c| !c.needs_refresh(now_ms())) {
+            return Ok(c);
+        }
+        let mut cmd = tokio::process::Command::new(program);
+        cmd.args(RENEW_ARGS)
+            .current_dir(home)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        for (k, v) in self.cli_env(account) {
+            match v {
+                Some(v) => cmd.env(k, v),
+                None => cmd.env_remove(k),
+            };
+        }
+        match tokio::time::timeout(RENEW_TIMEOUT, cmd.status()).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => log::warn!("claude: could not start the login renewal for {}: {e}", home.display()),
+            Err(_) => log::warn!("claude: login renewal for {} timed out", home.display()),
+        }
+        let outcome = renew_outcome(read_creds(home, is_default).await, now_ms());
+        let mut failed = RENEW_FAILED_AT.lock().unwrap();
+        match &outcome {
+            Ok(_) => failed.remove(&key),
+            Err(_) => failed.insert(key, now_ms()),
+        };
+        outcome
     }
 
     async fn user_agent(&self) -> String {
@@ -771,13 +933,29 @@ impl ProviderAdapter for ClaudeAdapter {
         Ok(())
     }
 
-    async fn cli_command(&self, account: &Account, resume: bool, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
+    async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut args = Vec::new();
-        if resume {
-            args.push("--continue".to_string());
+        match resume {
+            Resume::No => {}
+            Resume::Last => args.push("--continue".to_string()),
+            Resume::Session(id) => args.extend(["--resume".to_string(), id]),
         }
         args.extend(extra_args.iter().cloned());
         Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None, note: None })
+    }
+
+    fn last_session(&self, account: &Account, cwd: &Path) -> Option<String> {
+        last_session_in(Path::new(&account.home_dir), cwd)
+    }
+
+    fn running_session(&self, account: &Account, pid: u32) -> Option<String> {
+        live_sessions(Path::new(&account.home_dir)).into_iter().find(|s| s.pid == pid).map(|s| s.session_id)
+    }
+
+    fn session_open_in(&self, accounts: &[Account], id: &str) -> Option<(String, u32)> {
+        accounts.iter().filter(|a| a.provider_id == ProviderId::Claude).find_map(|a| {
+            live_sessions(Path::new(&a.home_dir)).into_iter().filter(|s| s.session_id == id).find(process_is_running).map(|s| (a.id.clone(), s.pid))
+        })
     }
 
     async fn login_command(&self, account: &Account) -> anyhow::Result<CommandSpec> {
@@ -843,18 +1021,27 @@ impl ProviderAdapter for ClaudeAdapter {
 
         let mut refreshed = false;
         if creds.needs_refresh(now_ms()) {
-            if creds.source == CredSource::Keychain {
-                let mut s = self.no_data(account, &ident, FetchError::expired("Login token expired. Open Claude once to refresh the login."));
-                s.stale = Some(true);
-                return s;
-            }
-            match refresh_file_creds(&home, &creds).await {
+            let renewed = if creds.source == CredSource::Keychain {
+                self.renew_keychain_login(account, &home, is_default).await
+            } else {
+                refresh_file_creds(&home, &creds).await.map_err(|e| match e {
+                    RefreshError::InvalidGrant => FetchError::auth(LOGIN_INVALID),
+                    RefreshError::Other(e) => refresh_failed(e),
+                })
+            };
+            match renewed {
                 Ok(c) => {
                     creds = c;
                     refreshed = true;
                 }
-                Err(RefreshError::InvalidGrant) => return self.no_data(account, &ident, FetchError::auth(LOGIN_INVALID)),
-                Err(RefreshError::Other(e)) => return self.no_data(account, &ident, refresh_failed(e)),
+                Err(e) => {
+                    let keychain = creds.source == CredSource::Keychain;
+                    let mut s = self.no_data(account, &ident, e);
+                    if keychain {
+                        s.stale = Some(true);
+                    }
+                    return s;
+                }
             }
         }
 
@@ -886,6 +1073,11 @@ impl ProviderAdapter for ClaudeAdapter {
                 &ident,
                 FetchError::auth("This login cannot read usage (missing user:profile scope). Sign in again with `claude auth login`."),
             ),
+            Err(ApiError::OrgBlocked) => self.no_data(
+                account,
+                &ident,
+                FetchError::other("This account's organization doesn't allow Claude Code with a Claude subscription, so signing in again won't help. Use another account, or ask the organization's admin."),
+            ),
             Err(ApiError::RateLimited) => {
                 let mut s = self.no_data(account, &ident, FetchError::other("Claude's usage API is rate-limiting requests; will retry later."));
                 s.stale = Some(true);
@@ -907,6 +1099,104 @@ impl ProviderAdapter for ClaudeAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn history_line(project: &str, session: &str) -> String {
+        json!({"display": "hi", "pastedContents": {}, "timestamp": 1, "project": project, "sessionId": session}).to_string()
+    }
+
+    #[test]
+    fn resume_picks_this_homes_newest_conversation_in_the_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let lines = [history_line("/work", "old"), history_line("/work", "gone"), history_line("/elsewhere", "other"), history_line("/work", "gone")];
+        std::fs::write(home.join("history.jsonl"), lines.join("\n")).unwrap();
+        std::fs::create_dir_all(home.join("projects/-work")).unwrap();
+        std::fs::create_dir_all(home.join("projects/-elsewhere")).unwrap();
+        std::fs::write(home.join("projects/-work/old.jsonl"), "{}").unwrap();
+        std::fs::write(home.join("projects/-elsewhere/other.jsonl"), "{}").unwrap();
+
+        // "gone" is newer but its transcript was deleted, so `--resume gone` would fail.
+        assert_eq!(last_session_in(home, Path::new("/work")).as_deref(), Some("old"));
+        assert_eq!(last_session_in(home, Path::new("/elsewhere")).as_deref(), Some("other"));
+        assert_eq!(last_session_in(home, Path::new("/nowhere")), None);
+        assert_eq!(last_session_in(&home.join("missing"), Path::new("/work")), None);
+    }
+
+    #[test]
+    fn resume_by_id_uses_the_resume_flag() {
+        let a = ClaudeAdapter::new();
+        let acc = crate::recommend::tests::account("a", "max");
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        assert_eq!(rt.block_on(a.cli_command(&acc, Resume::Session("abc".into()), &[])).unwrap().args, ["--resume", "abc"]);
+        assert_eq!(rt.block_on(a.cli_command(&acc, Resume::Last, &[])).unwrap().args, ["--continue"]);
+        assert!(rt.block_on(a.cli_command(&acc, Resume::No, &[])).unwrap().args.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_conversation_counts_as_open_only_while_its_process_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let (h1, h2) = (dir.path().join("one"), dir.path().join("two"));
+        for h in [&h1, &h2] {
+            std::fs::create_dir_all(h.join("sessions")).unwrap();
+        }
+        let me = std::process::id();
+        let started = std::process::Command::new("/bin/ps").args(["-o", "lstart=", "-p", &me.to_string()]).env("TZ", "UTC").output().unwrap();
+        let started = String::from_utf8_lossy(&started.stdout).trim().to_string();
+        let file = |pid: u32, id: &str, start: &str| json!({"pid": pid, "sessionId": id, "procStart": start}).to_string();
+        // h1: a file left by a killed process, and one whose pid now belongs to a newer process.
+        std::fs::write(h1.join("sessions/999999.json"), file(999_999, "s", &started)).unwrap();
+        std::fs::write(h1.join(format!("sessions/{me}.json")), file(me, "s", "Thu Jan  1 00:00:00 1970")).unwrap();
+        let mk = |id: &str, home: &Path| Account { home_dir: home.to_string_lossy().into(), ..crate::recommend::tests::account(id, "max") };
+        let accounts = [mk("a1", &h1), mk("a2", &h2)];
+        let a = ClaudeAdapter::new();
+        assert_eq!(a.session_open_in(&accounts, "s"), None);
+
+        // h2: this test's own process, really running with that conversation.
+        std::fs::write(h2.join(format!("sessions/{me}.json")), file(me, "s", &started)).unwrap();
+        assert_eq!(a.session_open_in(&accounts, "s"), Some(("a2".to_string(), me)));
+        assert_eq!(a.session_open_in(&accounts, "other"), None);
+        assert_eq!(a.running_session(&accounts[1], me).as_deref(), Some("s"));
+        assert_eq!(a.running_session(&accounts[1], 42), None);
+    }
+
+    #[test]
+    fn process_start_times_compare_word_by_word() {
+        assert!(same_words("Wed Oct  1 21:45:58 2026\n", "Wed Oct 1 21:45:58 2026"));
+        assert!(!same_words("Wed Oct 1 21:45:58 2026", "Wed Oct 1 21:45:59 2026"));
+    }
+
+    #[test]
+    fn an_organization_that_turned_off_claude_code_is_not_a_sign_in_problem() {
+        // As the usage API answered for such an account.
+        let body = r#"{"type":"error","error":{"type":"permission_error","message":"OAuth authentication is currently not allowed for this organization.","details":{"error_visibility":"user_facing","error_code":"oauth_not_allowed_for_organization"}}}"#;
+        assert_eq!(api_error(403, body), ApiError::OrgBlocked);
+        assert_eq!(api_error(403, r#"{"error":{"message":"missing scope user:profile"}}"#), ApiError::MissingScope);
+        assert_eq!(api_error(403, "{}"), ApiError::Unauthorized);
+        assert_eq!(api_error(429, ""), ApiError::RateLimited);
+    }
+
+    #[test]
+    fn keychain_renewal_waits_after_a_renewal_that_did_not_help() {
+        let now = 10 * RENEW_RETRY_MS;
+        assert!(renew_due(None, now));
+        assert!(!renew_due(Some(now - RENEW_RETRY_MS + 1), now));
+        assert!(renew_due(Some(now - RENEW_RETRY_MS), now));
+    }
+
+    #[test]
+    fn a_renewal_is_judged_by_the_login_it_leaves() {
+        let now = 1_000_000_000_000;
+        let creds = |expires_in_ms: i64| {
+            parse_creds(&json!({"claudeAiOauth": {"accessToken": "a", "refreshToken": "r", "expiresAt": now + expires_in_ms}}), CredSource::Keychain)
+        };
+        assert!(renew_outcome(creds(8 * 3_600_000), now).is_ok());
+        let still_expired = renew_outcome(creds(-1000), now).unwrap_err();
+        assert_eq!(still_expired.kind, ErrorKind::Expired);
+        assert_eq!(still_expired.message, LOGIN_RENEW_LATER);
+        // Claude Code drops a login the server refused to renew: that one is signed out.
+        assert_eq!(renew_outcome(None, now).unwrap_err().kind, ErrorKind::Auth);
+    }
 
     #[test]
     fn transient_refresh_failures_do_not_read_as_signed_out() {

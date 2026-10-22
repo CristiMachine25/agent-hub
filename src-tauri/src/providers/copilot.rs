@@ -18,7 +18,7 @@
 //! docs/copilot.md). We never read the keychain (that could pop OS prompts during background polls);
 //! the token comes from the plaintext store if present, else from GitHub CLI: `gh auth token --user <login>`.
 use super::common::{finish_days, first_local_date, local_date, num, parse_jsonc, scan_launcher_scripts, DayMap, VersionCache};
-use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -483,9 +483,9 @@ impl ProviderAdapter for CopilotAdapter {
         Ok(())
     }
 
-    async fn cli_command(&self, account: &Account, resume: bool, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
+    async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut spec = base_command(account);
-        if resume {
+        if resume != Resume::No {
             spec.args.push("--continue".into());
         }
         spec.args.extend(extra_args.iter().cloned());
@@ -678,7 +678,7 @@ mod tests {
         assert!(id.logged_in);
         assert_eq!(id.email.as_deref(), Some("octo"));
 
-        let spec = a.cli_command(&acc, true, &["--model".into(), "gpt-5".into()]).await.unwrap();
+        let spec = a.cli_command(&acc, Resume::Last, &["--model".into(), "gpt-5".into()]).await.unwrap();
         assert_eq!(spec.args, ["--continue", "--model", "gpt-5"]);
         assert_eq!(spec.env.get("COPILOT_HOME").cloned().flatten().as_deref(), Some(acc.home_dir.as_str()));
         assert_eq!(spec.env.get("GH_TOKEN"), Some(&None));

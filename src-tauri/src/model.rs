@@ -476,6 +476,8 @@ pub struct TerminalSpawnRequest {
     pub account_id: String,
     pub target: TerminalTarget,
     pub resume: Option<bool>,
+    /// With `resume`: reopen this conversation (from `terminal_session`) instead of the account's newest.
+    pub resume_session: Option<String>,
     pub cwd: Option<String>,
     pub extra_args: Option<Vec<String>>,
     pub cols: u16,
@@ -780,6 +782,7 @@ mod contract_tests {
             account_id: s("acc-1"),
             target: TerminalTarget::Login,
             resume: Some(false),
+            resume_session: some("s-1"),
             cwd: some("/work"),
             extra_args: Some(vec![s("--verbose")]),
             cols: 80,
