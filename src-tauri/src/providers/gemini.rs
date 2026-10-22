@@ -9,13 +9,17 @@
 //! the rest of the user's environment keep working inside Gemini sessions.
 //!
 //! Verified against @google/gemini-cli 0.64.0 (npm bundle) and steipete/CodexBar docs/gemini.md.
-use super::common::{finish_days, first_local_date, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, DayMap, VersionCache};
+use super::common::{
+    any_json_line, finish_days, first_json_line, first_local_date, is_uuid, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, wanted_first,
+    DayMap, VersionCache, RESUME_CANDIDATES,
+};
 use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
 use base64::Engine;
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -529,6 +533,75 @@ fn scan_gemini_activity(home: &Path, account_id: &str, since_days: u32) -> Vec<D
     finish_days(days, account_id, &cutoff)
 }
 
+// ---------- conversations: tmp/<project>/chats/session-*.jsonl ----------
+//
+// A chat's first line (or, in the legacy `.json` format, the whole file) carries `sessionId` (a uuid),
+// `projectHash` (sha256 of the project root, i.e. the folder Gemini started in:
+// packages/core/src/utils/paths.ts `getProjectHash`, config.ts `getProjectRoot`) and `kind`
+// ("subagent" for a sub-agent's chat). `gemini --resume <uuid>` looks only in the current project's
+// chats and skips sub-agent chats (packages/cli/src/utils/sessionUtils.ts). Gemini CLI leaves no
+// per-process marker naming its chat, so `open_sessions` stays empty.
+
+/// What Gemini hashes for the project of `cwd`: its absolute path as given and, where the folder
+/// is reached through a symlink, the real path the process sees.
+fn project_hashes(cwd: &Path) -> Vec<String> {
+    let mut paths = vec![cwd.to_path_buf()];
+    paths.extend(std::fs::canonicalize(cwd).ok().filter(|real| cfg!(unix) && real != cwd));
+    paths
+        .iter()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            let s = if s.len() > 1 { s.trim_end_matches(['/', '\\']) } else { &s };
+            format!("{:x}", Sha256::digest(s.as_bytes()))
+        })
+        .collect()
+}
+
+/// A chat file's metadata: its first line, or the whole legacy `.json` file.
+fn chat_meta(path: &Path) -> Option<Value> {
+    if path.extension().is_some_and(|e| e == "jsonl") {
+        return first_json_line(path);
+    }
+    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+}
+
+/// Whether a chat holds anything typed or answered: Gemini doesn't offer startup-only sessions.
+fn chat_has_messages(path: &Path, meta: &Value) -> bool {
+    let is_message = |m: &Value| m.get("id").is_some() && matches!(m.get("type").and_then(Value::as_str), Some("user" | "gemini"));
+    match meta.get("messages").and_then(Value::as_array) {
+        Some(legacy) => legacy.iter().any(is_message),
+        None => any_json_line(path, |l| l.contains("\"type\""), is_message),
+    }
+}
+
+/// The chats of `cwd`'s project in this home that hold a conversation, newest first.
+fn chats_in(home: &Path, cwd: &Path) -> Vec<String> {
+    let hashes = project_hashes(cwd);
+    let mut files: Vec<(PathBuf, std::time::SystemTime)> = std::fs::read_dir(gemini_dir(home).join("tmp"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|project| std::fs::read_dir(project.path().join("chats")).ok())
+        .flatten()
+        .flatten()
+        .filter(|f| f.file_name().to_string_lossy().starts_with("session-"))
+        .filter(|f| f.path().extension().is_some_and(|e| e == "jsonl" || e == "json"))
+        .filter_map(|f| Some((f.path(), f.metadata().ok()?.modified().ok()?)))
+        .collect();
+    files.sort_by_key(|f| std::cmp::Reverse(f.1));
+    let mut out: Vec<String> = Vec::new();
+    for (path, _) in files {
+        let Some(meta) = chat_meta(&path) else { continue };
+        let Some(id) = meta.get("sessionId").and_then(Value::as_str).filter(|id| is_uuid(id)) else { continue };
+        let ours = meta.get("projectHash").and_then(Value::as_str).is_some_and(|h| hashes.iter().any(|x| x == h));
+        let subagent = meta.get("kind").and_then(Value::as_str) == Some("subagent");
+        if ours && !subagent && !out.iter().any(|o| o == id) && chat_has_messages(&path, &meta) {
+            out.push(id.to_string());
+        }
+    }
+    out
+}
+
 /// Gemini CLI's OAuth client (an "installed application" client the CLI ships in
 /// packages/core/src/code_assist/oauth2.ts as `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET`). We do not embed it:
 /// it is read at runtime, in order, from
@@ -830,11 +903,21 @@ impl ProviderAdapter for GeminiAdapter {
 
     async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut spec = base_command(account);
-        if resume != Resume::No {
-            spec.args.extend(["--resume".to_string(), "latest".to_string()]);
+        match resume {
+            Resume::No => {}
+            Resume::Session(id) if is_uuid(&id) => spec.args.extend(["--resume".to_string(), id]),
+            Resume::Last | Resume::Session(_) => spec.args.extend(["--resume".to_string(), "latest".to_string()]),
         }
         spec.args.extend(extra_args.iter().cloned());
         Ok(spec)
+    }
+
+    fn resume_candidates(&self, account: &Account, cwd: &Path, wanted: Option<&str>) -> Vec<String> {
+        let mut own = chats_in(Path::new(&account.home_dir), cwd);
+        // Gemini opens a chat by id only from its own project's chats in this home.
+        let wanted = wanted.filter(|id| own.iter().any(|o| o == id)).map(str::to_string);
+        own.truncate(RESUME_CANDIDATES);
+        wanted_first(wanted, own)
     }
 
     /// Gemini CLI has no login subcommand: on first run (or after /auth) it asks how to sign in.
@@ -1052,6 +1135,91 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!((out[0].sessions, out[0].messages, out[0].input_tokens), (1, 2, 10));
         assert_eq!(out[0].account_id, "acc1");
+    }
+
+    /// A chat recording as Gemini CLI writes it: metadata first, then message records.
+    fn chat(home: &Path, project: &str, file: &str, meta: Value, messages: &[Value]) {
+        let dir = home.join(".gemini/tmp").join(project).join("chats");
+        std::fs::create_dir_all(dir.join(file).parent().unwrap()).unwrap();
+        let lines: Vec<String> = std::iter::once(&meta).chain(messages).map(Value::to_string).collect();
+        std::fs::write(dir.join(file), lines.join("\n")).unwrap();
+        // Distinct modification times, in call order.
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    fn meta(id: &str, project: &str, kind: &str) -> Value {
+        let hash = format!("{:x}", Sha256::digest(project.as_bytes()));
+        json!({"sessionId": id, "projectHash": hash, "startTime": "2026-10-20T10:00:00.000Z", "lastUpdated": "2026-10-20T10:00:00.000Z", "kind": kind})
+    }
+
+    fn said(text: &str) -> Value {
+        json!({"id": "m1", "timestamp": "2026-10-20T10:00:01.000Z", "type": "user", "content": [{"text": text}]})
+    }
+
+    #[test]
+    fn resume_offers_this_homes_chats_in_the_folder_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let id = |n: u8| format!("a1b2c3d4-e5f6-7890-abcd-ef12345678{n:02}");
+        let legacy = json!({"sessionId": id(1), "projectHash": meta("", "/work", "").get("projectHash"), "startTime": "2026-10-19T10:00:00Z", "lastUpdated": "2026-10-19T10:00:00Z",
+            "messages": [{"id": "m", "timestamp": "2026-10-19T10:00:00Z", "type": "user", "content": "hi"}]});
+        let legacy_file = home.join(".gemini/tmp/work/chats/session-2026-10-19T10-00-a1b2c3d4.json");
+        std::fs::create_dir_all(legacy_file.parent().unwrap()).unwrap();
+        std::fs::write(&legacy_file, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        chat(home, "work", "session-2026-10-20T10-00-a1b2c3d4.jsonl", meta(&id(2), "/work", "main"), &[said("old")]);
+        chat(home, "work", "session-2026-10-20T11-00-a1b2c3d4.jsonl", meta(&id(3), "/work", "main"), &[said("new")]);
+        chat(home, "elsewhere", "session-2026-10-20T12-00-a1b2c3d4.jsonl", meta(&id(4), "/elsewhere", "main"), &[said("other")]);
+        // A sub-agent's chat, and a session that only started up.
+        chat(home, "work", &format!("{}/{}.jsonl", id(3), id(5)), meta(&id(5), "/work", "subagent"), &[said("sub")]);
+        chat(home, "work", "session-2026-10-20T13-00-a1b2c3d4.jsonl", meta(&id(6), "/work", "subagent"), &[said("sub")]);
+        chat(home, "work", "session-2026-10-20T14-00-a1b2c3d4.jsonl", meta(&id(7), "/work", "main"), &[]);
+
+        let a = GeminiAdapter::new();
+        let acc = account(home);
+        let work = Path::new("/work");
+        assert_eq!(a.resume_candidates(&acc, work, None), [id(3), id(2), id(1)]);
+        // A chat asked for comes first, but only when Gemini can open it from here: `--resume <id>`
+        // looks in the folder's own chats only.
+        assert_eq!(a.resume_candidates(&acc, work, Some(&id(2))), [id(2), id(3), id(1)]);
+        assert_eq!(a.resume_candidates(&acc, work, Some(&id(4))), [id(3), id(2), id(1)]);
+        assert_eq!(a.resume_candidates(&acc, Path::new("/elsewhere"), Some(&id(4))), [id(4)]);
+        assert!(a.resume_candidates(&acc, Path::new("/nowhere"), None).is_empty());
+        let missing = account(&home.join("missing"));
+        assert!(a.resume_candidates(&missing, work, None).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_symlink_finds_its_chats() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // Gemini hashes the folder as the process sees it: the real path.
+        let id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        let seen = std::fs::canonicalize(&real).unwrap();
+        chat(dir.path(), "real", "session-2026-10-20T10-00-a1b2c3d4.jsonl", meta(id, &seen.to_string_lossy(), "main"), &[said("hi")]);
+        let acc = account(dir.path());
+        assert_eq!(GeminiAdapter::new().resume_candidates(&acc, &link, None), [id]);
+        assert_eq!(GeminiAdapter::new().resume_candidates(&acc, &seen, None), [id]);
+    }
+
+    #[tokio::test]
+    async fn resume_by_id_names_the_chat() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, acc) = (GeminiAdapter::new(), account(dir.path()));
+        let args = |r: Resume| {
+            let (a, acc) = (&a, &acc);
+            async move { a.cli_command(acc, r, &[]).await.unwrap().args }
+        };
+        assert_eq!(args(Resume::Session("a1b2c3d4-e5f6-7890-abcd-ef1234567890".into())).await, ["--resume", "a1b2c3d4-e5f6-7890-abcd-ef1234567890"]);
+        assert_eq!(args(Resume::Last).await, ["--resume", "latest"]);
+        assert!(args(Resume::No).await.is_empty());
+        // Gemini reads a number as a list index; an id from a damaged file never becomes one.
+        assert_eq!(args(Resume::Session("3".into())).await, ["--resume", "latest"]);
+        assert_eq!(args(Resume::Session("--yolo".into())).await, ["--resume", "latest"]);
     }
 
     #[tokio::test]
