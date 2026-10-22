@@ -310,6 +310,11 @@ export function historyShared(a: Shares, b: Shares, defaultHome: string | undefi
   return shares(a) && shares(b)
 }
 
+/** The accounts "Share history" has to turn history on for: the main folder already is the source. */
+export function historyToTurnOn<T extends Shares>(accounts: T[], defaultHome: string | undefined, platform: Platform): T[] {
+  return accounts.filter((x) => !isMainFolder(x, defaultHome, platform) && !x.sharing.history)
+}
+
 /** Account picker order: provider groups by their best account, accounts by recommendation within a group. */
 export function pickerGroups(accounts: Account[], recs: Recommendation[]): { providerId: Account['providerId']; accounts: Account[] }[] {
   const score = new Map(recs.map((r) => [r.accountId, r.score]))

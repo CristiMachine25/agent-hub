@@ -55,6 +55,15 @@ describe('mock accounts behave like the real backend', () => {
     expect(await api.accounts.remove(kept.id, { deleteHome: false })).toBe(false)
   })
 
+  it('lists an account at the main folder as the main folder in knowledge, like knowledge_get', async () => {
+    const api = createMockApi('darwin')
+    const main = (await api.accounts.list()).find((a) => a.providerId === 'claude' && a.isDefaultHome)!
+    await api.accounts.remove(main.id, { deleteHome: false })
+    const unflagged = await api.accounts.create({ providerId: 'claude', label: 'Old', homeDir: '/Users/sam/.claude' })
+    const claude = (await api.knowledge.get()).find((k) => k.providerId === 'claude')!
+    expect(claude.accounts.find((a) => a.accountId === unflagged.id)).toMatchObject({ isDefaultHome: true, kinds: [] })
+  })
+
   it('launches an account at the main folder without a home override, flagged or not, like the adapters', async () => {
     const api = createMockApi('darwin')
     const main = (await api.accounts.list()).find((a) => a.providerId === 'claude' && a.isDefaultHome)!

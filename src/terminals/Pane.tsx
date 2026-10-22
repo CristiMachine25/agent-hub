@@ -4,10 +4,9 @@ import { ArrowRightLeft, FolderOpen, History, Loader2, LogIn, Maximize2, Minimiz
 import type { Account } from '@shared/types'
 import { api } from '@/api'
 import { useStore } from '@/store'
-import { atLimit, continueCandidates, historyShared, isBlocked, isSignedOut, isUsable, statusLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
+import { atLimit, continueCandidates, historyShared, historyToTurnOn, isBlocked, isSignedOut, isUsable, statusLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { formatCountdown, formatPct, windowName } from '@/lib/format'
-import { isMainFolder } from '@/lib/profiles'
 import { PROVIDER_META } from '@/lib/providers'
 import { Meter } from '@/components/Meter'
 import { AccountDot, ProviderMark, onRadioArrows } from '@/components/ui'
@@ -108,10 +107,8 @@ function ContinueMenu({ index, account, onDone }: { index: number; account: Acco
                 className="btn btn-ghost btn-sm mr-1 shrink-0 px-1.5"
                 data-tip="Turn on chat history sharing for both accounts so the chat continues"
                 onClick={async () => {
-                  for (const x of [account, a]) {
-                    if (!isMainFolder(x, defaultHome, api.platform) && !x.sharing.history)
-                      await updateAccount(x.id, { sharing: { ...x.sharing, history: true } }, { quiet: true })
-                  }
+                  for (const x of historyToTurnOn([account, a], defaultHome, api.platform))
+                    await updateAccount(x.id, { sharing: { ...x.sharing, history: true } }, { quiet: true })
                   useStore.getState().toast({ kind: 'success', title: 'Chat history is now shared', body: `${account.label} and ${a.label} see the same chats.` })
                 }}
               >

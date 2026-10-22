@@ -8,6 +8,7 @@ import {
   continueCandidates,
   fitPanes,
   historyShared,
+  historyToTurnOn,
   isSignedOut,
   isUsable,
   layoutFor,
@@ -282,6 +283,16 @@ describe('accounts in panes', () => {
     expect(historyShared(main, on, undefined, 'darwin')).toBe(true)
     expect(historyShared(atMainPath, on, '/Users/sam/.claude', 'darwin')).toBe(true)
     expect(historyShared(atMainPath, on, undefined, 'darwin')).toBe(false)
+  })
+
+  it('turns history on only for the accounts that need it, never the main folder', () => {
+    const off = { ...DEFAULT_SHARING, history: false }
+    const work = acc('w', 'claude', { sharing: off })
+    const atMainPath = acc('p', 'claude', { homeDir: '/Users/sam/.claude', sharing: off })
+    const main = acc('m', 'claude', { isDefaultHome: true, sharing: off })
+    const on = acc('o', 'claude')
+    expect(historyToTurnOn([atMainPath, work], '/Users/sam/.claude', 'darwin').map((a) => a.id)).toEqual(['w'])
+    expect(historyToTurnOn([main, on], '/Users/sam/.claude', 'darwin')).toEqual([])
   })
 
   it('orders picker groups by their best account', () => {

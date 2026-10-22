@@ -275,7 +275,7 @@ function ItemSection({ label, items, empty }: { label: string; items: KnowledgeI
   )
 }
 
-function UsedBy({ k }: { k: ProviderKnowledge }) {
+export function UsedBy({ k }: { k: ProviderKnowledge }) {
   const accounts = useStore((s) => s.accounts)
   const go = useStore((s) => s.go)
   const meta = PROVIDER_META[k.providerId]

@@ -159,12 +159,11 @@ export function createMockApi(platform: Platform): AgentHubApi {
       items: knowledge[providerId].items.map(item),
       accounts: db.accounts
         .filter((a) => a.providerId === providerId)
-        .map((a) => ({
-          accountId: a.id,
-          label: a.label,
-          isDefaultHome: a.isDefaultHome,
-          kinds: a.isDefaultHome ? [] : sharedKinds.filter((k) => a.sharing[k])
-        }))
+        .map((a) => {
+          // The backend flags an account at the default folder when it loads (store.rs).
+          const main = isMainFolder(a, db.providers.find((p) => p.id === providerId)?.defaultHome, platform)
+          return { accountId: a.id, label: a.label, isDefaultHome: main, kinds: main ? [] : sharedKinds.filter((k) => a.sharing[k]) }
+        })
     }
   }
 
