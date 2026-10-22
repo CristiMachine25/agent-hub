@@ -16,7 +16,11 @@ export interface TermEntry {
   rows: number
   /** Set while the terminal draws with WebGL; otherwise xterm's DOM renderer is in use. */
   webgl?: WebglAddon
-  /** WebGL failed to load or lost its context once; this terminal stays on the DOM renderer. */
+  /** The canvas holding the addon's WebGL context, freed when the addon is released. */
+  webglCanvas?: HTMLCanvasElement
+  /** The context was lost once; the next show tries WebGL again. */
+  lostWebgl?: boolean
+  /** WebGL failed to load or lost its context twice; this terminal stays on the DOM renderer. */
   noWebgl?: boolean
 }
 
@@ -248,10 +252,15 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
   return entry
 }
 
+const canvases = (e: TermEntry) => [...(e.term.element?.querySelectorAll('canvas') ?? [])]
+
 function releaseWebgl(e: TermEntry) {
-  const addon = e.webgl
-  e.webgl = undefined
+  const { webgl: addon, webglCanvas: canvas } = e
+  e.webgl = e.webglCanvas = undefined
   addon?.dispose()
+  // Disposing only removes the canvas; its context would count against the browser's limit until garbage
+  // collection and could push out a live terminal's. Lose it now, after dispose so the addon no longer listens.
+  canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext()
 }
 
 /** Draw a terminal that a pane just put on screen with WebGL when a context is available. */
@@ -265,10 +274,12 @@ export function acquireWebgl(id: string) {
     releaseWebgl(offscreen)
   }
   let addon: WebglAddon | undefined
+  const before = new Set(canvases(e))
   try {
     addon = new WebglAddon()
     addon.onContextLoss(() => {
-      e.noWebgl = true
+      if (e.lostWebgl) e.noWebgl = true
+      e.lostWebgl = true
       if (e.webgl !== addon) return
       releaseWebgl(e)
       // WebGL rounds cells to whole device pixels, so the DOM renderer fits fewer columns in the same pane.
@@ -276,6 +287,7 @@ export function acquireWebgl(id: string) {
     })
     e.term.loadAddon(addon)
     e.webgl = addon
+    e.webglCanvas = canvases(e).find((c) => !before.has(c) && c.getContext('webgl2'))
   } catch {
     e.noWebgl = true
     try {

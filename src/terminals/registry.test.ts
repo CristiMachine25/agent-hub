@@ -13,6 +13,8 @@ vi.mock('@xterm/xterm', () => ({
     input: (d: string) => void = () => {}
     cols = 80
     rows = 24
+    canvases: unknown[] = []
+    element = { querySelectorAll: () => this.canvases }
     // Like xterm: an addon is registered, then activated; activate may throw.
     loadAddon(addon: { activate?: (t: unknown) => void }) {
       addon.activate?.(this)
@@ -48,12 +50,23 @@ vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: class {
     lost = () => {}
     disposed = false
+    /** Whether WEBGL_lose_context.loseContext() ran on this addon's canvas, and if the addon was disposed by then. */
+    freed?: { afterDispose: boolean }
+    term?: { canvases: unknown[] }
+    canvas = {
+      getContext: (type: string) =>
+        type === 'webgl2'
+          ? { getExtension: (name: string) => (name === 'WEBGL_lose_context' ? { loseContext: () => (this.freed = { afterDispose: this.disposed }) } : null) }
+          : null
+    }
     constructor() {
       webgl.last = this
     }
     // The real addon reports a missing WebGL2 context from activate, which loadAddon calls.
-    activate() {
+    activate(term: { canvases: unknown[] }) {
       if (webgl.throws) throw new Error('WebGL2 not supported')
+      this.term = term
+      term.canvases.push(this.canvas)
     }
     onContextLoss(cb: () => void) {
       this.lost = cb
@@ -61,6 +74,7 @@ vi.mock('@xterm/addon-webgl', () => ({
     }
     dispose() {
       this.disposed = true
+      this.term?.canvases.splice(this.term.canvases.indexOf(this.canvas), 1)
     }
     clearTextureAtlas() {}
   }
@@ -76,6 +90,7 @@ const written = (id: string) => (getTerm(id, 'dark').term as unknown as { writte
 interface FakeAddon {
   lost(): void
   disposed: boolean
+  freed?: { afterDispose: boolean }
 }
 const addonOf = (id: string) => getTerm(id, 'dark').webgl as unknown as FakeAddon | undefined
 /** Creates a terminal, puts its host on screen as a pane would, and asks for WebGL. */
@@ -146,17 +161,23 @@ describe('WebGL renderer', () => {
     hide('move-0')
     shown('move-new')
     expect(hidden.disposed).toBe(true)
+    expect(hidden.freed).toEqual({ afterDispose: true })
     expect(addonOf('move-0')).toBeUndefined()
     expect(addonOf('move-new')).toBeDefined()
   })
 
-  it('falls back to the DOM renderer when the context is lost', () => {
+  it('falls back to the DOM renderer when the context is lost, and retries once on the next show', () => {
     shown('lost')
     const addon = addonOf('lost')!
     addon.lost()
     expect(addon.disposed).toBe(true)
     expect(addonOf('lost')).toBeUndefined()
-    // A terminal that lost its context does not retry on the next show.
+    acquireWebgl('lost')
+    const retry = addonOf('lost')!
+    expect(retry).toBeDefined()
+    expect(retry).not.toBe(addon)
+    // A second loss means WebGL is not reliable here; the terminal stays on the DOM renderer.
+    retry.lost()
     acquireWebgl('lost')
     expect(addonOf('lost')).toBeUndefined()
   })
@@ -174,5 +195,7 @@ describe('WebGL renderer', () => {
     const addon = addonOf('gone')!
     disposeTerm('gone')
     expect(addon.disposed).toBe(true)
+    // The context is freed at once instead of counting against the browser's limit until garbage collection.
+    expect(addon.freed).toEqual({ afterDispose: true })
   })
 })
