@@ -49,12 +49,17 @@ export function launchVerb(p: ProviderId): string {
   return `Launch ${PROVIDER_META[p].short}`
 }
 
-/** What "Use now" launches: the desktop app when the CLI is missing but the app is installed, else the CLI. */
-export function primaryTarget(prov: Pick<ProviderInfo, 'cliInstalled' | 'desktopInstalled'> | undefined): 'cli' | 'desktop' {
-  return prov && !prov.cliInstalled && prov.desktopInstalled ? 'desktop' : 'cli'
+type DesktopFacts = Pick<ProviderInfo, 'cliInstalled' | 'desktopInstalled' | 'desktopMultiAccount'>
+
+/**
+ * What "Use now" launches: the desktop app when the CLI is missing and the app can open this account
+ * (a one-account app opens whichever account it used last), else the CLI.
+ */
+export function primaryTarget(prov: DesktopFacts | undefined): 'cli' | 'desktop' {
+  return prov && !prov.cliInstalled && prov.desktopInstalled && prov.desktopMultiAccount ? 'desktop' : 'cli'
 }
 
 /** "Launch Claude", or "Open Claude Desktop" when primaryTarget picks the desktop app. */
-export function primaryVerb(p: ProviderId, prov: Pick<ProviderInfo, 'cliInstalled' | 'desktopInstalled' | 'desktopName'> | undefined): string {
+export function primaryVerb(p: ProviderId, prov: (DesktopFacts & Pick<ProviderInfo, 'desktopName'>) | undefined): string {
   return primaryTarget(prov) === 'desktop' ? `Open ${prov?.desktopName ?? 'desktop app'}` : launchVerb(p)
 }
