@@ -1,6 +1,7 @@
 //! Tauri commands: the AgentHubApi from src/shared/types.ts. Names and argument names must match
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
 use crate::accounts::{self, apply_sharing, emit_accounts};
+use crate::events::{self, TerminalExit, TerminalOutput};
 use crate::model::*;
 use crate::providers::{self, Adapter, CommandSpec, Resume};
 use crate::store::AppState;
@@ -11,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 type Res<T> = Result<T, String>;
 type St<'a> = State<'a, Arc<AppState>>;
@@ -352,10 +353,10 @@ struct EventSink(AppHandle);
 
 impl pty::PtySink for EventSink {
     fn output(&self, id: &str, data: String) {
-        let _ = self.0.emit("terminal-output", TerminalOutput { id: id.to_string(), data });
+        events::emit(&self.0, &TerminalOutput { id: id.to_string(), data });
     }
     fn exit(&self, id: &str, code: Option<i32>) {
-        let _ = self.0.emit("terminal-exit", TerminalExit { id: id.to_string(), code });
+        events::emit(&self.0, &TerminalExit { id: id.to_string(), code });
     }
 }
 

@@ -467,7 +467,7 @@ export const event_terminal_exit = {
 
 export const event_navigate = "terminals" satisfies Full<T.AppEvents['navigate']>
 
-export const events = ["accounts-changed","navigate","notification","terminal-exit","terminal-output","usage-updated"] as const
+export const events = ["usage-updated","accounts-changed","notification","terminal-output","terminal-exit","navigate"] as const
 export const _events: Same<(typeof events)[number], keyof T.AppEvents> = true
 
 // What the UI receives with every Option set to None.

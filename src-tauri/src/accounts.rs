@@ -3,11 +3,11 @@
 use crate::model::*;
 use crate::providers::Adapter;
 use crate::store::AppState;
-use crate::{knowledge, notify, sharing, usage, util};
+use crate::{events, knowledge, notify, sharing, usage, util};
 use anyhow::{anyhow, Context};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 /// Account identity colors: the same validated set as `ACCOUNT_COLORS` in src/lib/providers.ts (see docs/DESIGN.md).
 const PALETTE: [&str; 8] = ["#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#9085E9", "#E66767", "#008300"];
@@ -33,7 +33,7 @@ fn clean_tags(tags: Vec<String>) -> Vec<String> {
 }
 
 pub(crate) async fn emit_accounts(app: &AppHandle, state: &AppState) {
-    let _ = app.emit("accounts-changed", &*state.accounts.read().await);
+    events::emit(app, &events::AccountsChanged(&state.accounts.read().await));
 }
 
 /// Apply sharing off the async runtime; surface backups/copies as an in-app notice.

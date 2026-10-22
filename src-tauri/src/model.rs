@@ -594,20 +594,6 @@ pub struct SkillInstallOutcome {
     pub error: Option<String>,
 }
 
-/// Payload of the `terminal-output` event: UTF-8 text from a terminal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TerminalOutput {
-    pub id: String,
-    pub data: String,
-}
-
-/// Payload of the `terminal-exit` event.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TerminalExit {
-    pub id: String,
-    pub code: Option<i32>,
-}
-
 /// Writes `src/shared/__fixtures__/serde.ts`: one value of every type the UI sends or receives, with
 /// every Option set, plus every enum value, every registered command and every event Rust emits, with
 /// its payload. tsc checks that file against `src/shared/types.ts`, so a field or enum value that
@@ -617,6 +603,7 @@ pub struct TerminalExit {
 #[cfg(test)]
 mod contract_tests {
     use super::*;
+    use crate::events::{self, AppEvent};
     use crate::transfer::{ExportOptions, ExportSummary, ImportChoice, ImportPreview, ImportReport, PreviewAccount, PreviewKind};
     use serde::{de::DeserializeOwned, Serialize};
     use serde_json::{json, Value};
@@ -641,9 +628,16 @@ mod contract_tests {
         }};
     }
 
-    struct Fixture(String);
+    /// The fixture text, and the events written so far.
+    struct Fixture(String, Vec<&'static str>);
 
     impl Fixture {
+        /// A payload tsc must accept as the `E::NAME` event.
+        fn event<E: AppEvent>(&mut self, e: &E) {
+            self.1.push(E::NAME);
+            self.value(&format!("event_{}", E::NAME.replace('-', "_")), &format!("T.AppEvents['{}']", E::NAME), e);
+        }
+
         /// A value tsc must accept as `ts` with every field present and none extra.
         fn value(&mut self, name: &str, ts: &str, v: &impl Serialize) {
             let json = serde_json::to_string_pretty(v).unwrap();
@@ -720,30 +714,6 @@ mod contract_tests {
         list.split(',').map(|path| path.rsplit("::").next().unwrap().trim().to_string()).filter(|name| !name.is_empty()).collect()
     }
 
-    /// Event names passed to emit in any Rust file under src. Each must be a string literal.
-    fn emitted_events() -> Vec<String> {
-        fn walk(dir: &std::path::Path, needle: &str, out: &mut Vec<String>) {
-            for entry in std::fs::read_dir(dir).unwrap() {
-                let path = entry.unwrap().path();
-                if path.is_dir() {
-                    walk(&path, needle, out);
-                } else if path.extension().is_some_and(|e| e == "rs") {
-                    let src = std::fs::read_to_string(&path).unwrap();
-                    for (i, _) in src.match_indices(needle) {
-                        let name = src[i + needle.len()..].strip_prefix('"').and_then(|rest| rest.split('"').next());
-                        out.push(name.unwrap_or_else(|| panic!("{}: emit without a literal event name", path.display())).to_string());
-                    }
-                }
-            }
-        }
-        let mut names = Vec::new();
-        // Split so this file's own source doesn't match.
-        walk(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src")), concat!(".", "emit("), &mut names);
-        names.sort();
-        names.dedup();
-        names
-    }
-
     #[test]
     fn serde_fixture_matches_committed_file() {
         let mut f = Fixture(
@@ -752,6 +722,7 @@ mod contract_tests {
              import type * as T from '../types'\n\
              import type { Full, Same } from './check'\n"
                 .into(),
+            vec![],
         );
 
         let provider = ProviderInfo {
@@ -982,16 +953,20 @@ mod contract_tests {
         }
         f.values("commands", "(typeof T.COMMANDS)[keyof typeof T.COMMANDS]", &registered_commands());
 
-        // Event payloads, built from the types the emit sites send.
-        f.value("event_usage_updated", "T.AppEvents['usage-updated']", &HashMap::from([(s("acc-1"), snapshot.clone())]));
-        f.value("event_accounts_changed", "T.AppEvents['accounts-changed']", &std::slice::from_ref(&account));
-        f.value("event_notification", "T.AppEvents['notification']", &notification);
-        let output = TerminalOutput { id: s("t-1"), data: s("hello") };
-        f.value("event_terminal_output", "T.AppEvents['terminal-output']", &output);
-        let exit = TerminalExit { id: s("t-1"), code: Some(0) };
-        f.value("event_terminal_exit", "T.AppEvents['terminal-exit']", &exit);
-        f.value("event_navigate", "T.AppEvents['navigate']", &"terminals");
-        f.values("events", "keyof T.AppEvents", &emitted_events());
+        // Every event, as the type events::emit sends.
+        f.event(&events::UsageUpdated(&HashMap::from([(s("acc-1"), snapshot.clone())])));
+        f.event(&events::AccountsChanged(std::slice::from_ref(&account)));
+        f.event(&events::Notification(&notification));
+        f.event(&events::TerminalOutput { id: s("t-1"), data: s("hello") });
+        let exit = events::TerminalExit { id: s("t-1"), code: Some(0) };
+        f.event(&exit);
+        f.event(&events::Navigate("terminals"));
+        let mut written = f.1.clone();
+        written.sort_unstable();
+        let mut all = events::NAMES.to_vec();
+        all.sort_unstable();
+        assert_eq!(written, all, "write one value of every event in events.rs");
+        f.values("events", "keyof T.AppEvents", events::NAMES);
 
         f.0 += "\n// What the UI receives with every Option set to None.\n";
         f.nulls("T.ProviderInfo", &provider);
