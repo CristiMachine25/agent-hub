@@ -118,6 +118,14 @@ pub async fn launch(app: AppHandle, state: St<'_>, req: LaunchRequest) -> Res<La
     launch_account(&app, &state, req).await.map_err(err)
 }
 
+/// Why this account's CLI can't start, if it can't: a blocked account's CLI refuses to.
+fn cli_refusal(account: &Account) -> Option<String> {
+    (account.status == AccountStatus::Blocked).then(|| {
+        let why = account.status_message.as_deref().unwrap_or("Its plan doesn't include it.");
+        format!("{} can't start {}. {why}", account.label, account.provider_id.name())
+    })
+}
+
 fn failed(msg: impl Into<String>) -> LaunchResult {
     LaunchResult { ok: false, error: Some(msg.into()), command_line: None, note: None }
 }
@@ -238,6 +246,9 @@ pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchR
     let adapter = state.adapter(account.provider_id)?;
     let extra = req.extra_args.clone().unwrap_or_default();
 
+    if let Some(why) = cli_refusal(&account).filter(|_| req.target == LaunchTarget::Cli) {
+        return Ok(failed(why));
+    }
     let result = if req.target == LaunchTarget::Desktop {
         let spec = match adapter.desktop_command(&account).await {
             Ok(Some(spec)) => spec,
@@ -326,6 +337,9 @@ async fn spawn_terminal(app: &AppHandle, state: &Arc<AppState>, terms: pty::Term
     let adapter = state.adapter(account.provider_id)?;
     let extra = req.extra_args.clone().unwrap_or_default();
     let login = req.target == TerminalTarget::Login;
+    if let Some(why) = cli_refusal(&account).filter(|_| !login) {
+        return Err(anyhow!(why));
+    }
     let spec = terminal_command(state, &account, &adapter, login, requested_resume(req.resume, req.resume_session.clone()), &extra, req.cwd.clone()).await?;
     let title = notify::display_name(&account);
     let spawn = pty::PtySpawn { account_id: account.id.clone(), title, spec, cols: req.cols, rows: req.rows };
@@ -635,6 +649,17 @@ pub async fn system_open_path(app: AppHandle, state: St<'_>, path: String) -> Re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The tray, the grid's Restart and Resume and any other path end here: a blocked account's
+    /// CLI is refused with its reason; signing in stays possible.
+    #[test]
+    fn a_blocked_account_cannot_start_its_cli() {
+        let mut a = crate::recommend::tests::account("H7", "Free");
+        assert_eq!(cli_refusal(&a), None);
+        a.status = AccountStatus::Blocked;
+        a.status_message = Some("This account's subscription was canceled.".into());
+        assert_eq!(cli_refusal(&a).as_deref(), Some("H7 can't start Claude. This account's subscription was canceled."));
+    }
 
     #[cfg(unix)]
     #[test]

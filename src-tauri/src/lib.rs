@@ -210,6 +210,18 @@ fn static_menu(app: &AppHandle, launch_items: &[(String, String)]) -> tauri::Res
     Ok(menu)
 }
 
+/// One "Launch" item per account that can start its CLI (a blocked one can't), as (id, text).
+fn tray_items(accounts: &[model::Account], latest: &std::collections::HashMap<String, model::UsageSnapshot>) -> Vec<(String, String)> {
+    accounts
+        .iter()
+        .filter(|a| a.status != model::AccountStatus::Blocked)
+        .map(|a| {
+            let left = latest.get(&a.id).and_then(recommend::left_percent).map(|l| format!(" \u{2014} {l:.0}% left")).unwrap_or_default();
+            (format!("launch:{}", a.id), format!("Launch {}{left}", notify::display_name(a)))
+        })
+        .collect()
+}
+
 /// Rebuild the tray menu from current accounts and usage. Cheap; call after polls and edits.
 pub fn refresh_tray(app: &AppHandle) {
     let app = app.clone();
@@ -218,13 +230,7 @@ pub fn refresh_tray(app: &AppHandle) {
         let mut accounts = state.accounts.read().await.clone();
         let latest = state.latest.read().await.clone();
         accounts.sort_by_key(|a| (a.pinned != Some(true), a.provider_id.as_str(), a.label.to_lowercase()));
-        let items: Vec<(String, String)> = accounts
-            .iter()
-            .map(|a| {
-                let left = latest.get(&a.id).and_then(recommend::left_percent).map(|l| format!(" \u{2014} {l:.0}% left")).unwrap_or_default();
-                (format!("launch:{}", a.id), format!("Launch {}{left}", notify::display_name(a)))
-            })
-            .collect();
+        let items = tray_items(&accounts, &latest);
         let app2 = app.clone();
         // Menus must be built on the main thread on macOS.
         let _ = app.run_on_main_thread(move || {
@@ -290,5 +296,13 @@ mod tests {
         assert_eq!(panic_message(Some("pump"), &"boom", Some(here)), format!("panic in thread 'pump' at {at}: boom"));
         assert_eq!(panic_message(None, &String::from("owned"), None), "panic in thread '<unnamed>' at <unknown>: owned");
         assert_eq!(panic_message(Some("x"), &42, None), "panic in thread 'x' at <unknown>: <non-text payload>");
+    }
+
+    #[test]
+    fn the_tray_offers_no_launch_for_a_blocked_account() {
+        let mut blocked = recommend::tests::account("b", "Free");
+        blocked.status = model::AccountStatus::Blocked;
+        let items = tray_items(&[recommend::tests::account("a", "Pro"), blocked], &Default::default());
+        assert_eq!(items, [("launch:a".to_string(), "Launch a (Claude)".to_string())]);
     }
 }
