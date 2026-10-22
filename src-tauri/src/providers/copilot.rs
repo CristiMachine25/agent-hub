@@ -35,11 +35,22 @@ const NEED_GH: &str = "Connect GitHub CLI (gh auth login) to read Copilot usage"
 
 pub struct CopilotAdapter {
     version: VersionCache,
+    /// Login -> when GitHub's rate limit allows the next live fetch. GitHub warns that requests sent
+    /// while limited can get an integration banned, so polls skip that login until then.
+    paused: std::sync::Mutex<HashMap<String, chrono::DateTime<chrono::Utc>>>,
 }
 
 impl CopilotAdapter {
     pub fn new() -> Self {
-        Self { version: VersionCache::default() }
+        Self { version: VersionCache::default(), paused: Default::default() }
+    }
+
+    fn pause(&self, login: &str, until: chrono::DateTime<chrono::Utc>) {
+        self.paused.lock().unwrap_or_else(|e| e.into_inner()).insert(login.to_string(), until);
+    }
+
+    fn paused(&self, login: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.paused.lock().unwrap_or_else(|e| e.into_inner()).get(login).is_some_and(|t| *t > now)
     }
 }
 
@@ -273,10 +284,8 @@ async fn gh_token(user: &GhUser) -> Option<String> {
 /// `X-GitHub-SSO: required; url=...`. Anything else means the account has no Copilot access.
 fn refused(status: u16, headers: &reqwest::header::HeaderMap, body: &str, login: &str) -> FetchError {
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or_default();
-    let rate_limited =
-        status == 429 || !header("retry-after").is_empty() || header("x-ratelimit-remaining") == "0" || body.to_ascii_lowercase().contains("rate limit");
-    if rate_limited {
-        return FetchError::other("GitHub is rate limiting Copilot usage requests; will retry later");
+    if rate_limited(status, headers, body) {
+        return FetchError::other(RATE_LIMITED);
     }
     let sso = header("x-github-sso");
     if status == 403 && sso.starts_with("required") {
@@ -290,6 +299,25 @@ fn refused(status: u16, headers: &reqwest::header::HeaderMap, body: &str, login:
     FetchError::other(format!("{login} has no Copilot access (HTTP {status})"))
 }
 
+const RATE_LIMITED: &str = "GitHub is rate limiting Copilot usage requests; will retry later";
+
+fn rate_limited(status: u16, headers: &reqwest::header::HeaderMap, body: &str) -> bool {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    status == 429 || !header("retry-after").is_empty() || header("x-ratelimit-remaining") == "0" || body.to_ascii_lowercase().contains("rate limit")
+}
+
+/// When GitHub allows the next request after a rate limit: `retry-after` seconds, else `x-ratelimit-reset`
+/// (epoch seconds) when nothing is left, else one minute, as GitHub's REST docs say. At most an hour.
+fn retry_at(headers: &reqwest::header::HeaderMap, now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    let int = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<i64>().ok());
+    let at = match (int("retry-after"), int("x-ratelimit-remaining"), int("x-ratelimit-reset")) {
+        (Some(secs), ..) => now + chrono::Duration::seconds(secs),
+        (None, Some(0), Some(reset)) => chrono::DateTime::from_timestamp(reset, 0).unwrap_or(now),
+        _ => now + chrono::Duration::minutes(1),
+    };
+    at.clamp(now, now + chrono::Duration::hours(1))
+}
+
 impl CopilotAdapter {
     async fn fetch_live(&self, account: &Account) -> Result<UsageSnapshot, FetchError> {
         let home = Path::new(&account.home_dir);
@@ -297,6 +325,10 @@ impl CopilotAdapter {
         let Some(user) = config.as_ref().and_then(active_user) else {
             return Err(FetchError::auth("Not signed in. Run `copilot login` for this account"));
         };
+        let key = format!("{}|{}", user.api_base(), user.login);
+        if self.paused(&key, chrono::Utc::now()) {
+            return Err(FetchError::other(RATE_LIMITED));
+        }
         let token = match config.as_ref().and_then(|c| plaintext_token(c, &user)) {
             Some(t) => t,
             None => gh_token(&user).await.ok_or_else(|| FetchError::auth(NEED_GH))?,
@@ -318,7 +350,11 @@ impl CopilotAdapter {
             401 => return Err(FetchError::auth(format!("GitHub rejected the token for {}. {NEED_GH}", user.login))),
             403 | 404 | 429 => {
                 let headers = resp.headers().clone();
-                return Err(refused(status, &headers, &resp.text().await.unwrap_or_default(), &user.login));
+                let body = resp.text().await.unwrap_or_default();
+                if rate_limited(status, &headers, &body) {
+                    self.pause(&key, retry_at(&headers, chrono::Utc::now()));
+                }
+                return Err(refused(status, &headers, &body, &user.login));
             }
             _ => return Err(FetchError::other(format!("Copilot usage request failed (HTTP {status})"))),
         }
@@ -599,6 +635,27 @@ mod tests {
             let plain = msg(status, h(&[("x-ratelimit-remaining", "4999")]), r#"{"message":"Resource not accessible by integration"}"#);
             assert_eq!(plain, FetchError::other(format!("octo has no Copilot access (HTTP {status})")));
         }
+    }
+
+    /// GitHub: don't retry before `retry-after` seconds, or `x-ratelimit-reset` when nothing is left,
+    /// else wait at least a minute. Until then the adapter skips live fetches for that login.
+    #[test]
+    fn a_rate_limit_pauses_live_fetches_until_github_allows_them() {
+        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+        let h = |pairs: &[(&'static str, &'static str)]| {
+            pairs.iter().map(|(k, v)| (HeaderName::from_static(k), HeaderValue::from_static(v))).collect::<HeaderMap>()
+        };
+        let now = chrono::DateTime::from_timestamp(1_792_500_000, 0).unwrap();
+        let secs = |headers: HeaderMap| (retry_at(&headers, now) - now).num_seconds();
+        assert_eq!(secs(h(&[("retry-after", "120")])), 120);
+        assert_eq!(secs(h(&[("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1792500900")])), 900);
+        assert_eq!(secs(h(&[])), 60);
+        assert_eq!(secs(h(&[("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1999999999")])), 3600, "capped at an hour");
+
+        let a = CopilotAdapter::new();
+        a.pause("octo", now + chrono::Duration::seconds(60));
+        assert!(a.paused("octo", now) && !a.paused("other", now));
+        assert!(!a.paused("octo", now + chrono::Duration::seconds(60)));
     }
 
     fn account(home: &Path) -> Account {
