@@ -466,7 +466,7 @@ export function createMockApi(platform: Platform): RelayApi {
       },
       async pickSetupFile() {
         await wait(150)
-        return `${home}${sep}Downloads${sep}agent-hub-setup.agenthub`
+        return `${home}${sep}Downloads${sep}relay-setup.relay`
       },
       async appDataDir() {
         return appData

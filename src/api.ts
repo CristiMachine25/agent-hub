@@ -69,11 +69,11 @@ function createTauriApi(): RelayApi {
       },
       async pickSavePath(defaultName) {
         const { save } = await import('@tauri-apps/plugin-dialog')
-        return (await save({ defaultPath: defaultName, filters: [{ name: 'Relay setup', extensions: ['agenthub'] }] })) ?? null
+        return (await save({ defaultPath: defaultName, filters: [{ name: 'Relay setup', extensions: ['relay'] }] })) ?? null
       },
       async pickSetupFile() {
         const { open } = await import('@tauri-apps/plugin-dialog')
-        const picked = await open({ multiple: false, filters: [{ name: 'Relay setup', extensions: ['agenthub', 'switchyard', 'json'] }] })
+        const picked = await open({ multiple: false, filters: [{ name: 'Relay setup', extensions: ['relay', 'agenthub', 'switchyard', 'json'] }] })
         return typeof picked === 'string' ? picked : null
       },
       appDataDir
