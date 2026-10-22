@@ -45,7 +45,8 @@ vi.mock('@xterm/addon-fit', () => ({
   }
 }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
-const webgl = vi.hoisted(() => ({ throws: false, last: undefined as unknown }))
+/** 'early': activate fails before touching the DOM; 'late': it fails after adding its canvas. */
+const webgl = vi.hoisted(() => ({ throws: '' as '' | 'early' | 'late', last: undefined as unknown }))
 vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: class {
     lost = () => {}
@@ -53,7 +54,9 @@ vi.mock('@xterm/addon-webgl', () => ({
     /** Whether WEBGL_lose_context.loseContext() ran on this addon's canvas, and if the addon was disposed by then. */
     freed?: { afterDispose: boolean }
     term?: { canvases: unknown[] }
+    active = false
     canvas = {
+      remove: () => this.term?.canvases.splice(this.term.canvases.indexOf(this.canvas), 1),
       getContext: (type: string) =>
         type === 'webgl2'
           ? { getExtension: (name: string) => (name === 'WEBGL_lose_context' ? { loseContext: () => (this.freed = { afterDispose: this.disposed }) } : null) }
@@ -64,9 +67,11 @@ vi.mock('@xterm/addon-webgl', () => ({
     }
     // The real addon reports a missing WebGL2 context from activate, which loadAddon calls.
     activate(term: { canvases: unknown[] }) {
-      if (webgl.throws) throw new Error('WebGL2 not supported')
+      if (webgl.throws === 'early') throw new Error('WebGL2 not supported')
       this.term = term
       term.canvases.push(this.canvas)
+      if (webgl.throws === 'late') throw new Error('could not compile shader')
+      this.active = true
     }
     onContextLoss(cb: () => void) {
       this.lost = cb
@@ -74,7 +79,8 @@ vi.mock('@xterm/addon-webgl', () => ({
     }
     dispose() {
       this.disposed = true
-      this.term?.canvases.splice(this.term.canvases.indexOf(this.canvas), 1)
+      // Like the real addon, only a renderer that finished constructing removes its canvas.
+      if (this.active) this.canvas.remove()
     }
     clearTextureAtlas() {}
   }
@@ -137,16 +143,23 @@ describe('WebGL renderer', () => {
     return show(id)
   }
   afterEach(() => {
-    webgl.throws = false
+    webgl.throws = ''
     fitTo.cols = 0
     for (const id of ids.splice(0)) disposeTerm(id)
   })
 
   it('keeps the DOM renderer when the addon fails to activate, and unregisters it', () => {
-    webgl.throws = true
+    webgl.throws = 'early'
     expect(() => shown('no-gl')).not.toThrow()
     expect(addonOf('no-gl')).toBeUndefined()
     expect((webgl.last as FakeAddon).disposed).toBe(true)
+  })
+
+  it('removes a canvas the failed addon left over the DOM renderer', () => {
+    webgl.throws = 'late'
+    const term = shown('half-gl').term as unknown as { canvases: unknown[] }
+    expect(addonOf('half-gl')).toBeUndefined()
+    expect(term.canvases).toEqual([])
   })
 
   it('renders at most MAX_WEBGL terminals with WebGL', () => {

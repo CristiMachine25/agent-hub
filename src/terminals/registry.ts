@@ -295,6 +295,8 @@ export function acquireWebgl(id: string) {
     } catch {
       /* activation failed partway; disposing only unregisters it from the terminal */
     }
+    // A renderer that failed after adding its canvas cannot remove it; it would cover the DOM renderer.
+    for (const c of canvases(e)) if (!before.has(c)) c.remove()
   }
 }
 
