@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { Account, UsageHistoryPoint, UsageSnapshot, UsageWindow } from '@shared/types'
-import { longWindow } from '@/lib/quota'
+import { USE_IT_MIN_WINDOW_MINUTES, longWindow } from '@/lib/quota'
 import { formatDay, windowName } from '@/lib/format'
 import { tipTime, useChartColors } from './theme'
 
@@ -28,7 +28,7 @@ export function UsageOverTime({
     const step = (days > 10 ? 2 : 1) * 3_600_000
     return accounts
       .map((a) => ({ a, w: longWindow(usage[a.id]) }))
-      .filter((x): x is { a: Account; w: UsageWindow } => !!x.w && (x.w.windowMinutes ?? 0) >= 3 * 24 * 60)
+      .filter((x): x is { a: Account; w: UsageWindow } => !!x.w && (x.w.windowMinutes ?? 0) >= USE_IT_MIN_WINDOW_MINUTES)
       .map(({ a, w }) => {
         const seen = new Set<number>()
         const data: { t: number; v: number }[] = []

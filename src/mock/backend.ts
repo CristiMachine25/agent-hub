@@ -278,7 +278,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
         accountsChanged()
         emit('usage-updated', db.usage)
         // Like remove_account: a folder outside the profiles folder is never deleted.
-        return opts.deleteHome && canDeleteHome(acc, profilesDir(db.settings, appData), platform)
+        return opts.deleteHome && canDeleteHome(acc, profilesDir(db.settings, appData), db.providers.find((p) => p.id === acc.providerId)?.defaultHome, platform)
       }
     },
     usage: {

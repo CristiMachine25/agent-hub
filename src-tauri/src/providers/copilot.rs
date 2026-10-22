@@ -29,15 +29,28 @@ use std::time::Duration;
 
 const HOME_ENV: &str = "COPILOT_HOME";
 const DEFAULT_HOST: &str = "https://github.com";
+/// Copilot quotas reset monthly; the API gives only the reset date, so a month counts as 30 days.
+const MONTH_MINUTES: u32 = 30 * 24 * 60;
 const NEED_GH: &str = "Connect GitHub CLI (gh auth login) to read Copilot usage";
 
 pub struct CopilotAdapter {
     version: VersionCache,
+    /// Login -> when GitHub's rate limit allows the next live fetch. GitHub warns that requests sent
+    /// while limited can get an integration banned, so polls skip that login until then.
+    paused: std::sync::Mutex<HashMap<String, chrono::DateTime<chrono::Utc>>>,
 }
 
 impl CopilotAdapter {
     pub fn new() -> Self {
-        Self { version: VersionCache::default() }
+        Self { version: VersionCache::default(), paused: Default::default() }
+    }
+
+    fn pause(&self, login: &str, until: chrono::DateTime<chrono::Utc>) {
+        self.paused.lock().unwrap_or_else(|e| e.into_inner()).insert(login.to_string(), until);
+    }
+
+    fn paused(&self, login: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
+        self.paused.lock().unwrap_or_else(|e| e.into_inner()).get(login).is_some_and(|t| *t > now)
     }
 }
 
@@ -179,7 +192,13 @@ fn parse_usage(v: &Value) -> CopilotUsage {
             return;
         }
         if let Some(used) = q.used_percent() {
-            out.windows.push(UsageWindow { id: id.into(), label: label.into(), used_percent: used, resets_at: reset.clone(), window_minutes: None });
+            out.windows.push(UsageWindow {
+                id: id.into(),
+                label: label.into(),
+                used_percent: used,
+                resets_at: reset.clone(),
+                window_minutes: Some(MONTH_MINUTES),
+            });
         }
     };
     let premium = snap("premiumInteractions", "premium_interactions");
@@ -260,6 +279,45 @@ async fn gh_token(user: &GhUser) -> Option<String> {
     util::run_capture(&gh, &args, Duration::from_secs(10)).await.filter(|t| !t.is_empty() && !t.contains(char::is_whitespace))
 }
 
+/// A 403/404/429 from GitHub. Rate limits come as 403 or 429 with `retry-after`, `x-ratelimit-remaining: 0`
+/// or a "rate limit" message; a token not yet authorized for an organization's SAML SSO gets a 403 with
+/// `X-GitHub-SSO: required; url=...`. Anything else means the account has no Copilot access.
+fn refused(status: u16, headers: &reqwest::header::HeaderMap, body: &str, login: &str) -> FetchError {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if rate_limited(status, headers, body) {
+        return FetchError::other(RATE_LIMITED);
+    }
+    let sso = header("x-github-sso");
+    if status == 403 && sso.starts_with("required") {
+        // `required; url=https://github.com/orgs/<org>/sso?authorization_request=...` (as GitHub CLI reads it).
+        let url = sso.split(';').find_map(|p| p.trim().strip_prefix("url=")).filter(|u| !u.is_empty());
+        let how = url.map(|u| format!("at {u}")).unwrap_or_else(|| "for that organization on GitHub".into());
+        return FetchError::other(format!(
+            "{login}'s GitHub token isn't authorized for an organization that uses single sign-on. Authorize it {how}, then refresh"
+        ));
+    }
+    FetchError::other(format!("{login} has no Copilot access (HTTP {status})"))
+}
+
+const RATE_LIMITED: &str = "GitHub is rate limiting Copilot usage requests; will retry later";
+
+fn rate_limited(status: u16, headers: &reqwest::header::HeaderMap, body: &str) -> bool {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    status == 429 || !header("retry-after").is_empty() || header("x-ratelimit-remaining") == "0" || body.to_ascii_lowercase().contains("rate limit")
+}
+
+/// When GitHub allows the next request after a rate limit: `retry-after` seconds, else `x-ratelimit-reset`
+/// (epoch seconds) when nothing is left, else one minute, as GitHub's REST docs say. At most an hour.
+fn retry_at(headers: &reqwest::header::HeaderMap, now: chrono::DateTime<chrono::Utc>) -> chrono::DateTime<chrono::Utc> {
+    let int = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<i64>().ok());
+    let at = match (int("retry-after"), int("x-ratelimit-remaining"), int("x-ratelimit-reset")) {
+        (Some(secs), ..) => now + chrono::Duration::seconds(secs),
+        (None, Some(0), Some(reset)) => chrono::DateTime::from_timestamp(reset, 0).unwrap_or(now),
+        _ => now + chrono::Duration::minutes(1),
+    };
+    at.clamp(now, now + chrono::Duration::hours(1))
+}
+
 impl CopilotAdapter {
     async fn fetch_live(&self, account: &Account) -> Result<UsageSnapshot, FetchError> {
         let home = Path::new(&account.home_dir);
@@ -267,6 +325,10 @@ impl CopilotAdapter {
         let Some(user) = config.as_ref().and_then(active_user) else {
             return Err(FetchError::auth("Not signed in. Run `copilot login` for this account"));
         };
+        let key = format!("{}|{}", user.api_base(), user.login);
+        if self.paused(&key, chrono::Utc::now()) {
+            return Err(FetchError::other(RATE_LIMITED));
+        }
         let token = match config.as_ref().and_then(|c| plaintext_token(c, &user)) {
             Some(t) => t,
             None => gh_token(&user).await.ok_or_else(|| FetchError::auth(NEED_GH))?,
@@ -286,7 +348,14 @@ impl CopilotAdapter {
         match status {
             200..=299 => {}
             401 => return Err(FetchError::auth(format!("GitHub rejected the token for {}. {NEED_GH}", user.login))),
-            403 | 404 => return Err(FetchError::other(format!("{} has no Copilot access (HTTP {status})", user.login))),
+            403 | 404 | 429 => {
+                let headers = resp.headers().clone();
+                let body = resp.text().await.unwrap_or_default();
+                if rate_limited(status, &headers, &body) {
+                    self.pause(&key, retry_at(&headers, chrono::Utc::now()));
+                }
+                return Err(refused(status, &headers, &body, &user.login));
+            }
             _ => return Err(FetchError::other(format!("Copilot usage request failed (HTTP {status})"))),
         }
         let v: Value = resp.json().await.map_err(|_| FetchError::other("GitHub returned an unexpected Copilot usage response"))?;
@@ -411,6 +480,7 @@ impl ProviderAdapter for CopilotAdapter {
             desktop_multi_account: false,
             home_env_var: Some(HOME_ENV.into()),
             install_hint: "npm i -g @github/copilot".into(),
+            default_home: self.default_home().to_string_lossy().into_owned(),
         }
     }
 
@@ -529,6 +599,65 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// GitHub answers rate limits and SAML SSO with 403 too (docs.github.com: "Rate limits for the REST
+    /// API", "Authenticating to the REST API"); only a plain 403 or 404 means no Copilot access.
+    #[test]
+    fn a_403_can_be_a_rate_limit_or_single_sign_on() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+        let h = |pairs: &[(&'static str, &'static str)]| {
+            pairs.iter().map(|(k, v)| (reqwest::header::HeaderName::from_static(k), HeaderValue::from_static(v))).collect::<HeaderMap>()
+        };
+        let msg = |status, headers: HeaderMap, body: &str| refused(status, &headers, body, "octo");
+
+        let secondary = r#"{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}"#;
+        for e in [
+            msg(403, h(&[]), secondary),
+            msg(403, h(&[("retry-after", "60")]), "{}"),
+            msg(403, h(&[("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1792514865")]), r#"{"message":"API rate limit exceeded for user ID 1."}"#),
+            msg(429, h(&[]), ""),
+        ] {
+            assert_eq!(e, FetchError::other("GitHub is rate limiting Copilot usage requests; will retry later"));
+        }
+
+        let sso = msg(
+            403,
+            h(&[("x-github-sso", "required; url=https://github.com/orgs/acme/sso?authorization_request=abc")]),
+            r#"{"message":"Resource protected by organization SAML enforcement."}"#,
+        );
+        assert_eq!(sso.kind, ErrorKind::Other);
+        assert!(sso.message.starts_with("octo's GitHub token isn't authorized for an organization that uses single sign-on"), "{}", sso.message);
+        // The header carries the one-hour link that authorizes the token for that organization.
+        assert!(sso.message.ends_with(". Authorize it at https://github.com/orgs/acme/sso?authorization_request=abc, then refresh"), "{}", sso.message);
+        let no_url = msg(403, h(&[("x-github-sso", "required")]), "{}");
+        assert!(no_url.message.ends_with(". Authorize it for that organization on GitHub, then refresh"), "{}", no_url.message);
+
+        for status in [403, 404] {
+            let plain = msg(status, h(&[("x-ratelimit-remaining", "4999")]), r#"{"message":"Resource not accessible by integration"}"#);
+            assert_eq!(plain, FetchError::other(format!("octo has no Copilot access (HTTP {status})")));
+        }
+    }
+
+    /// GitHub: don't retry before `retry-after` seconds, or `x-ratelimit-reset` when nothing is left,
+    /// else wait at least a minute. Until then the adapter skips live fetches for that login.
+    #[test]
+    fn a_rate_limit_pauses_live_fetches_until_github_allows_them() {
+        use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+        let h = |pairs: &[(&'static str, &'static str)]| {
+            pairs.iter().map(|(k, v)| (HeaderName::from_static(k), HeaderValue::from_static(v))).collect::<HeaderMap>()
+        };
+        let now = chrono::DateTime::from_timestamp(1_792_500_000, 0).unwrap();
+        let secs = |headers: HeaderMap| (retry_at(&headers, now) - now).num_seconds();
+        assert_eq!(secs(h(&[("retry-after", "120")])), 120);
+        assert_eq!(secs(h(&[("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1792500900")])), 900);
+        assert_eq!(secs(h(&[])), 60);
+        assert_eq!(secs(h(&[("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1999999999")])), 3600, "capped at an hour");
+
+        let a = CopilotAdapter::new();
+        a.pause("octo", now + chrono::Duration::seconds(60));
+        assert!(a.paused("octo", now) && !a.paused("other", now));
+        assert!(!a.paused("octo", now + chrono::Duration::seconds(60)));
+    }
+
     fn account(home: &Path) -> Account {
         Account {
             id: "c1".into(),
@@ -594,6 +723,8 @@ mod tests {
         assert_eq!(u.windows[0].id, "premium");
         assert_eq!(u.windows[0].used_percent, 25.0);
         assert!(u.windows[0].resets_at.as_deref().unwrap().starts_with("2026-11-01T00:00:00"));
+        // A monthly quota, so charts, the wasted-quota estimate and use-it-or-lose-it see its length.
+        assert_eq!(u.windows[0].window_minutes, Some(30 * 24 * 60));
         let c = u.credits.unwrap();
         assert_eq!((c.used, c.limit), (375.0, Some(1500.0)));
     }

@@ -5,14 +5,14 @@ const DAY = 24 * HOUR
 const monthDay = new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' })
 const timeOfDay = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
 
-function parse(iso: string | undefined): number | null {
+function parse(iso: string | null | undefined): number | null {
   if (!iso) return null
   const t = Date.parse(iso)
   return Number.isNaN(t) ? null : t
 }
 
 /** Compact duration until `iso`: "14m", "2h 14m", "3d 4h". Null when unknown, "now" when due. */
-export function formatCountdown(iso: string | undefined, now: number = Date.now()): string | null {
+export function formatCountdown(iso: string | null | undefined, now: number = Date.now()): string | null {
   const t = parse(iso)
   if (t === null) return null
   const ms = t - now
@@ -29,7 +29,7 @@ export function formatCountdown(iso: string | undefined, now: number = Date.now(
 }
 
 /** "Resets in 2h 14m", "Resets Nov 1" (more than a week out), "Reset due", or null when unknown. */
-export function resetText(iso: string | undefined, now: number = Date.now()): string | null {
+export function resetText(iso: string | null | undefined, now: number = Date.now()): string | null {
   const t = parse(iso)
   if (t === null) return null
   if (t - now > 7 * DAY) return `Resets ${monthDay.format(t)}`
@@ -39,7 +39,7 @@ export function resetText(iso: string | undefined, now: number = Date.now()): st
 }
 
 /** "just now", "5m ago", "3h ago", "yesterday", "4 days ago", "Oct 12". */
-export function formatAgo(iso: string | undefined, now: number = Date.now()): string {
+export function formatAgo(iso: string | null | undefined, now: number = Date.now()): string {
   const t = parse(iso)
   if (t === null) return 'never'
   const ms = now - t

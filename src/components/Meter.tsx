@@ -71,7 +71,7 @@ export function WindowGauge({
   w: UsageWindow
   now: number
   compact?: boolean
-  stale?: boolean
+  stale?: boolean | null
 }) {
   const left = leftOf(w)
   const level = levelFor(left)

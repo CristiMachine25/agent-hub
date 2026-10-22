@@ -15,7 +15,7 @@ If you pay for more than one AI plan (two Claude Max accounts, ChatGPT Pro, Gemi
 - **Finds your accounts.** Detects installed CLIs and existing config folders, including side-by-side ones like `~/.claude-work`.
 - **Every account stays signed in.** Each account gets its own config home (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, ...), so switching never means logging out.
 - **Live limits.** 5-hour session, weekly, weekly Opus, Codex primary/secondary windows, Gemini model quotas, Copilot premium requests, with reset countdowns and history charts.
-- **Notifications.** Nearly exhausted, limit reached, limit reset, and "use it or lose it" when lots of quota is about to reset unused.
+- **Notifications.** Nearly exhausted, limit reached, limit reset, and "use it or lose it" when lots of a weekly or monthly limit (Claude, Codex, Copilot) is about to reset unused. Gemini's daily quotas get no such reminder.
 - **Recommendations.** Pick a task type (coding, long refactor, quick question, research, review) and get the best account to use right now.
 - **One-click launch.** Opens your terminal with the right account, or resumes your last session. Desktop apps too, where they support it.
 - **Launcher.** Press Ctrl/Cmd+K, type an account or screen name, press Enter. Keys `1` to `7` jump between screens.
@@ -66,7 +66,7 @@ npm run dev         # UI only, in a browser, with mock data
 Issues and pull requests are welcome. Adding a provider takes an adapter plus a few tables on both sides; the compiler points at most of them once the new id exists:
 
 - **Rust:** implement the `ProviderAdapter` trait in a new file in `src-tauri/src/providers/` and register it in `providers::all()` (`providers/mod.rs`, which also maps permission modes to CLI flags). Add the id to `ProviderId` and `PermissionModes` in `src-tauri/src/model.rs`, its short name in `ProviderId::name` (`model.rs`), and, if its plans use tier words the recommender doesn't know yet, those words to `tier` in `recommend.rs` (mirrored in `src/lib/recommend.ts`). Return failures as a `FetchError` (`providers/mod.rs`) of the right kind, so being offline never reads as signed out.
-- **Contract check:** `cargo test` checks `src/shared/__fixtures__/serde.ts` against the Rust types. After changing a shape, a command or an enum (a new `ProviderId` also goes in the `variants!` lists in `model.rs`), regenerate it with `cd src-tauri && UPDATE_SERDE_FIXTURE=1 cargo test serde_fixture`, then run `npm run typecheck` to see what `types.ts` is missing.
+- **Contract check:** `cargo test` checks `src/shared/__fixtures__/serde.ts` against the Rust types. After changing a shape, a command or an enum (a new `ProviderId` also goes in the `variants!` lists in `model.rs`), regenerate it with `cd src-tauri && UPDATE_SERDE_FIXTURE=1 cargo test serde_fixture`, then run `npm run typecheck` to see what `types.ts` is missing. Rust sends a `None` as `null`, so an `Option` field the UI receives is typed `?: T | null`; the fixture lists each one. When you add a type the UI receives, add an `f.nulls(...)` line for it in `contract_tests`.
 - **UI:** add the id to `ProviderId` and `PermissionModes` in `src/shared/types.ts`, then to `PROVIDER_ORDER`/`PROVIDER_META` (`src/lib/providers.ts`), `PLANS`/`DEFAULT_PLAN` (`src/lib/plans.ts`), the logo (`LOGO_PATHS` in `src/components/ui.tsx`), the permission mode options (`src/screens/Knowledge.tsx`) and the browser-preview data (`src/mock/`).
 
 ## Disclaimer

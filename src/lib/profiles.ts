@@ -12,7 +12,12 @@ function pathKey(p: string, platform: Platform): string {
   return platform === 'win32' ? s.toLowerCase() : s
 }
 
-/** Whether "Also delete the profile folder" really deletes it: remove_account only deletes a non-default home inside the profiles folder. */
-export function canDeleteHome(a: Pick<Account, 'homeDir' | 'isDefaultHome'>, profiles: string, platform: Platform): boolean {
-  return !a.isDefaultHome && pathKey(a.homeDir, platform).startsWith(`${pathKey(profiles, platform)}/`)
+/** The tool's own folder (~/.claude): flagged as such, or at the path the tool uses by default (ProviderInfo.defaultHome). */
+export function isMainFolder(a: Pick<Account, 'homeDir' | 'isDefaultHome'>, defaultHome: string | undefined, platform: Platform): boolean {
+  return a.isDefaultHome || (!!defaultHome && pathKey(a.homeDir, platform) === pathKey(defaultHome, platform))
+}
+
+/** Whether "Also delete the profile folder" really deletes it: remove_account only deletes a home inside the profiles folder that isn't the tool's main folder. */
+export function canDeleteHome(a: Pick<Account, 'homeDir' | 'isDefaultHome'>, profiles: string, defaultHome: string | undefined, platform: Platform): boolean {
+  return !isMainFolder(a, defaultHome, platform) && pathKey(a.homeDir, platform).startsWith(`${pathKey(profiles, platform)}/`)
 }

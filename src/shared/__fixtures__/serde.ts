@@ -16,7 +16,8 @@ export const ProviderInfo = {
   "desktopPath": "/Applications/Claude.app",
   "desktopMultiAccount": false,
   "homeEnvVar": "CLAUDE_CONFIG_DIR",
-  "installHint": "npm i -g @anthropic-ai/claude-code"
+  "installHint": "npm i -g @anthropic-ai/claude-code",
+  "defaultHome": "/home/me/.claude"
 } satisfies Full<T.ProviderInfo>
 
 export const Account = {
@@ -382,3 +383,41 @@ export const _PermissionModes_copilot: Same<(typeof PermissionModes_copilot)[num
 
 export const commands = ["providers_list","accounts_list","accounts_detect","accounts_import","accounts_create","accounts_update","accounts_remove","usage_latest","usage_history","usage_activity","usage_refresh","usage_set_manual","launch","terminal_spawn","terminal_write","terminal_resize","terminal_kill","terminal_list","terminal_scrollback","terminal_session","recommend","notifications_list","notifications_mark_read","settings_get","settings_set","transfer_export","transfer_preview","transfer_import","system_open_path","knowledge_get","knowledge_reseed","skills_search","skills_preview","skills_installed","skills_install","skills_remove","system_open_url"] as const
 export const _commands: Same<(typeof commands)[number], (typeof T.COMMANDS)[keyof typeof T.COMMANDS]> = true
+
+// What the UI receives with every Option set to None.
+null satisfies T.ProviderInfo['cliPath']
+null satisfies T.ProviderInfo['cliVersion']
+null satisfies T.ProviderInfo['desktopName']
+null satisfies T.ProviderInfo['desktopPath']
+null satisfies T.ProviderInfo['homeEnvVar']
+null satisfies T.Account['email']
+null satisfies T.Account['lastLaunchedAt']
+null satisfies T.Account['monthlyCost']
+null satisfies T.Account['notes']
+null satisfies T.Account['pinned']
+null satisfies T.Account['plan']
+null satisfies T.Account['sharedFrom']
+null satisfies T.Account['statusMessage']
+null satisfies T.DetectedAccount['email']
+null satisfies T.DetectedAccount['hint']
+null satisfies T.DetectedAccount['plan']
+null satisfies T.UsageSnapshot['credits']
+null satisfies NonNullable<T.UsageSnapshot['credits']>['limit']
+null satisfies T.UsageSnapshot['email']
+null satisfies T.UsageSnapshot['error']
+null satisfies T.UsageSnapshot['plan']
+null satisfies T.UsageSnapshot['stale']
+null satisfies T.UsageSnapshot['windows'][number]['resetsAt']
+null satisfies T.UsageSnapshot['windows'][number]['windowMinutes']
+null satisfies T.LaunchResult['commandLine']
+null satisfies T.LaunchResult['error']
+null satisfies T.AppNotification['accountId']
+null satisfies T.AppSettings['defaultCwd']
+null satisfies T.AppSettings['profilesDir']
+null satisfies T.TerminalInfo['exitCode']
+null satisfies T.TerminalInfo['pid']
+null satisfies T.InstalledSkill['id']
+null satisfies T.SkillInstallOutcome['error']
+null satisfies T.ImportPreview['accounts'][number]['alreadyHere']
+null satisfies T.ImportPreview['accounts'][number]['email']
+null satisfies T.ImportPreview['accounts'][number]['plan']

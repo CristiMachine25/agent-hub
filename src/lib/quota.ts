@@ -73,8 +73,11 @@ export interface Alert {
   accountId: string
   windowId?: string
   left?: number
-  resetsAt?: string
+  resetsAt?: string | null
 }
+
+/** "Use it or lose it" (alerts and the recommender's bonus) only counts windows at least this long; same as recommend.rs. Unknown length doesn't count. */
+export const USE_IT_MIN_WINDOW_MINUTES = 3 * 24 * 60
 
 const ALERT_RANK: Record<AlertKind, number> = {
   'use-it-or-lose-it': 0,
@@ -117,7 +120,7 @@ export function computeAlerts(
       } else if (current && w.usedPercent >= n.nearlyExhaustedPercent && left < 20) {
         out.push({ kind: 'nearly-exhausted', accountId: a.id, windowId: w.id, left, resetsAt: w.resetsAt })
       }
-      if (w.resetsAt && (w.windowMinutes ?? 0) >= 3 * 24 * 60 && !isModelWindow(w)) {
+      if (w.resetsAt && (w.windowMinutes ?? 0) >= USE_IT_MIN_WINDOW_MINUTES && !isModelWindow(w)) {
         const hours = (Date.parse(w.resetsAt) - now) / 3_600_000
         if (hours > 0 && hours <= n.useItOrLoseItHours && left >= n.useItOrLoseItMinLeftPercent) {
           out.push({ kind: 'use-it-or-lose-it', accountId: a.id, windowId: w.id, left, resetsAt: w.resetsAt })

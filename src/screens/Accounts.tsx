@@ -10,7 +10,7 @@ import { isBlocked, isSignedOut, statusLabel } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { PLANS, findPlan, planLabel } from '@/lib/plans'
 import { useDrafts } from '@/lib/drafts'
-import { canDeleteHome, profilesDir } from '@/lib/profiles'
+import { canDeleteHome, isMainFolder, profilesDir } from '@/lib/profiles'
 import { creditsText, formatAgo, formatPct, formatTokens, plural } from '@/lib/format'
 import { Meter, WindowGauge } from '@/components/Meter'
 import { AccountDot, Dialog, EmptyState, ProviderMark, Segmented, SectionTitle, Switch } from '@/components/ui'
@@ -557,6 +557,7 @@ function EditDialog({ open, onClose, account: a }: { open: boolean; onClose: () 
 function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: () => void; account: Account }) {
   const removeAccount = useStore((s) => s.removeAccount)
   const settings = useStore((s) => s.settings)
+  const defaultHome = useStore((s) => s.providers.find((p) => p.id === a.providerId)?.defaultHome)
   const [deleteHome, setDeleteHome] = useState(false)
   const [busy, setBusy] = useState(false)
   const [appData, setAppData] = useState<string>()
@@ -568,8 +569,9 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
     api.system.appDataDir().then(setAppData, () => {})
   }, [])
   // The backend only deletes folders inside the profiles folder (an imported ~/.claude-x is left alone).
-  const outside = !a.isDefaultHome && appData !== undefined && !canDeleteHome(a, profilesDir(settings, appData), api.platform)
-  const locked = a.isDefaultHome || outside
+  const main = isMainFolder(a, defaultHome, api.platform)
+  const outside = !main && appData !== undefined && !canDeleteHome(a, profilesDir(settings, appData), defaultHome, api.platform)
+  const locked = main || outside
   // A box ticked before the folder turned out to be off limits must not still delete it.
   const wipe = deleteHome && !locked
   const noteId = useId()
@@ -608,7 +610,7 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
       </label>
       <div id={noteId} className={clsx('pl-6', locked && 'opacity-60')}>
         <span className="code block break-all text-muted">{a.homeDir}</span>
-        {a.isDefaultHome && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Agent Hub never deletes it.</span>}
+        {main && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Agent Hub never deletes it.</span>}
         {outside && <span className="block text-xs text-muted">Agent Hub didn't create this folder, so it never deletes it.</span>}
         {wipe && <span className="block text-xs text-empty">This can't be undone. Sessions not shared with another account are lost.</span>}
       </div>

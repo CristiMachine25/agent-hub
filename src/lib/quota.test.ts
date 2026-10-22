@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Account, AppSettings, UsageHistoryPoint, UsageSnapshot, UsageWindow } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
-import { bindingWindow, computeAlerts, leftOf, levelFor, litCells, unusedAtResets, wastedValue } from './quota'
-import { recommend, tier } from './recommend'
+import { USE_IT_MIN_WINDOW_MINUTES, bindingWindow, computeAlerts, leftOf, levelFor, litCells, unusedAtResets, wastedValue } from './quota'
+import { recommend, scoreAccount, tier } from './recommend'
 
 const NOW = Date.parse('2026-10-20T12:00:00Z')
 const iso = (h: number) => new Date(NOW + h * 3_600_000).toISOString()
@@ -115,6 +115,20 @@ describe('computeAlerts', () => {
     expect(kinds).toEqual(['limit-reached:b', 'stale:a', 'stale:b'])
   })
 
+  // Same vector as notify::tests::use_it_or_lose_it_needs_a_window_of_three_days on the Rust side.
+  it('watches only windows of 3 days or more for use-it-or-lose-it', () => {
+    const cases: [UsageWindow, boolean][] = [
+      [{ id: 'daily', label: 'Weekly', usedPercent: 20, windowMinutes: 1440, resetsAt: iso(10) }, false],
+      [{ id: 'premium', label: 'Weekly', usedPercent: 20, resetsAt: iso(10) }, false],
+      [{ id: 'three_day', label: 'Weekly', usedPercent: 20, windowMinutes: 4320, resetsAt: iso(10) }, true]
+    ]
+    for (const [w, fires] of cases) {
+      const kinds = computeAlerts([account('a')], { a: snap('a', [w]) }, settings, NOW).map((x) => x.kind)
+      expect(kinds.includes('use-it-or-lose-it'), w.id).toBe(fires)
+    }
+    expect(USE_IT_MIN_WINDOW_MINUTES).toBe(3 * 24 * 60)
+  })
+
   it('shows an expired login as stale numbers, not as signed out', () => {
     const usage = { e: snap('e', [], { stale: true, error: 'The login expired; renewing it now.' }) }
     const kinds = computeAlerts([account('e', { status: 'expired' })], usage, settings, NOW).map((x) => `${x.kind}:${x.accountId}`)
@@ -218,6 +232,19 @@ describe('recommend', () => {
     expect(tier({ plan: 'Team Premium', tags: [] })).toBe(3)
     expect(tier({ plan: 'Google AI Pro', tags: [] })).toBe(2)
     expect(tier({ plan: 'Google AI Plus', tags: [] })).toBe(1)
+  })
+
+  // Same vector as recommend::tests::reset_bonus_needs_a_window_of_three_days on the Rust side.
+  it('gives the reset bonus only to windows of 3 days or more', () => {
+    const cases: [UsageWindow, boolean][] = [
+      [win('daily', 40, 10, 1440), false],
+      [{ ...win('premium', 40, 10, 43200), windowMinutes: undefined }, false],
+      [win('three_day', 40, 10, 4320), true]
+    ]
+    for (const [w, bonus] of cases) {
+      const r = scoreAccount(plan('a', 'Pro'), 'any', snap('a', [w]), NOW)
+      expect(r.reason.includes('Use it before it resets'), w.id).toBe(bonus)
+    }
   })
 
   it('ignores a used-up model-only window', () => {

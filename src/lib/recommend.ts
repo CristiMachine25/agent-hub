@@ -1,6 +1,6 @@
 import type { Account, ProviderId, Recommendation, TaskType, UsageSnapshot, UsageWindow } from '@shared/types'
 import { PROVIDER_META } from './providers'
-import { isModelWindow, leftOf } from './quota'
+import { USE_IT_MIN_WINDOW_MINUTES, isModelWindow, leftOf } from './quota'
 
 // A line-for-line port of src-tauri/src/recommend.rs, which is what the app ships. Only the browser
 // preview (src/mock/backend.ts) runs this copy; the tests in quota.test.ts use the Rust tests' vectors.
@@ -19,14 +19,6 @@ function tightest(snap: UsageSnapshot): UsageWindow | undefined {
     .reduce<UsageWindow | undefined>((a, b) => (!a || b.usedPercent >= a.usedPercent ? b : a), undefined)
 }
 
-/** recommend::is_short_window: 5-hour sessions reset constantly, so they never count as "about to be lost". */
-function isShortWindow(w: UsageWindow): boolean {
-  if (w.windowMinutes != null) return w.windowMinutes < 24 * 60
-  const id = w.id.toLowerCase()
-  const label = w.label.toLowerCase()
-  return id.includes('five_hour') || id.includes('5h') || label.includes('5-hour') || label.includes('hour')
-}
-
 /** util::human_until */
 function humanUntil(t: number, now: number): string {
   const m = Math.trunc((t - now) / 60_000)
@@ -40,7 +32,7 @@ function humanUntil(t: number, now: number): string {
   return `in ${Math.floor((m + 720) / 1440)} days`
 }
 
-function parseIso(s: string | undefined): number | null {
+function parseIso(s: string | null | undefined): number | null {
   const t = s ? Date.parse(s) : NaN
   return Number.isFinite(t) ? t : null
 }
@@ -73,7 +65,8 @@ const rec = (account: Account, score: number, reason: string): Recommendation =>
 function useItOrLoseIt(snap: UsageSnapshot, now: number): [UsageWindow, number] | undefined {
   let best: [UsageWindow, number] | undefined
   for (const w of snap.windows) {
-    if (isShortWindow(w)) continue
+    // Short windows reset constantly, so only weekly and monthly ones count (as computeAlerts).
+    if ((w.windowMinutes ?? 0) < USE_IT_MIN_WINDOW_MINUTES) continue
     const t = parseIso(w.resetsAt)
     if (t === null) continue
     const left = leftOf(w)

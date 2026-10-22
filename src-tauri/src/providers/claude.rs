@@ -893,6 +893,7 @@ impl ProviderAdapter for ClaudeAdapter {
             desktop_multi_account: true,
             home_env_var: Some("CLAUDE_CONFIG_DIR".into()),
             install_hint: install_hint.into(),
+            default_home: self.default_home().to_string_lossy().into_owned(),
         }
     }
 

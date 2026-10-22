@@ -251,7 +251,7 @@ export const useGrid = create<GridState>((set, get) => {
       })
       try {
         const { cols, rows } = estimateSize(paneBody(uid))
-        const cwd = opts.cwd ?? useStore.getState().settings?.defaultCwd
+        const cwd = opts.cwd ?? useStore.getState().settings?.defaultCwd ?? undefined
         const info = await api.terminals.spawn({ accountId: opts.accountId, target: opts.target, resume: opts.resume, resumeSession: opts.resumeSession, cwd, cols, rows })
         // While the CLI started, the pane may have been closed or its session switched away.
         const owns = (ws: Workspace) => ws.panes.some((p) => p.uid === uid && p.accountId === opts.accountId)
