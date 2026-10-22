@@ -111,9 +111,10 @@ impl WindowCtx<'_> {
     }
 }
 
+/// Once when an account is signed out. An expired login renews by itself, so it doesn't count.
 fn login_rule(account: &Account, state: &mut NotifyState, now: DateTime<Utc>, out: &mut Vec<AppNotification>) {
     let k = key("login", &account.id, "");
-    if !matches!(account.status, AccountStatus::NeedsLogin | AccountStatus::Expired) {
+    if account.status != AccountStatus::NeedsLogin {
         state.fired.remove(&k);
         return;
     }
@@ -396,7 +397,10 @@ mod tests {
         assert!(run(&HashMap::new(), &stale, std::slice::from_ref(&a), &mut st, now).is_empty());
         a.status = AccountStatus::Ok;
         run(&HashMap::new(), &HashMap::new(), std::slice::from_ref(&a), &mut st, now);
+        // An expired login renews by itself: it isn't signed out, so no "log in" nag.
         a.status = AccountStatus::Expired;
+        assert!(run(&HashMap::new(), &HashMap::new(), std::slice::from_ref(&a), &mut st, now).is_empty());
+        a.status = AccountStatus::NeedsLogin;
         assert_eq!(run(&HashMap::new(), &HashMap::new(), &[a], &mut st, now), vec![NotificationKind::LoginRequired]);
     }
 }
