@@ -441,7 +441,7 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
   const bind = bindingWindow(snap)
   const atLimit = bind ? leftOf(bind) <= 0.5 : false
   return (
-    <li className="grid grid-cols-[minmax(9rem,15rem)_minmax(0,1fr)_auto] items-center gap-6 px-4 py-3 hover:bg-deck focus-within:bg-deck">
+    <li className="grid grid-cols-[9rem_minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 min-[1180px]:grid-cols-[15rem_minmax(0,1fr)_auto] min-[1180px]:gap-6 hover:bg-deck focus-within:bg-deck">
       <button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => go('accounts', a.id)} data-tip="Show details">
         <span className={clsx('flex', (signedOut || blocked) && 'opacity-40')}>
           <AccountDot account={a} />
@@ -463,7 +463,7 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
         ) : blocked ? (
           <p className="text-muted">{a.statusMessage ?? `This account can't use ${PROVIDER_META[provider].product}.`}</p>
         ) : snap && snap.windows.length ? (
-          <div className="grid grid-cols-3 gap-6">
+          <div className="grid grid-cols-3 gap-4 min-[1180px]:gap-6">
             {snap.windows.slice(0, 3).map((w) => (
               <WindowGauge key={w.id} w={w} now={now} compact stale={snap.stale} />
             ))}
