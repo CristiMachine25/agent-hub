@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { AlertTriangle, AppWindow, Ban, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
+import { AlertTriangle, AppWindow, Ban, ChevronDown, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
 import type { Account, DailyActivity, ProviderId, Recommendation, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
 import { api } from '@/api'
 import { modKey } from '@/lib/platform'
@@ -332,8 +332,8 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
     })
   }
   return (
-    <section aria-label="Alerts" className="-mt-1">
-      <ul ref={list} className="divide-y divide-rivet rounded-lg border border-rivet">
+    <section aria-label="Alerts" className="overflow-hidden rounded-lg border border-rivet">
+      <ul ref={list} className="divide-y divide-rivet">
         {shown.map((al, i) => {
           const a = accounts.find((x) => x.id === al.accountId)
           if (!a) return null
@@ -347,43 +347,50 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
                   ? 'text-low'
                   : 'text-muted'
           return (
-            <li key={i} className="flex items-center gap-3 px-4 py-2">
-              <Icon size={15} className={clsx('shrink-0', tone)} aria-hidden />
-              <p className="min-w-0 flex-1">{alertCopy(al, a, usage[a.id], now)}</p>
-              {al.kind === 'use-it-or-lose-it' && (
-                <PrimaryLaunch account={a} prov={providers.find((p) => p.id === a.providerId)} className="btn btn-sm" />
-              )}
-              {al.kind === 'needs-login' && (
-                <>
-                  <button className="btn btn-sm" onClick={() => launch(a.id, 'login')}>
-                    Sign in
+            <li key={i} className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2">
+              <Icon size={16} className={clsx('shrink-0', tone)} aria-hidden />
+              <p className="min-w-0 flex-1 basis-64">{alertCopy(al, a, usage[a.id], now)}</p>
+              <div className="ml-auto flex shrink-0 items-center gap-2 empty:hidden">
+                {al.kind === 'use-it-or-lose-it' && (
+                  <PrimaryLaunch account={a} prov={providers.find((p) => p.id === a.providerId)} className="btn btn-sm" />
+                )}
+                {al.kind === 'needs-login' && (
+                  <>
+                    <button className="btn btn-sm" onClick={() => launch(a.id, 'login')}>
+                      Sign in
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => snooze(a, i)}
+                      aria-label={`Not now for ${a.label}`}
+                      data-tip="Hide this until the account signs in or its status changes"
+                    >
+                      Not now
+                    </button>
+                  </>
+                )}
+                {al.kind === 'blocked' && (
+                  <button className="btn btn-sm" onClick={() => go('accounts', a.id)} aria-label={`Details for ${a.label}`}>
+                    Details
                   </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => snooze(a, i)}
-                    aria-label={`Not now for ${a.label}`}
-                    data-tip="Hide this until the account signs in or its status changes"
-                  >
-                    Not now
+                )}
+                {al.kind === 'stale' && (
+                  <button className="btn btn-sm" onClick={() => refresh(a.id)}>
+                    <RefreshCw size={12} /> Check again
                   </button>
-                </>
-              )}
-              {al.kind === 'blocked' && (
-                <button className="btn btn-sm" onClick={() => go('accounts', a.id)} aria-label={`Details for ${a.label}`}>
-                  Details
-                </button>
-              )}
-              {al.kind === 'stale' && (
-                <button className="btn btn-sm" onClick={() => refresh(a.id)}>
-                  <RefreshCw size={12} /> Check again
-                </button>
-              )}
+                )}
+              </div>
             </li>
           )
         })}
       </ul>
       {alerts.length > 3 && (
-        <button className="mt-1.5 text-xs text-muted hover:text-ink" onClick={() => setAll(!all)}>
+        <button
+          className="flex h-8 w-full items-center gap-3 border-t border-rivet px-4 text-xs text-muted hover:bg-raised hover:text-ink"
+          onClick={() => setAll(!all)}
+          aria-expanded={all}
+        >
+          <ChevronDown size={16} className={clsx('shrink-0 transition-transform', all && 'rotate-180')} aria-hidden />
           {all ? 'Show fewer' : `Show ${plural(alerts.length - 3, 'more alert')}`}
         </button>
       )}
