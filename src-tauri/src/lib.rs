@@ -32,6 +32,7 @@ const MAIN_WINDOW: &str = "main";
 const MINIMIZED_ARG: &str = "--minimized";
 
 pub fn run() {
+    log_panics();
     #[cfg(target_os = "macos")]
     util::gui_path::fix();
     let app = tauri::Builder::default()
@@ -126,6 +127,22 @@ pub fn run() {
             std::process::exit(1);
         }
     }
+}
+
+/// Release builds abort on panic, so a crashed terminal thread would take the app down without a
+/// trace; write the panic to the app log first. The default hook still prints it to stderr.
+fn log_panics() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        log::error!("{}", panic_message(std::thread::current().name(), info.payload(), info.location()));
+        default(info);
+    }));
+}
+
+fn panic_message(thread: Option<&str>, payload: &dyn std::any::Any, location: Option<&std::panic::Location>) -> String {
+    let text = payload.downcast_ref::<&str>().copied().or_else(|| payload.downcast_ref::<String>().map(String::as_str)).unwrap_or("<non-text payload>");
+    let at = location.map_or_else(|| "<unknown>".to_string(), |l| format!("{}:{}:{}", l.file(), l.line(), l.column()));
+    format!("panic in thread '{}' at {at}: {text}", thread.unwrap_or("<unnamed>"))
 }
 
 /// Register or remove the OS login item.
@@ -260,4 +277,18 @@ fn tray_launch(app: &AppHandle, account_id: String) {
             notify::show_native(&app, "Could not launch", &e);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn panic_message_names_thread_text_and_place() {
+        let here = std::panic::Location::caller();
+        let at = format!("{}:{}:{}", here.file(), here.line(), here.column());
+        assert_eq!(panic_message(Some("pump"), &"boom", Some(here)), format!("panic in thread 'pump' at {at}: boom"));
+        assert_eq!(panic_message(None, &String::from("owned"), None), "panic in thread '<unnamed>' at <unknown>: owned");
+        assert_eq!(panic_message(Some("x"), &42, None), "panic in thread 'x' at <unknown>: <non-text payload>");
+    }
 }

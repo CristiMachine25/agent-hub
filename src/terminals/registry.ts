@@ -206,14 +206,23 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
     })
   )
   term.attachCustomKeyEventHandler(keyHandler(term))
-  term.onData(inputWriter(id))
+  const send = inputWriter(id)
+  let replaying = false
+  term.onData((data) => {
+    if (!replaying) send(data)
+  })
   term.open(host)
   const entry: TermEntry = { term, fit, host, cols: term.cols, rows: term.rows }
   entries.set(id, entry)
   // A re-attached terminal starts from the backend's scrollback, which already includes anything buffered.
+  // xterm answers queries (cursor position, device attributes) as it parses; in old output those replies are
+  // stale and would reach the CLI as keystrokes, so input is dropped until the replay is parsed.
   if (scrollback !== undefined) {
     pending.delete(id)
-    if (scrollback) term.write(scrollback)
+    if (scrollback) {
+      replaying = true
+      term.write(scrollback, () => (replaying = false))
+    }
   } else {
     for (const chunk of pending.get(id) ?? []) term.write(chunk)
     pending.delete(id)

@@ -31,7 +31,8 @@ const EOF_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long a closed terminal's CLI gets to exit after SIGHUP before it is killed outright.
 const KILL_GRACE: Duration = Duration::from_secs(1);
 
-/// ConPTY asks for the cursor position once at startup and blocks until it gets an answer.
+/// ConPTY asks for the cursor position once at startup and blocks until it gets an answer. Only
+/// there: elsewhere a query comes from the program itself and the terminal in the UI answers it.
 const DSR_REQUEST: &str = "\x1b[6n";
 const DSR_REPLY: &[u8] = b"\x1b[1;1R";
 
@@ -142,7 +143,11 @@ impl Scrollback {
         while !self.text.is_char_boundary(cut) {
             cut += 1;
         }
-        let window = &self.text[cut..self.text.len().min(cut + 4096)];
+        let mut end = self.text.len().min(cut + 4096);
+        while !self.text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let window = &self.text[cut..end];
         if let Some(nl) = window.find('\n') {
             cut += nl + 1;
         }
@@ -263,8 +268,23 @@ impl Terminals {
                 return Err(anyhow!("could not start {}: {e}", req.spec.program));
             }
         };
-        let reader = pair.master.try_clone_reader().map_err(|e| anyhow!("terminal reader: {e}"))?;
-        let input = spawn_writer(pair.master.take_writer().map_err(|e| anyhow!("terminal writer: {e}"))?);
+        let streams = pair.master.try_clone_reader().map_err(|e| anyhow!("terminal reader: {e}")).and_then(|reader| {
+            let writer = pair.master.take_writer().map_err(|e| anyhow!("terminal writer: {e}"))?;
+            Ok((reader, writer))
+        });
+        let (reader, writer) = match streams {
+            Ok(s) => s,
+            Err(e) => {
+                // Nothing will ever read or stop this child, so end it here.
+                let _ = child.kill();
+                let _ = child.wait();
+                if let Some(s) = &script {
+                    let _ = std::fs::remove_file(s);
+                }
+                return Err(e);
+            }
+        };
+        let input = spawn_writer(writer);
         let exited = Arc::new(AtomicBool::new(false));
 
         let id = uuid::Uuid::new_v4().to_string();
@@ -434,7 +454,7 @@ impl Pump {
     fn run(self, rx: Receiver<Msg>) {
         let mut batch = Batcher::default();
         let mut decoder = Utf8Decoder::default();
-        let mut dsr_answered = false;
+        let mut dsr_answered = !cfg!(windows);
         let mut eof = false;
         let mut exit: Option<Option<i32>> = None;
         let mut exited_at: Option<Instant> = None;
@@ -579,6 +599,19 @@ mod tests {
         assert!(s.text().chars().all(|c| c == 'é'));
     }
 
+    #[test]
+    fn scrollback_trims_box_drawing_without_splitting_a_character() {
+        // Claude Code draws its prompt box with "─" (3 bytes). Once a session passed the cap, the
+        // 4096-byte search window for a line start ended inside one, and slicing there panicked.
+        let mut s = Scrollback::new(SCROLLBACK_BYTES);
+        let rule = "─".repeat(120);
+        for _ in 0..1000 {
+            s.push(&rule);
+        }
+        assert!(s.text().len() <= SCROLLBACK_BYTES + SCROLLBACK_BYTES / 4);
+        assert!(s.text().chars().all(|c| c == '─'));
+    }
+
     #[derive(Default)]
     struct TestSink {
         out: Mutex<String>,
@@ -629,6 +662,19 @@ mod tests {
         assert!(terminals.scrollback(&id).unwrap_or_default().contains("hello"));
         terminals.kill(&id).expect("remove");
         assert!(terminals.list().is_empty());
+    }
+
+    /// Only ConPTY needs its startup cursor query answered here. Elsewhere the query belongs to the
+    /// program and reaches the terminal in the UI, which knows the real cursor position.
+    #[cfg(unix)]
+    #[test]
+    fn a_cursor_position_query_reaches_the_terminal() {
+        let script = r"printf 'A\033[6nB'; sleep 0.3";
+        let spec = CommandSpec { program: "sh".into(), args: vec!["-c".into(), script.into()], env: HashMap::new(), cwd: None, note: None };
+        let (out, _, _, _) = run_to_exit(spec);
+        assert!(out.contains("A\x1b[6nB"), "output: {out:?}");
+        // Nothing answered for the UI: the tty would echo an injected "\x1b[1;1R" back.
+        assert!(!out.contains("1;1R"), "output: {out:?}");
     }
 
     /// npm-style .cmd shim in a folder with spaces, with env set and removed.
