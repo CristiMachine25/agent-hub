@@ -156,6 +156,35 @@ pub fn for_each_json_line(path: &Path, prefilter: impl Fn(&str) -> bool, mut f: 
     }
 }
 
+/// The first line of a JSONL file, if it parses.
+pub fn first_json_line(path: &Path) -> Option<serde_json::Value> {
+    let mut line = String::new();
+    BufReader::new(std::fs::File::open(path).ok()?).read_line(&mut line).ok()?;
+    serde_json::from_str(&line).ok()
+}
+
+/// Whether some line of a JSONL file passes `prefilter` (cheap, on the raw text) and then `f`.
+/// Stops reading at the first one.
+pub fn any_json_line(path: &Path, prefilter: impl Fn(&str) -> bool, f: impl Fn(&serde_json::Value) -> bool) -> bool {
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    BufReader::new(file).lines().map_while(Result::ok).filter(|l| prefilter(l)).any(|l| serde_json::from_str::<serde_json::Value>(&l).is_ok_and(|v| f(&v)))
+}
+
+/// How many of a folder's conversations Resume looks through.
+pub const RESUME_CANDIDATES: usize = 20;
+
+/// Conversation ids that may reach a command line: uuids only, so nothing from a damaged file
+/// can turn into a flag, an index or a "latest".
+pub fn is_uuid(s: &str) -> bool {
+    s.len() == 36 && s.char_indices().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() })
+}
+
+/// `wanted` (already known to be openable), then this account's own conversations without it.
+pub fn wanted_first(wanted: Option<String>, own: Vec<String>) -> Vec<String> {
+    let own = own.into_iter().filter(|id| wanted.as_ref() != Some(id));
+    wanted.clone().into_iter().chain(own).collect()
+}
+
 pub fn days_ago(days: u32) -> SystemTime {
     SystemTime::now().checked_sub(Duration::from_secs(u64::from(days) * 86_400)).unwrap_or(SystemTime::UNIX_EPOCH)
 }
@@ -420,6 +449,44 @@ mod tests {
         assert_eq!(kept.len(), 7);
         assert_eq!(kept[0].date, day(6));
         assert!(kept.iter().all(|d| d.account_id == "acc"));
+    }
+
+    #[test]
+    fn conversation_ids_must_be_uuids() {
+        assert!(is_uuid("01a1554c-99d9-7531-8477-a42d7e29b04b"));
+        assert!(is_uuid("D6E732E6-506D-4120-988E-C10CAC139665"));
+        for bad in [
+            "",
+            "latest",
+            "3",
+            "--yolo",
+            "01a1554c99d9-7531-8477-a42d7e29b04b-",
+            "01a1554c-99d9-7531-8477-a42d7e29b04g",
+            "01a1554c-99d9-7531-8477-a42d7e29b04b ",
+        ] {
+            assert!(!is_uuid(bad), "{bad}");
+        }
+    }
+
+    #[test]
+    fn json_lines_read_lazily() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("a.jsonl");
+        std::fs::write(&f, "{\"n\":1}\nnot json\n{\"n\":2,\"hit\":true}\n").unwrap();
+        assert_eq!(first_json_line(&f).unwrap()["n"], 1);
+        assert!(any_json_line(&f, |l| l.contains("hit"), |v| v["n"] == 2));
+        assert!(!any_json_line(&f, |l| l.contains("hit"), |v| v["n"] == 1));
+        std::fs::write(&f, "garbage\n{\"n\":1}\n").unwrap();
+        assert!(first_json_line(&f).is_none());
+        assert!(first_json_line(&dir.path().join("missing.jsonl")).is_none());
+    }
+
+    #[test]
+    fn a_wanted_conversation_goes_first_once() {
+        let own = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(wanted_first(Some("b".into()), own(&["a", "b", "c"])), ["b", "a", "c"]);
+        assert_eq!(wanted_first(Some("x".into()), own(&["a"])), ["x", "a"]);
+        assert_eq!(wanted_first(None, own(&["a"])), ["a"]);
     }
 
     #[test]

@@ -467,6 +467,70 @@ fn scan_sessions(account_id: &str, home: &Path, since_days: u32) -> Vec<DailyAct
 }
 
 // ---------------------------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------------------------
+//
+// A conversation ("thread") is recorded under `sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl`.
+// The first line is `session_meta` with the thread `id`, its `cwd` and `source`. A long thread
+// continues in newer rollout files whose `session_meta` repeats the thread id (`history_base`
+// points back), so the id comes from there, not from the file name. `codex resume <uuid>` reopens
+// a thread by id (codex-rs/rollout `find_thread_path_by_id_str`). Codex leaves no per-process
+// marker naming a thread: `thread-writer-locks/<id>.lock` is an empty advisory lock, and Codex
+// itself refuses a second writer of a thread, so `open_sessions` stays empty.
+
+/// A rollout file's thread and folder, for threads a person started (the sources Codex's own
+/// resume picker lists: `INTERACTIVE_SESSION_SOURCES`). Sub-agent and `codex exec` threads: None.
+fn rollout_thread(path: &Path) -> Option<(String, String)> {
+    let v = first_json_line(path).filter(|v| v.get("type").and_then(Value::as_str) == Some("session_meta"))?;
+    let meta = v.get("payload")?;
+    let interactive = match meta.get("source") {
+        None => true,
+        Some(Value::String(s)) => matches!(s.as_str(), "cli" | "vscode"),
+        Some(s) => matches!(s.get("custom").and_then(Value::as_str), Some("atlas" | "chatgpt")),
+    };
+    let id = str_field(meta, "id").filter(|id| is_uuid(id))?;
+    interactive.then(|| (id.to_string(), str_field(meta, "cwd").unwrap_or_default().to_string()))
+}
+
+/// Whether something was typed in a rollout file. Codex's picker skips threads with none.
+fn has_user_message(path: &Path) -> bool {
+    any_json_line(
+        path,
+        |l| l.contains("user_message") || l.contains("UserMessage"),
+        |v| match v.pointer("/payload/type").and_then(Value::as_str) {
+            Some("user_message") => true,
+            Some("item_completed") => v.pointer("/payload/item/type").and_then(Value::as_str) == Some("UserMessage"),
+            _ => false,
+        },
+    )
+}
+
+/// This home's resumable threads, newest activity first, each with its rollout files and folder.
+fn threads(home: &Path) -> Vec<(String, String, Vec<PathBuf>)> {
+    let mut out: Vec<(String, String, Vec<PathBuf>)> = Vec::new();
+    for (path, _) in jsonl_files_since(&[home.join("sessions")], std::time::UNIX_EPOCH) {
+        let Some((id, cwd)) = rollout_thread(&path) else { continue };
+        match out.iter_mut().find(|t| t.0 == id) {
+            Some(t) => t.2.push(path),
+            None => out.push((id, cwd, vec![path])),
+        }
+    }
+    out
+}
+
+/// The threads started in `cwd` from this home that something was typed in, newest first.
+fn threads_in(home: &Path, cwd: &Path) -> Vec<String> {
+    let want = util::path_key(cwd);
+    threads(home)
+        .into_iter()
+        .filter(|(_, dir, _)| util::path_key(Path::new(dir)) == want)
+        .filter(|(_, _, files)| files.iter().any(|f| has_user_message(f)))
+        .map(|(id, _, _)| id)
+        .take(RESUME_CANDIDATES)
+        .collect()
+}
+
+// ---------------------------------------------------------------------------------------------
 // Desktop app
 // ---------------------------------------------------------------------------------------------
 
@@ -653,11 +717,20 @@ impl ProviderAdapter for CodexAdapter {
 
     async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut args = Vec::new();
-        if resume != Resume::No {
-            args.extend(["resume".to_string(), "--last".to_string()]);
+        match resume {
+            Resume::No => {}
+            Resume::Session(id) if is_uuid(&id) => args.extend(["resume".to_string(), id]),
+            Resume::Last | Resume::Session(_) => args.extend(["resume".to_string(), "--last".to_string()]),
         }
         args.extend(extra_args.iter().cloned());
         Ok(CommandSpec { program: self.program(), args, env: self.cli_env(account), cwd: None, note: None })
+    }
+
+    fn resume_candidates(&self, account: &Account, cwd: &Path, wanted: Option<&str>) -> Vec<String> {
+        let home = Path::new(&account.home_dir);
+        // Without shared history another account's thread isn't in this home to reopen.
+        let wanted = wanted.filter(|id| is_uuid(id) && threads(home).iter().any(|t| t.0 == *id)).map(str::to_string);
+        wanted_first(wanted, threads_in(home, cwd))
     }
 
     async fn login_command(&self, account: &Account) -> anyhow::Result<CommandSpec> {
@@ -947,6 +1020,95 @@ mod tests {
         #[cfg(unix)]
         std::os::unix::fs::symlink(dir.path().join("sessions"), &link).unwrap();
         assert!(latest_logged_limits(other.path()).is_none());
+    }
+
+    /// A rollout file as Codex writes it: `session_meta` first, then the turn's events.
+    fn rollout(home: &Path, day: &str, file_id: &str, meta: Value, events: &[Value]) {
+        let dir = home.join("sessions").join(day);
+        std::fs::create_dir_all(&dir).unwrap();
+        let first = json!({"timestamp": "2026-10-20T10:00:00.000Z", "type": "session_meta", "payload": meta});
+        let lines: Vec<String> = std::iter::once(&first).chain(events).map(Value::to_string).collect();
+        let path = dir.join(format!("rollout-2026-10-20T10-00-00-{file_id}.jsonl"));
+        std::fs::write(&path, lines.join("\n")).unwrap();
+        // Distinct modification times, in call order.
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    fn meta(id: &str, cwd: &str, source: Value) -> Value {
+        json!({"session_id": id, "id": id, "timestamp": "2026-10-20T10:00:00.000Z", "cwd": cwd, "originator": "codex-tui", "cli_version": "0.159.3", "source": source, "model_provider": "openai", "history_mode": "paginated"})
+    }
+
+    fn user_turn() -> Value {
+        json!({"timestamp": "2026-10-20T10:00:01.000Z", "type": "event_msg", "payload": {"type": "item_completed", "thread_id": "t", "turn_id": "u", "item": {"type": "UserMessage", "id": "m", "content": []}, "completed_at_ms": 1}})
+    }
+
+    #[test]
+    fn resume_offers_this_homes_threads_in_the_folder_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let (old, new, other, sub, empty, exec, legacy) = (
+            "01a1554c-99d9-7531-8477-a42d7e29b001",
+            "01a1554c-99d9-7531-8477-a42d7e29b002",
+            "01a1554c-99d9-7531-8477-a42d7e29b003",
+            "01a1554c-99d9-7531-8477-a42d7e29b004",
+            "01a1554c-99d9-7531-8477-a42d7e29b005",
+            "01a1554c-99d9-7531-8477-a42d7e29b006",
+            "01a1554c-99d9-7531-8477-a42d7e29b007",
+        );
+        let legacy_user = json!({"timestamp": "t", "type": "event_msg", "payload": {"type": "user_message", "message": "hi"}});
+        rollout(
+            home,
+            "2026/10/19",
+            legacy,
+            json!({"id": legacy, "timestamp": "t", "cwd": "/work", "originator": "codex_cli_rs", "cli_version": "0.40.0"}),
+            &[legacy_user],
+        );
+        rollout(home, "2026/10/20", old, meta(old, "/work", json!("cli")), &[user_turn()]);
+        rollout(home, "2026/10/20", new, meta(new, "/work/", json!("vscode")), &[user_turn()]);
+        rollout(home, "2026/10/20", other, meta(other, "/elsewhere", json!("cli")), &[user_turn()]);
+        // A sub-agent's thread, a non-interactive `codex exec` run and a thread nothing was typed in.
+        rollout(home, "2026/10/21", sub, meta(sub, "/work", json!({"subagent": {"thread_spawn": {"parent_thread_id": new}}})), &[user_turn()]);
+        rollout(home, "2026/10/21", exec, meta(exec, "/work", json!("exec")), &[user_turn()]);
+        rollout(home, "2026/10/21", empty, meta(empty, "/work", json!("cli")), &[]);
+        // `old` continues in a newer rollout file (paginated history): its meta repeats the thread id.
+        let mut page = meta(old, "/work", json!("cli"));
+        page["history_base"] = json!({"thread_id": old, "end_ordinal_exclusive": 3, "end_byte_offset": 100});
+        rollout(home, "2026/10/22", "01a1554c-99d9-7531-8477-a42d7e29b0ff", page, &[]);
+        // Archived threads are not resumed.
+        let archived = home.join("archived_sessions/2026/10/22");
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::write(
+            archived.join("rollout-x.jsonl"),
+            json!({"type": "session_meta", "payload": meta("01a1554c-99d9-7531-8477-a42d7e29b0aa", "/work", json!("cli"))}).to_string(),
+        )
+        .unwrap();
+
+        let a = CodexAdapter::new();
+        let acc = Account { home_dir: home.to_string_lossy().into(), ..crate::recommend::tests::account("a", "pro") };
+        let work = Path::new("/work");
+        assert_eq!(a.resume_candidates(&acc, work, None), [old, new, legacy]);
+        // A thread asked for comes first, but only when this home has it.
+        assert_eq!(a.resume_candidates(&acc, work, Some(new)), [new, old, legacy]);
+        assert_eq!(a.resume_candidates(&acc, work, Some(other)), [other, old, new, legacy]);
+        assert_eq!(a.resume_candidates(&acc, work, Some("01a1554c-99d9-7531-8477-a42d7e29b0aa")), [old, new, legacy]);
+        assert_eq!(a.resume_candidates(&acc, work, Some("not-a-uuid")), [old, new, legacy]);
+        assert!(a.resume_candidates(&acc, Path::new("/nowhere"), None).is_empty());
+        let missing = Account { home_dir: home.join("missing").to_string_lossy().into(), ..acc };
+        assert!(a.resume_candidates(&missing, work, None).is_empty());
+    }
+
+    #[test]
+    fn resume_by_id_names_the_thread() {
+        let a = CodexAdapter::new();
+        let acc = crate::recommend::tests::account("a", "pro");
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        let args = |r: Resume| rt.block_on(a.cli_command(&acc, r, &[])).unwrap().args;
+        assert_eq!(args(Resume::Session("01a1554c-99d9-7531-8477-a42d7e29b04b".into())), ["resume", "01a1554c-99d9-7531-8477-a42d7e29b04b"]);
+        assert_eq!(args(Resume::Last), ["resume", "--last"]);
+        assert!(args(Resume::No).is_empty());
+        // Codex reads a non-uuid as a thread name; an id from a damaged file never becomes one.
+        assert_eq!(args(Resume::Session("--yolo".into())), ["resume", "--last"]);
+        assert_eq!(args(Resume::Session("my thread".into())), ["resume", "--last"]);
     }
 
     #[test]
