@@ -269,7 +269,10 @@ export function acquireWebgl(id: string) {
     addon = new WebglAddon()
     addon.onContextLoss(() => {
       e.noWebgl = true
-      if (e.webgl === addon) releaseWebgl(e)
+      if (e.webgl !== addon) return
+      releaseWebgl(e)
+      // WebGL rounds cells to whole device pixels, so the DOM renderer fits fewer columns in the same pane.
+      fitTerm(id)
     })
     e.term.loadAddon(addon)
     e.webgl = addon

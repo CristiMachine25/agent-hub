@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const handlers: Record<string, (p: never) => void> = {}
 const writes = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+const resizes = vi.hoisted(() => vi.fn((_id: string, _cols: number, _rows: number) => Promise.resolve()))
 vi.mock('@/api', () => ({
-  api: { platform: 'darwin', on: (event: string, cb: (p: never) => void) => (handlers[event] = cb), terminals: { write: writes } }
+  api: { platform: 'darwin', on: (event: string, cb: (p: never) => void) => (handlers[event] = cb), terminals: { write: writes, resize: resizes } }
 }))
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
@@ -28,7 +29,19 @@ vi.mock('@xterm/xterm', () => ({
     }
   }
 }))
-vi.mock('@xterm/addon-fit', () => ({ FitAddon: class {} }))
+/** Columns the next fit proposes; the DOM and WebGL renderers measure cells differently. */
+const fitTo = vi.hoisted(() => ({ cols: 0 }))
+vi.mock('@xterm/addon-fit', () => ({
+  FitAddon: class {
+    term?: { cols: number }
+    activate(term: { cols: number }) {
+      this.term = term
+    }
+    fit() {
+      if (fitTo.cols && this.term) this.term.cols = fitTo.cols
+    }
+  }
+}))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
 const webgl = vi.hoisted(() => ({ throws: false, last: undefined as unknown }))
 vi.mock('@xterm/addon-webgl', () => ({
@@ -53,7 +66,7 @@ vi.mock('@xterm/addon-webgl', () => ({
   }
 }))
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
-vi.stubGlobal('document', { createElement: () => ({ isConnected: false, remove() {} }), documentElement: {} })
+vi.stubGlobal('document', { createElement: () => ({ isConnected: false, clientWidth: 960, clientHeight: 620, remove() {} }), documentElement: {} })
 vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }))
 
 const { MAX_WEBGL, acquireWebgl, disposeTerm, getTerm, prepare } = await import('./registry')
@@ -110,6 +123,7 @@ describe('WebGL renderer', () => {
   }
   afterEach(() => {
     webgl.throws = false
+    fitTo.cols = 0
     for (const id of ids.splice(0)) disposeTerm(id)
   })
 
@@ -145,6 +159,14 @@ describe('WebGL renderer', () => {
     // A terminal that lost its context does not retry on the next show.
     acquireWebgl('lost')
     expect(addonOf('lost')).toBeUndefined()
+  })
+
+  it('refits after a context loss so the backend gets the DOM renderer column count', () => {
+    shown('refit')
+    resizes.mockClear()
+    fitTo.cols = 121
+    addonOf('refit')!.lost()
+    expect(resizes).toHaveBeenCalledWith('refit', 121, 24)
   })
 
   it('releases the addon when the terminal is disposed', () => {
