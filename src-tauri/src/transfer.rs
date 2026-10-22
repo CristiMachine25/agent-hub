@@ -270,7 +270,12 @@ pub async fn export(state: &AppState, path: &Path, opts: ExportOptions) -> anyho
         sign_ins: sealed,
     };
     let summary = ExportSummary { accounts: file.accounts.len(), sign_ins: sign_ins.len(), files: file.files.len(), skipped_files };
-    util::write_atomic(path, serde_json::to_string_pretty(&file)?.as_bytes()).with_context(|| format!("writing {}", path.display()))?;
+    // The files can add up to MAX_BUNDLE: serialize and write off the async workers, as in seal().
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        util::write_atomic(&path, serde_json::to_string_pretty(&file)?.as_bytes()).with_context(|| format!("writing {}", path.display()))
+    })
+    .await??;
     Ok(summary)
 }
 
@@ -961,5 +966,20 @@ mod tests {
         let p = dir.path().join("other.agenthub");
         std::fs::write(&p, text.replace("switchyard-setup", "something-else")).unwrap();
         assert!(read_file(&p).is_err());
+    }
+
+    /// The file written off the async workers is the whole setup file.
+    #[tokio::test]
+    async fn export_writes_a_readable_setup_file() {
+        let t = tempfile::tempdir().unwrap();
+        let state = AppState::load(t.path().join("data")).unwrap();
+        let home = t.path().join(".claude-work").to_string_lossy().into_owned();
+        *state.accounts.write().await = vec![Account { email: Some("w@x.io".into()), home_dir: home, ..crate::recommend::tests::account("w", "Max") }];
+        let opts = ExportOptions { account_ids: vec!["w".into()], include_files: false, include_settings: true, passphrase: None };
+        let path = t.path().join("setup.json");
+        let summary = export(&state, &path, opts).await.unwrap();
+        let file: SetupFile = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!((summary.accounts, file.format.as_str(), file.accounts[0].email.as_deref()), (1, FORMAT, Some("w@x.io")));
+        assert!(file.settings.is_some() && file.sign_ins.is_none());
     }
 }
