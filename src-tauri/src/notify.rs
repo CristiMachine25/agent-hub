@@ -132,11 +132,13 @@ fn login_rule(account: &Account, state: &mut NotifyState, now: DateTime<Utc>, ou
     ));
 }
 
-/// Once when an account becomes blocked; again only after it was usable in between.
+/// Once when an account becomes blocked; again only after it was usable (ok) in between.
 fn blocked_rule(account: &Account, state: &mut NotifyState, now: DateTime<Utc>, out: &mut Vec<AppNotification>) {
     let k = key("blocked", &account.id, "");
-    if account.status != AccountStatus::Blocked {
+    if account.status == AccountStatus::Ok {
         state.fired.remove(&k);
+    }
+    if account.status != AccountStatus::Blocked {
         return;
     }
     if state.fired.insert(k, "1".into()).is_some() {
