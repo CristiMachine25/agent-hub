@@ -142,7 +142,11 @@ impl Scrollback {
         while !self.text.is_char_boundary(cut) {
             cut += 1;
         }
-        let window = &self.text[cut..self.text.len().min(cut + 4096)];
+        let mut end = self.text.len().min(cut + 4096);
+        while !self.text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let window = &self.text[cut..end];
         if let Some(nl) = window.find('\n') {
             cut += nl + 1;
         }
@@ -577,6 +581,19 @@ mod tests {
         let mut s = Scrollback::new(10);
         s.push(&"é".repeat(50));
         assert!(s.text().chars().all(|c| c == 'é'));
+    }
+
+    #[test]
+    fn scrollback_trims_box_drawing_without_splitting_a_character() {
+        // Claude Code draws its prompt box with "─" (3 bytes). Once a session passed the cap, the
+        // 4096-byte search window for a line start ended inside one, and slicing there panicked.
+        let mut s = Scrollback::new(SCROLLBACK_BYTES);
+        let rule = "─".repeat(120);
+        for _ in 0..1000 {
+            s.push(&rule);
+        }
+        assert!(s.text().len() <= SCROLLBACK_BYTES + SCROLLBACK_BYTES / 4);
+        assert!(s.text().chars().all(|c| c == '─'));
     }
 
     #[derive(Default)]
