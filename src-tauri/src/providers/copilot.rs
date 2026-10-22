@@ -260,6 +260,24 @@ async fn gh_token(user: &GhUser) -> Option<String> {
     util::run_capture(&gh, &args, Duration::from_secs(10)).await.filter(|t| !t.is_empty() && !t.contains(char::is_whitespace))
 }
 
+/// A 403/404/429 from GitHub. Rate limits come as 403 or 429 with `retry-after`, `x-ratelimit-remaining: 0`
+/// or a "rate limit" message; a token not yet authorized for an organization's SAML SSO gets a 403 with
+/// `X-GitHub-SSO: required; url=...`. Anything else means the account has no Copilot access.
+fn refused(status: u16, headers: &reqwest::header::HeaderMap, body: &str, login: &str) -> FetchError {
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let rate_limited =
+        status == 429 || !header("retry-after").is_empty() || header("x-ratelimit-remaining") == "0" || body.to_ascii_lowercase().contains("rate limit");
+    if rate_limited {
+        return FetchError::other("GitHub is rate limiting Copilot usage requests; will retry later");
+    }
+    if status == 403 && header("x-github-sso").starts_with("required") {
+        return FetchError::other(format!(
+            "{login}'s GitHub token isn't authorized for an organization that uses single sign-on. Authorize it for that organization on GitHub, then refresh"
+        ));
+    }
+    FetchError::other(format!("{login} has no Copilot access (HTTP {status})"))
+}
+
 impl CopilotAdapter {
     async fn fetch_live(&self, account: &Account) -> Result<UsageSnapshot, FetchError> {
         let home = Path::new(&account.home_dir);
@@ -286,7 +304,10 @@ impl CopilotAdapter {
         match status {
             200..=299 => {}
             401 => return Err(FetchError::auth(format!("GitHub rejected the token for {}. {NEED_GH}", user.login))),
-            403 | 404 => return Err(FetchError::other(format!("{} has no Copilot access (HTTP {status})", user.login))),
+            403 | 404 | 429 => {
+                let headers = resp.headers().clone();
+                return Err(refused(status, &headers, &resp.text().await.unwrap_or_default(), &user.login));
+            }
             _ => return Err(FetchError::other(format!("Copilot usage request failed (HTTP {status})"))),
         }
         let v: Value = resp.json().await.map_err(|_| FetchError::other("GitHub returned an unexpected Copilot usage response"))?;
@@ -529,6 +550,40 @@ impl ProviderAdapter for CopilotAdapter {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// GitHub answers rate limits and SAML SSO with 403 too (docs.github.com: "Rate limits for the REST
+    /// API", "Authenticating to the REST API"); only a plain 403 or 404 means no Copilot access.
+    #[test]
+    fn a_403_can_be_a_rate_limit_or_single_sign_on() {
+        use reqwest::header::{HeaderMap, HeaderValue};
+        let h = |pairs: &[(&'static str, &'static str)]| {
+            pairs.iter().map(|(k, v)| (reqwest::header::HeaderName::from_static(k), HeaderValue::from_static(v))).collect::<HeaderMap>()
+        };
+        let msg = |status, headers: HeaderMap, body: &str| refused(status, &headers, body, "octo");
+
+        let secondary = r#"{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}"#;
+        for e in [
+            msg(403, h(&[]), secondary),
+            msg(403, h(&[("retry-after", "60")]), "{}"),
+            msg(403, h(&[("x-ratelimit-remaining", "0"), ("x-ratelimit-reset", "1792514865")]), r#"{"message":"API rate limit exceeded for user ID 1."}"#),
+            msg(429, h(&[]), ""),
+        ] {
+            assert_eq!(e, FetchError::other("GitHub is rate limiting Copilot usage requests; will retry later"));
+        }
+
+        let sso = msg(
+            403,
+            h(&[("x-github-sso", "required; url=https://github.com/orgs/acme/sso?authorization_request=abc")]),
+            r#"{"message":"Resource protected by organization SAML enforcement."}"#,
+        );
+        assert_eq!(sso.kind, ErrorKind::Other);
+        assert!(sso.message.starts_with("octo's GitHub token isn't authorized for an organization that uses single sign-on"), "{}", sso.message);
+
+        for status in [403, 404] {
+            let plain = msg(status, h(&[("x-ratelimit-remaining", "4999")]), r#"{"message":"Resource not accessible by integration"}"#);
+            assert_eq!(plain, FetchError::other(format!("octo has no Copilot access (HTTP {status})")));
+        }
+    }
 
     fn account(home: &Path) -> Account {
         Account {
