@@ -11,11 +11,12 @@ import { liveSnoozes, useSnoozes } from '@/lib/snooze'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
 import { creditsText, formatAgo, formatCountdown, formatMoney, formatPct, plural, resetText, windowName } from '@/lib/format'
 import { Meter, WindowGauge, LEVEL_TEXT } from '@/components/Meter'
-import { AccountDot, EmptyState, ProviderMark, Segmented, SectionTitle } from '@/components/ui'
+import { AccountDot, ProviderMark, Segmented, SectionTitle } from '@/components/ui'
 import { PrimaryLaunch } from '@/components/PrimaryLaunch'
 import { UsageOverTime } from '@/charts/UsageOverTime'
 import { MostUsed, type ActivityMetric } from '@/charts/MostUsed'
 import { Page } from '@/components/Page'
+import { FirstRun } from './overview/FirstRun'
 
 export function Overview() {
   const accounts = useStore((s) => s.accounts)
@@ -57,15 +58,7 @@ export function Overview() {
   if (accounts.length === 0) {
     return (
       <Page title="Overview">
-        <EmptyState
-          title="No accounts yet"
-          body="Agent Hub can find the Claude, Codex, Gemini and Copilot profiles already on this computer, or create a fresh profile for another login."
-          action={
-            <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
-              <Search size={15} /> Find accounts on this computer
-            </button>
-          }
-        />
+        <FirstRun onAdd={() => setAddOpen(true)} />
       </Page>
     )
   }
