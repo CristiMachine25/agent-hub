@@ -465,6 +465,7 @@ const RENEW_WAIT: Duration = Duration::from_secs(40);
 /// After a renewal that left the login expired, wait this long before asking Claude Code again.
 const RENEW_RETRY_MS: i64 = 30 * 60_000;
 const LOGIN_EXPIRED: &str = "Login token expired. Open Claude once to refresh the login.";
+const LOGIN_NEEDS_CLI: &str = "The login expired and Claude Code isn't installed to renew it. Install Claude Code, then open it once or sign in again.";
 const LOGIN_RENEWING: &str = "The login expired and is being renewed now.";
 const LOGIN_RENEW_FAILED: &str = "Claude Code could not renew this login. Sign in again.";
 const LOGIN_RENEW_LATER: &str = "The login expired and could not be renewed yet; Agent Hub will try again later. Starting Claude also renews it.";
@@ -825,11 +826,12 @@ impl ClaudeAdapter {
         which_str("claude").unwrap_or_else(|| "claude".into())
     }
 
-    /// Has Claude Code renew an expired Keychain login, then reads it again. Without the CLI, or
-    /// within RENEW_RETRY_MS of a renewal that didn't help, it reports the login as expired. The
+    /// Has Claude Code renew an expired Keychain login, then reads it again. Without the CLI it asks
+    /// the user to sign in; within RENEW_RETRY_MS of a renewal that didn't help, it reports the login
+    /// as expired (still renewing). The
     /// renewal runs in its own task: a poll that stops waiting (or times out) never cuts it short.
     async fn renew_keychain_login(&self, account: &Account, home: &Path, is_default: bool) -> Result<OAuthCreds, FetchError> {
-        let Some(program) = which_str("claude") else { return Err(FetchError::expired(LOGIN_EXPIRED)) };
+        let Some(program) = which_str("claude") else { return Err(FetchError::auth(LOGIN_NEEDS_CLI)) };
         let key = util::path_key(home);
         if !renew_due(RENEW_FAILED_AT.lock().unwrap().get(&key).copied(), now_ms()) {
             return Err(FetchError::expired(LOGIN_RENEW_LATER));

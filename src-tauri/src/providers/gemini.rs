@@ -303,7 +303,8 @@ impl Creds {
     async fn refresh(&mut self) -> Result<(), FetchError> {
         let again = || FetchError::auth(SIGN_IN_AGAIN);
         let refresh = self.raw.get("refresh_token").and_then(Value::as_str).ok_or_else(again)?;
-        let client = oauth_client::resolve().await.ok_or_else(|| FetchError::expired(NEED_CLI))?;
+        // Without the CLI's OAuth client the login can't renew by itself: the user has to act.
+        let client = oauth_client::resolve().await.ok_or_else(|| FetchError::auth(NEED_CLI))?;
         let body = form_encode(&[("client_id", &client.id), ("client_secret", &client.secret), ("refresh_token", refresh), ("grant_type", "refresh_token")]);
         let resp = util::http()
             .post(TOKEN_URL)

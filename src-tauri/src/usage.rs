@@ -425,7 +425,7 @@ mod tests {
     fn status_from_errors() {
         let status = |e: FetchError| derive_status(&failed(e), None).0;
         assert_eq!(status(FetchError::auth("Not signed in. Use Sign in to log this account in.")), AccountStatus::NeedsLogin);
-        assert_eq!(status(FetchError::expired("Login expired. Launch Codex once or sign in again.")), AccountStatus::Expired);
+        assert_eq!(status(FetchError::expired("The login expired and is being renewed now.")), AccountStatus::Expired);
         assert_eq!(status(FetchError::other("Claude's usage API returned HTTP 500.")), AccountStatus::Error);
         // The kind decides, not the wording.
         assert_eq!(status(FetchError::auth("GitHub refused the request")), AccountStatus::NeedsLogin);

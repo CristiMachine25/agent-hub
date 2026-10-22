@@ -232,7 +232,8 @@ pub struct UsageSnapshot {
 pub enum ErrorKind {
     /// No sign-in, or the provider rejected it: signing in again fixes it.
     Auth,
-    /// The sign-in lapsed: opening the tool once (or signing in again) renews it.
+    /// The sign-in lapsed and renews by itself (the tool renews it when it next runs). A lapsed
+    /// sign-in only the user can fix is `Auth`.
     Expired,
     /// The provider could not be reached.
     Network,
