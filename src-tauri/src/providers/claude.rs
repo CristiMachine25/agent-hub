@@ -251,28 +251,32 @@ fn identity_from(creds: Option<&OAuthCreds>, oauth_account: Option<&Value>, logg
 // Usage API
 // ---------------------------------------------------------------------------------------------
 
-const ORG_BLOCKED: &str =
-    "This account's organization doesn't allow Claude Code with a subscription login. Signing in again won't help; use another account or ask an admin.";
+const ORG_BLOCKED: &str = "This account's organization doesn't allow Claude Code with a subscription login. Use another account or ask an admin.";
+const BLOCKED_UNKNOWN: &str = "Claude doesn't allow Claude Code for this account right now. Check its plan at claude.ai, or remove it from Agent Hub.";
 
-/// Why Claude Code is blocked for this account, from its `/api/oauth/profile` answer.
+/// Why Claude Code is blocked for this account, from its `/api/oauth/profile` answer (None when
+/// that couldn't be read). Personal plans never point at an admin.
 fn blocked_reason(profile: Option<&Value>) -> String {
     let org = profile.and_then(|p| p.get("organization"));
     let field = |k: &str| org.and_then(|o| str_field(o, k));
-    let free = field("organization_type") == Some("claude_free");
-    let canceled = field("subscription_status") == Some("canceled");
-    match (free, canceled) {
-        (true, true) => "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.",
-        (true, false) => "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Agent Hub.",
-        (false, true) => "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.",
-        (false, false) => ORG_BLOCKED,
+    let personal = |t: &str| matches!(t, "claude_pro" | "claude_max");
+    match (field("organization_type"), field("subscription_status")) {
+        (Some("claude_free"), Some("canceled")) => "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.".into(),
+        (Some("claude_free"), _) => "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Agent Hub.".into(),
+        (Some(t), Some("canceled")) if personal(t) => "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.".into(),
+        (Some(t), Some(s)) if personal(t) && s != "active" => format!(
+            "This account's subscription isn't active ({}), so it can't use Claude Code. Check it at claude.ai, or remove it from Agent Hub.",
+            s.replace('_', " ")
+        ),
+        (Some(t), _) if !personal(t) => ORG_BLOCKED.into(),
+        _ => BLOCKED_UNKNOWN.into(),
     }
-    .into()
 }
 
-/// The plan the profile reports, e.g. "Free" after a canceled subscription.
-fn profile_plan(profile: &Value) -> Option<String> {
-    let org = profile.get("organization")?;
-    plan_label(str_field(org, "organization_type"), str_field(org, "rate_limit_tier"))
+/// The reason already shown for a blocked account, so polls don't ask the profile every time. An
+/// unknown reason is asked again.
+fn known_blocked_reason(account: &Account) -> Option<String> {
+    (account.status == AccountStatus::Blocked).then(|| account.status_message.clone()).flatten().filter(|m| m != BLOCKED_UNKNOWN)
 }
 
 #[derive(Debug, PartialEq)]
@@ -1179,10 +1183,11 @@ impl ProviderAdapter for ClaudeAdapter {
                 FetchError::auth("This login cannot read usage (missing user:profile scope). Sign in again with `claude auth login`."),
             ),
             Err(ApiError::OrgBlocked) => {
-                let profile = fetch_oauth_json(PROFILE_URL, &token, &ua).await.ok();
-                let mut s = self.no_data(account, &ident, FetchError::blocked(blocked_reason(profile.as_ref())));
-                s.plan = profile.as_ref().and_then(profile_plan).or(s.plan);
-                s
+                let reason = match known_blocked_reason(account) {
+                    Some(r) => r,
+                    None => blocked_reason(fetch_oauth_json(PROFILE_URL, &token, &ua).await.ok().as_ref()),
+                };
+                self.no_data(account, &ident, FetchError::blocked(reason))
             }
             Err(ApiError::RateLimited) => {
                 let mut s = self.no_data(account, &ident, FetchError::other("Claude's usage API is rate-limiting requests; will retry later."));
@@ -1399,18 +1404,39 @@ mod tests {
             blocked_reason(Some(&canceled)),
             "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub."
         );
-        assert_eq!(profile_plan(&canceled).as_deref(), Some("Free"));
-        let free = json!({"organization": {"organization_type": "claude_free", "subscription_status": null}});
+        let org = |t: &str, status: Option<&str>| json!({"organization": {"organization_type": t, "subscription_status": status}});
         assert_eq!(
-            blocked_reason(Some(&free)),
+            blocked_reason(Some(&org("claude_free", None))),
             "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Agent Hub."
         );
-        // A paid organization that turned Claude Code off, or no profile at all: the admin decides.
-        let team = json!({"organization": {"organization_type": "claude_team", "subscription_status": "active", "rate_limit_tier": "default_claude_ai"}});
-        assert_eq!(blocked_reason(Some(&team)), ORG_BLOCKED);
-        assert_eq!(profile_plan(&team).as_deref(), Some("Team"));
-        assert_eq!(blocked_reason(None), ORG_BLOCKED);
-        assert_eq!(profile_plan(&json!({})), None);
+        // A personal plan never points at an admin.
+        assert_eq!(
+            blocked_reason(Some(&org("claude_max", Some("past_due")))),
+            "This account's subscription isn't active (past due), so it can't use Claude Code. Check it at claude.ai, or remove it from Agent Hub."
+        );
+        assert_eq!(
+            blocked_reason(Some(&org("claude_pro", Some("canceled")))),
+            "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub."
+        );
+        assert_eq!(blocked_reason(Some(&org("claude_pro", Some("active")))), BLOCKED_UNKNOWN);
+        // A team or company organization that turned Claude Code off: the admin decides.
+        assert_eq!(blocked_reason(Some(&org("claude_team", Some("active")))), ORG_BLOCKED);
+        assert!(!ORG_BLOCKED.contains("Sign"), "no sign-in advice next to the Sign in again button");
+        // The profile couldn't be read.
+        assert_eq!(blocked_reason(None), BLOCKED_UNKNOWN);
+    }
+
+    /// A blocked account keeps the reason it has instead of asking the profile on every poll, so a
+    /// failed profile call never swaps a known reason for a vaguer one. An unknown one is asked again.
+    #[test]
+    fn a_known_blocked_reason_is_reused() {
+        let mut a = crate::recommend::tests::account("a", "Max");
+        a.status_message = Some("This account's subscription was canceled.".into());
+        assert_eq!(known_blocked_reason(&a), None, "not blocked yet");
+        a.status = AccountStatus::Blocked;
+        assert_eq!(known_blocked_reason(&a).as_deref(), Some("This account's subscription was canceled."));
+        a.status_message = Some(BLOCKED_UNKNOWN.into());
+        assert_eq!(known_blocked_reason(&a), None);
     }
 
     #[test]
