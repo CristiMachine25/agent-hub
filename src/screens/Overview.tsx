@@ -420,13 +420,13 @@ function Board() {
         </span>
       </SectionTitle>
       <div className="overflow-hidden rounded-lg border border-rivet">
-        {groups.map(({ p, list }) => (
-          <div key={p}>
-            <div className="flex items-center gap-2 border-b border-rivet bg-deck/60 px-4 py-1.5 text-xs text-muted">
+        {groups.map(({ p, list }, gi) => (
+          <div key={p} role="group" aria-label={PROVIDER_META[p].product}>
+            <div className={clsx('flex h-8 items-center gap-2 border-b border-rivet bg-deck px-4 text-xs text-muted', gi > 0 && 'border-t')}>
               <ProviderMark id={p} size={14} />
-              {PROVIDER_META[p].product}
+              <span className="font-medium text-ink">{PROVIDER_META[p].product}</span>
             </div>
-            <ul className="divide-y divide-rivet border-b border-rivet last:border-b-0">
+            <ul className="divide-y divide-rivet">
               {list.map((a) => (
                 <BoardRow key={a.id} a={a} snap={usage[a.id]} now={now} provider={p} />
               ))}
@@ -446,11 +446,13 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
   const bind = bindingWindow(snap)
   const atLimit = bind ? leftOf(bind) <= 0.5 : false
   return (
-    <li className="grid grid-cols-[minmax(150px,1fr)_minmax(0,2.4fr)_auto] items-center gap-5 px-4 py-3 hover:bg-deck">
+    <li className="grid grid-cols-[minmax(9rem,15rem)_minmax(0,1fr)_auto] items-center gap-6 px-4 py-3 hover:bg-deck focus-within:bg-deck">
       <button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => go('accounts', a.id)} data-tip="Show details">
-        <AccountDot account={a} />
+        <span className={clsx('flex', (signedOut || blocked) && 'opacity-40')}>
+          <AccountDot account={a} />
+        </span>
         <span className="min-w-0">
-          <span className="block truncate font-semibold">{a.label}</span>
+          <span className={clsx('block truncate font-semibold', (signedOut || blocked) && 'text-muted')}>{a.label}</span>
           <span className="flex items-center gap-1 truncate text-xs text-muted">
             <ProviderMark id={provider} size={11} />
             {statusLabel(a) ?? (snap?.stale ? `Checked ${formatAgo(snap.fetchedAt, now)}` : a.plan && !a.label.includes(a.plan) ? a.plan : PROVIDER_META[provider].short)}
@@ -459,11 +461,14 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
       </button>
       <div className="min-w-0">
         {signedOut ? (
-          <p className="text-muted">{a.statusMessage ?? 'Sign in to see this account’s limits.'}</p>
+          <p className="flex items-center gap-2 text-muted">
+            <LogIn size={14} className="shrink-0" aria-hidden />
+            <span className="min-w-0">{a.statusMessage ?? 'Sign in to see this account’s limits.'}</span>
+          </p>
         ) : blocked ? (
           <p className="text-muted">{a.statusMessage ?? `This account can't use ${PROVIDER_META[provider].product}.`}</p>
         ) : snap && snap.windows.length ? (
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-3 gap-6">
             {snap.windows.slice(0, 3).map((w) => (
               <WindowGauge key={w.id} w={w} now={now} compact stale={snap.stale} />
             ))}
