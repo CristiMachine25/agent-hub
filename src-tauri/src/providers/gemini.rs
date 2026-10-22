@@ -1147,9 +1147,13 @@ mod tests {
         std::thread::sleep(Duration::from_millis(20));
     }
 
+    /// What Gemini records as `projectHash` for a folder.
+    fn hash(project: &str) -> String {
+        format!("{:x}", Sha256::digest(project.as_bytes()))
+    }
+
     fn meta(id: &str, project: &str, kind: &str) -> Value {
-        let hash = format!("{:x}", Sha256::digest(project.as_bytes()));
-        json!({"sessionId": id, "projectHash": hash, "startTime": "2026-10-20T10:00:00.000Z", "lastUpdated": "2026-10-20T10:00:00.000Z", "kind": kind})
+        json!({"sessionId": id, "projectHash": hash(project), "startTime": "2026-10-20T10:00:00.000Z", "lastUpdated": "2026-10-20T10:00:00.000Z", "kind": kind})
     }
 
     fn said(text: &str) -> Value {
@@ -1161,7 +1165,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path();
         let id = |n: u8| format!("a1b2c3d4-e5f6-7890-abcd-ef12345678{n:02}");
-        let legacy = json!({"sessionId": id(1), "projectHash": meta("", "/work", "").get("projectHash"), "startTime": "2026-10-19T10:00:00Z", "lastUpdated": "2026-10-19T10:00:00Z",
+        let legacy = json!({"sessionId": id(1), "projectHash": hash("/work"), "startTime": "2026-10-19T10:00:00Z", "lastUpdated": "2026-10-19T10:00:00Z",
             "messages": [{"id": "m", "timestamp": "2026-10-19T10:00:00Z", "type": "user", "content": "hi"}]});
         let legacy_file = home.join(".gemini/tmp/work/chats/session-2026-10-19T10-00-a1b2c3d4.json");
         std::fs::create_dir_all(legacy_file.parent().unwrap()).unwrap();
