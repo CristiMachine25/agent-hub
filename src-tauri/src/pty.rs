@@ -168,10 +168,13 @@ pub struct PtySpawn {
     pub spec: CommandSpec,
     pub cols: u16,
     pub rows: u16,
+    /// The conversation the CLI was started in, when the app named one.
+    pub conversation: Option<String>,
 }
 
 struct Session {
     info: TerminalInfo,
+    conversation: Option<String>,
     /// Dropped to close the pty (on Windows that is what ends the reader).
     master: Option<Box<dyn MasterPty + Send>>,
     /// Feeds the writer thread.
@@ -301,6 +304,7 @@ impl Terminals {
         };
         let session = Session {
             info: info.clone(),
+            conversation: req.conversation,
             master: Some(pair.master),
             input: input.clone(),
             killer: child.clone_killer(),
@@ -357,6 +361,16 @@ impl Terminals {
         let mut v: Vec<TerminalInfo> = lock(&self.map).values().map(|s| s.info.clone()).collect();
         v.sort_by(|a, b| a.started_at.cmp(&b.started_at));
         v
+    }
+
+    /// The conversation a terminal was started in, when the app named one.
+    pub fn conversation(&self, id: &str) -> Option<String> {
+        lock(&self.map).get(id).and_then(|s| s.conversation.clone())
+    }
+
+    /// Running terminals that were started in a named conversation, with it.
+    pub fn live_conversations(&self) -> Vec<(TerminalInfo, String)> {
+        lock(&self.map).values().filter(|s| !s.info.exited).filter_map(|s| Some((s.info.clone(), s.conversation.clone()?))).collect()
     }
 
     pub fn scrollback(&self, id: &str) -> Option<String> {
@@ -630,7 +644,7 @@ mod tests {
     fn run_to_exit(spec: CommandSpec) -> (String, Option<i32>, Terminals, String) {
         let terminals = Terminals::default();
         let sink = Arc::new(TestSink::default());
-        let req = PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24 };
+        let req = PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24, conversation: None };
         let info = terminals.spawn(req, sink.clone()).expect("spawn");
         let deadline = Instant::now() + Duration::from_secs(20);
         while lock(&sink.exit).is_none() {
@@ -705,7 +719,8 @@ mod tests {
         let terminals = Terminals::default();
         let sink = Arc::new(TestSink::default());
         let spec = CommandSpec { program: program.into(), args, ..Default::default() };
-        let info = terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24 }, sink.clone()).expect("spawn");
+        let info =
+            terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24, conversation: None }, sink.clone()).expect("spawn");
         terminals.resize(&info.id, 100, 30).expect("resize");
         terminals.write(&info.id, b"echo typed-in\r").expect("write");
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -722,6 +737,31 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_terminal_keeps_the_conversation_it_was_started_in() {
+        let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/q".to_string()]) } else { ("sh", vec![]) };
+        let terminals = Terminals::default();
+        let sink = Arc::new(TestSink::default());
+        let spec = CommandSpec { program: program.into(), args, ..Default::default() };
+        let info = terminals
+            .spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24, conversation: Some("c1".into()) }, sink.clone())
+            .expect("spawn");
+        assert_eq!(terminals.conversation(&info.id).as_deref(), Some("c1"));
+        let live: Vec<(String, String)> = terminals.live_conversations().into_iter().map(|(i, c)| (i.id, c)).collect();
+        assert_eq!(live, [(info.id.clone(), "c1".to_string())]);
+        terminals.write(&info.id, b"exit\r").expect("write");
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while lock(&sink.exit).is_none() || !terminals.list()[0].exited {
+            assert!(Instant::now() < deadline, "no exit");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // Exited: no longer open anywhere, but still what the pane was in.
+        assert!(terminals.live_conversations().is_empty());
+        assert_eq!(terminals.conversation(&info.id).as_deref(), Some("c1"));
+        terminals.kill(&info.id).expect("kill");
+        assert_eq!(terminals.conversation(&info.id), None);
+    }
+
     /// A CLI that is not reading its input must not make writes block (or reorder later keys).
     #[cfg(unix)]
     #[test]
@@ -729,7 +769,8 @@ mod tests {
         let terminals = Terminals::default();
         let sink = Arc::new(TestSink::default());
         let spec = CommandSpec { program: "sh".into(), args: vec!["-c".into(), "stty raw -echo; echo ready; sleep 5".into()], ..Default::default() };
-        let info = terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24 }, sink.clone()).expect("spawn");
+        let info =
+            terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24, conversation: None }, sink.clone()).expect("spawn");
         let deadline = Instant::now() + Duration::from_secs(20);
         while !lock(&sink.out).contains("ready") {
             assert!(Instant::now() < deadline, "no output: {:?}", lock(&sink.out));
@@ -750,7 +791,8 @@ mod tests {
         let terminals = Terminals::default();
         let sink = Arc::new(TestSink::default());
         let spec = CommandSpec { program: "sh".into(), args: vec!["-c".into(), "trap '' HUP; echo ready; sleep 30".into()], ..Default::default() };
-        let info = terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24 }, sink.clone()).expect("spawn");
+        let info =
+            terminals.spawn(PtySpawn { account_id: "a".into(), title: "t".into(), spec, cols: 80, rows: 24, conversation: None }, sink.clone()).expect("spawn");
         let deadline = Instant::now() + Duration::from_secs(20);
         while !lock(&sink.out).contains("ready") {
             assert!(Instant::now() < deadline, "no output: {:?}", lock(&sink.out));

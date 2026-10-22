@@ -11,7 +11,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 type Res<T> = Result<T, String>;
 type St<'a> = State<'a, Arc<AppState>>;
@@ -134,9 +134,11 @@ fn pick_cwd(req_cwd: Option<String>, default_cwd: Option<String>) -> String {
     non_empty(req_cwd).into_iter().chain(non_empty(default_cwd)).find(|c| Path::new(c).is_dir()).unwrap_or_else(|| util::home().to_string_lossy().into_owned())
 }
 
-/// Command for a terminal target (CLI or login) with its cwd filled in. Re-applies sharing first
-/// so skills/plugins added to the shared home since the last launch are picked up. A resume is
-/// settled by `resume_target`: `Last` asks it to pick, `Session` names the one wanted.
+/// Command for a terminal target (CLI or login) with its cwd filled in, and the conversation it
+/// reopens. Re-applies sharing first so skills/plugins added to the shared home since the last
+/// launch are picked up. A resume is settled by `resume_target`: `Last` asks it to pick, `Session`
+/// names the one wanted; `panes` are the conversations the app's live panes were started in.
+#[allow(clippy::too_many_arguments)]
 async fn terminal_command(
     state: &AppState,
     account: &Account,
@@ -145,15 +147,16 @@ async fn terminal_command(
     resume: Resume,
     extra_args: &[String],
     req_cwd: Option<String>,
-) -> anyhow::Result<CommandSpec> {
+    panes: &[PaneConversation],
+) -> anyhow::Result<(CommandSpec, Resume)> {
     let cwd = pick_cwd(req_cwd, state.settings.read().await.default_cwd.clone());
     let resume = match resume {
         Resume::No => Resume::No,
         _ if login => Resume::No,
-        Resume::Last => resume_target(state, account, adapter, None, &cwd).await?,
-        Resume::Session(id) => resume_target(state, account, adapter, Some(id), &cwd).await?,
+        Resume::Last => resume_target(state, account, adapter, None, &cwd, panes).await?,
+        Resume::Session(id) => resume_target(state, account, adapter, Some(id), &cwd, panes).await?,
     };
-    let mut spec = if login { adapter.login_command(account).await? } else { adapter.cli_command(account, resume, extra_args).await? };
+    let mut spec = if login { adapter.login_command(account).await? } else { adapter.cli_command(account, resume.clone(), extra_args).await? };
     if !login {
         providers::apply_permission_mode(account.provider_id, &state.settings.read().await.permission_modes, &mut spec.args);
     }
@@ -165,24 +168,51 @@ async fn terminal_command(
         let shared = state.shared_dir(account.provider_id);
         let _ = tokio::task::spawn_blocking(move || knowledge::apply_for_account(&a, ad.as_ref(), &shared)).await;
     }
-    Ok(spec)
+    Ok((spec, resume))
+}
+
+/// A conversation a live pane of this app was started in. It counts as open even when the CLI
+/// leaves no marker of its own (Codex, Gemini and Copilot don't).
+#[derive(Debug, Clone)]
+struct PaneConversation {
+    account_id: String,
+    /// Whose pane, for messages.
+    who: String,
+    pid: u32,
+    conversation: String,
+}
+
+fn pane_conversations(terms: &pty::Terminals) -> Vec<PaneConversation> {
+    terms
+        .live_conversations()
+        .into_iter()
+        .map(|(info, conversation)| PaneConversation { account_id: info.account_id, who: info.title, pid: info.pid.unwrap_or_default(), conversation })
+        .collect()
 }
 
 /// How long a pane's process that was just stopped may still look alive, until the system reaps it.
 const SESSION_RELEASE_WAIT: Duration = Duration::from_millis(1500);
 
 /// The conversation a resume reopens: the one asked for when this account can open it, else this
-/// account's newest one in `cwd` that no live process has open, else the CLI's most recent. Two
-/// processes writing one conversation tangle it, so one still open elsewhere is never reopened.
-async fn resume_target(state: &AppState, account: &Account, adapter: &Adapter, wanted: Option<String>, cwd: &str) -> anyhow::Result<Resume> {
+/// account's newest one in `cwd` that no live process (or pane in `panes`) has open, else the CLI's
+/// most recent. Two processes writing one conversation tangle it, so one still open elsewhere is
+/// never reopened.
+async fn resume_target(
+    state: &AppState,
+    account: &Account,
+    adapter: &Adapter,
+    wanted: Option<String>,
+    cwd: &str,
+    panes: &[PaneConversation],
+) -> anyhow::Result<Resume> {
     let wanted = non_empty(wanted);
     let (ad, a, dir, w) = (adapter.clone(), account.clone(), PathBuf::from(cwd), wanted.clone());
     let candidates = tokio::task::spawn_blocking(move || ad.resume_candidates(&a, &dir, w.as_deref())).await?;
     let Some(first) = candidates.first().cloned() else { return Ok(Resume::Last) };
     let same_tool: Vec<Account> = state.accounts.read().await.iter().filter(|a| a.provider_id == account.provider_id).cloned().collect();
     let open = |ids: Vec<String>| {
-        let (ad, accounts) = (adapter.clone(), same_tool.clone());
-        tokio::task::spawn_blocking(move || open_conversations(&ad, &accounts, &ids))
+        let (ad, accounts, panes) = (adapter.clone(), same_tool.clone(), panes.to_vec());
+        tokio::task::spawn_blocking(move || open_conversations(&ad, &accounts, &panes, &ids))
     };
 
     if wanted.as_deref() == Some(first.as_str()) {
@@ -204,8 +234,8 @@ async fn resume_target(state: &AppState, account: &Account, adapter: &Adapter, w
     anyhow::bail!("This account's recent conversations here are all open in other windows, the newest in {who} (process {pid}). Close one first, or start a new conversation.")
 }
 
-/// Which of `ids` a live CLI process of these accounts has open, with who has it.
-fn open_conversations(adapter: &Adapter, accounts: &[Account], ids: &[String]) -> HashMap<String, (String, u32)> {
+/// Which of `ids` a live CLI process or pane of these accounts has open, with who has it.
+fn open_conversations(adapter: &Adapter, accounts: &[Account], panes: &[PaneConversation], ids: &[String]) -> HashMap<String, (String, u32)> {
     let mut out = HashMap::new();
     for a in accounts {
         for (pid, id) in adapter.open_sessions(a) {
@@ -213,6 +243,9 @@ fn open_conversations(adapter: &Adapter, accounts: &[Account], ids: &[String]) -
                 out.entry(id).or_insert_with(|| (notify::display_name(a), pid));
             }
         }
+    }
+    for p in panes.iter().filter(|p| ids.contains(&p.conversation) && accounts.iter().any(|a| a.id == p.account_id)) {
+        out.entry(p.conversation.clone()).or_insert_with(|| (p.who.clone(), p.pid));
     }
     out
 }
@@ -258,8 +291,9 @@ pub async fn launch_account(app: &AppHandle, state: &Arc<AppState>, req: LaunchR
         tokio::task::spawn_blocking(move || launcher::launch_desktop(&spec)).await?
     } else {
         let login = req.target == LaunchTarget::Login;
-        let spec = match terminal_command(state, &account, &adapter, login, requested_resume(req.resume, None), &extra, req.cwd.clone()).await {
-            Ok(s) => s,
+        let panes = app.try_state::<pty::Terminals>().map(|t| pane_conversations(&t)).unwrap_or_default();
+        let spec = match terminal_command(state, &account, &adapter, login, requested_resume(req.resume, None), &extra, req.cwd.clone(), &panes).await {
+            Ok((s, _)) => s,
             Err(e) => return Ok(failed(format!("{e:#}"))),
         };
         let title = notify::display_name(&account);
@@ -340,9 +374,15 @@ async fn spawn_terminal(app: &AppHandle, state: &Arc<AppState>, terms: pty::Term
     if let Some(why) = cli_refusal(&account).filter(|_| !login) {
         return Err(anyhow!(why));
     }
-    let spec = terminal_command(state, &account, &adapter, login, requested_resume(req.resume, req.resume_session.clone()), &extra, req.cwd.clone()).await?;
+    let panes = pane_conversations(&terms);
+    let resume = requested_resume(req.resume, req.resume_session.clone());
+    let (spec, resumed) = terminal_command(state, &account, &adapter, login, resume, &extra, req.cwd.clone(), &panes).await?;
     let title = notify::display_name(&account);
-    let spawn = pty::PtySpawn { account_id: account.id.clone(), title, spec, cols: req.cols, rows: req.rows };
+    let conversation = match resumed {
+        Resume::Session(id) => Some(id),
+        _ => None,
+    };
+    let spawn = pty::PtySpawn { account_id: account.id.clone(), title, spec, cols: req.cols, rows: req.rows, conversation };
     let sink: Arc<dyn pty::PtySink> = Arc::new(EventSink(app.clone()));
     let info = tokio::task::spawn_blocking(move || terms.spawn(spawn, sink)).await??;
     record_launch(app, state, &account.id).await?;
@@ -388,12 +428,19 @@ pub async fn terminal_session(state: St<'_>, terms: Terms<'_>, id: String) -> Re
     let Some(info) = terms.list().into_iter().find(|t| t.id == id) else { return Ok(None) };
     let Some(account) = state.account(&info.account_id).await else { return Ok(None) };
     let adapter = state.adapter(account.provider_id).map_err(err)?;
-    let session = tokio::task::spawn_blocking(move || match info.pid.filter(|_| !info.exited) {
-        // Running: only its own session file says which conversation it is in.
-        Some(pid) => adapter.open_sessions(&account).into_iter().find(|(p, _)| *p == pid).map(|(_, id)| id),
-        None => adapter.resume_candidates(&account, Path::new(&info.cwd), None).into_iter().next(),
-    });
+    let launched = terms.conversation(&info.id);
+    let session = tokio::task::spawn_blocking(move || pane_conversation(&adapter, &account, &info, launched));
     session.await.map_err(|e| e.to_string())
+}
+
+/// The conversation a pane's CLI is in. Running: what its own session file says, else the one the
+/// pane was started in (for CLIs that leave no such file). Exited: its account's newest one in
+/// that folder.
+fn pane_conversation(adapter: &Adapter, account: &Account, info: &TerminalInfo, launched: Option<String>) -> Option<String> {
+    match info.pid.filter(|_| !info.exited) {
+        Some(pid) => adapter.open_sessions(account).into_iter().find(|(p, _)| *p == pid).map(|(_, id)| id).or(launched),
+        None => adapter.resume_candidates(account, Path::new(&info.cwd), None).into_iter().next(),
+    }
 }
 
 #[tauri::command]
@@ -680,11 +727,11 @@ mod tests {
         rt.block_on(async {
             *state.accounts.write().await = vec![a1.clone(), a2.clone()];
             let adapter = state.adapter(ProviderId::Claude).unwrap();
-            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work").await.unwrap(), Resume::Session("s".into()));
-            assert_eq!(resume_target(&state, &a1, &adapter, Some("old".into()), "/work").await.unwrap(), Resume::Session("old".into()));
-            assert_eq!(resume_target(&state, &a1, &adapter, None, "/elsewhere").await.unwrap(), Resume::Last);
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work", &[]).await.unwrap(), Resume::Session("s".into()));
+            assert_eq!(resume_target(&state, &a1, &adapter, Some("old".into()), "/work", &[]).await.unwrap(), Resume::Session("old".into()));
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/elsewhere", &[]).await.unwrap(), Resume::Last);
             // a2 can't open a1's conversation (no shared history) and has none of its own.
-            assert_eq!(resume_target(&state, &a2, &adapter, Some("s".into()), "/work").await.unwrap(), Resume::Last);
+            assert_eq!(resume_target(&state, &a2, &adapter, Some("s".into()), "/work", &[]).await.unwrap(), Resume::Last);
 
             // "s" is still running in a2's window (this test's own process stands in).
             let me = std::process::id();
@@ -694,11 +741,85 @@ mod tests {
             let file = serde_json::json!({"pid": me, "sessionId": "s", "procStart": started}).to_string();
             std::fs::write(h2.join(format!("sessions/{me}.json")), file).unwrap();
             // Picking by itself, Resume skips it for the newest one that isn't open.
-            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work").await.unwrap(), Resume::Session("old".into()));
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work", &[]).await.unwrap(), Resume::Session("old".into()));
             // Asked for by name, it is refused rather than opened twice.
-            let e = resume_target(&state, &a1, &adapter, Some("s".into()), "/work").await.unwrap_err().to_string();
+            let e = resume_target(&state, &a1, &adapter, Some("s".into()), "/work", &[]).await.unwrap_err().to_string();
             assert!(e.starts_with("This conversation is still open in a2"), "{e}");
         });
+    }
+
+    /// A Codex home with two threads typed in `/work`, `old` then `new`.
+    fn codex_home(home: &Path, old: &str, new: &str) {
+        let dir = home.join("sessions/2026/10/20");
+        std::fs::create_dir_all(&dir).unwrap();
+        for id in [old, new] {
+            let meta = serde_json::json!({"type": "session_meta", "payload": {"id": id, "cwd": "/work", "source": "cli"}});
+            let said = serde_json::json!({"type": "event_msg", "payload": {"type": "user_message", "message": "hi"}});
+            std::fs::write(dir.join(format!("rollout-2026-10-20T10-00-00-{id}.jsonl")), format!("{meta}\n{said}")).unwrap();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn codex_account(id: &str, home: &Path) -> Account {
+        Account { provider_id: ProviderId::Codex, home_dir: home.to_string_lossy().into(), ..crate::recommend::tests::account(id, "pro") }
+    }
+
+    fn pane(account_id: &str, pid: u32, conversation: &str) -> PaneConversation {
+        PaneConversation { account_id: account_id.into(), who: format!("{account_id}'s pane"), pid, conversation: conversation.into() }
+    }
+
+    /// Codex, Gemini and Copilot leave no marker of the conversation a process is in, so the one a
+    /// pane of this app was started in counts as open: two panes never both pick the newest.
+    #[test]
+    fn resume_skips_conversations_other_panes_were_started_in() {
+        let t = tempfile::tempdir().unwrap();
+        let (old, new) = ("01a1554c-99d9-7531-8477-a42d7e29b001", "01a1554c-99d9-7531-8477-a42d7e29b002");
+        codex_home(&t.path().join("one"), old, new);
+        let a1 = codex_account("a1", &t.path().join("one"));
+        let claude = crate::recommend::tests::account("c1", "max");
+        let state = AppState::load(t.path().join("data")).unwrap();
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            *state.accounts.write().await = vec![a1.clone(), claude.clone()];
+            let adapter = state.adapter(ProviderId::Codex).unwrap();
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work", &[]).await.unwrap(), Resume::Session(new.into()));
+            // A pane of another tool's account doesn't count.
+            let other_tool = [pane("c1", 7, new)];
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work", &other_tool).await.unwrap(), Resume::Session(new.into()));
+            let open = [pane("a1", 4242, new)];
+            assert_eq!(resume_target(&state, &a1, &adapter, None, "/work", &open).await.unwrap(), Resume::Session(old.into()));
+            let e = resume_target(&state, &a1, &adapter, Some(new.into()), "/work", &open).await.unwrap_err().to_string();
+            assert!(e.starts_with("This conversation is still open in a1's pane (process 4242)"), "{e}");
+            let both = [pane("a1", 4242, new), pane("a1", 4243, old)];
+            let e = resume_target(&state, &a1, &adapter, None, "/work", &both).await.unwrap_err().to_string();
+            assert!(e.contains("all open in other windows"), "{e}");
+        });
+    }
+
+    #[test]
+    fn a_running_pane_is_in_the_conversation_it_was_started_in() {
+        let t = tempfile::tempdir().unwrap();
+        let (old, new) = ("01a1554c-99d9-7531-8477-a42d7e29b001", "01a1554c-99d9-7531-8477-a42d7e29b002");
+        codex_home(t.path(), old, new);
+        let account = codex_account("a1", t.path());
+        let adapter = crate::providers::get(ProviderId::Codex);
+        let mut info = TerminalInfo {
+            id: "t1".into(),
+            account_id: "a1".into(),
+            title: "a1".into(),
+            command_line: "codex".into(),
+            cwd: "/work".into(),
+            pid: Some(4242),
+            started_at: util::now_iso(),
+            exited: false,
+            exit_code: None,
+        };
+        // Codex can't say which thread its process is in: the one the pane was started in is it.
+        assert_eq!(pane_conversation(&adapter, &account, &info, Some(old.into())).as_deref(), Some(old));
+        assert_eq!(pane_conversation(&adapter, &account, &info, None), None);
+        // Once it exited, the account's newest one in that folder, as before.
+        info.exited = true;
+        assert_eq!(pane_conversation(&adapter, &account, &info, Some(old.into())).as_deref(), Some(new));
     }
 
     #[test]
