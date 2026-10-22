@@ -12,7 +12,10 @@ vi.mock('@xterm/xterm', () => ({
     input: (d: string) => void = () => {}
     cols = 80
     rows = 24
-    loadAddon() {}
+    // Like xterm: an addon is registered, then activated; activate may throw.
+    loadAddon(addon: { activate?: (t: unknown) => void }) {
+      addon.activate?.(this)
+    }
     attachCustomKeyEventHandler() {}
     onData(cb: (d: string) => void) {
       this.input = cb
@@ -27,13 +30,17 @@ vi.mock('@xterm/xterm', () => ({
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class {} }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
-const webgl = vi.hoisted(() => ({ throws: false }))
+const webgl = vi.hoisted(() => ({ throws: false, last: undefined as unknown }))
 vi.mock('@xterm/addon-webgl', () => ({
   WebglAddon: class {
     lost = () => {}
     disposed = false
     constructor() {
-      if (webgl.throws) throw new Error('WebGL2 unavailable')
+      webgl.last = this
+    }
+    // The real addon reports a missing WebGL2 context from activate, which loadAddon calls.
+    activate() {
+      if (webgl.throws) throw new Error('WebGL2 not supported')
     }
     onContextLoss(cb: () => void) {
       this.lost = cb
@@ -97,16 +104,20 @@ describe('restored scrollback', () => {
 
 describe('WebGL renderer', () => {
   const ids: string[] = []
-  const shown = (id: string) => (ids.push(id), show(id))
+  const shown = (id: string) => {
+    ids.push(id)
+    return show(id)
+  }
   afterEach(() => {
     webgl.throws = false
     for (const id of ids.splice(0)) disposeTerm(id)
   })
 
-  it('keeps the DOM renderer when the addon throws', () => {
+  it('keeps the DOM renderer when the addon fails to activate, and unregisters it', () => {
     webgl.throws = true
     expect(() => shown('no-gl')).not.toThrow()
     expect(addonOf('no-gl')).toBeUndefined()
+    expect((webgl.last as FakeAddon).disposed).toBe(true)
   })
 
   it('renders at most MAX_WEBGL terminals with WebGL', () => {
@@ -137,7 +148,8 @@ describe('WebGL renderer', () => {
   })
 
   it('releases the addon when the terminal is disposed', () => {
-    const addon = (shown('gone'), addonOf('gone')!)
+    shown('gone')
+    const addon = addonOf('gone')!
     disposeTerm('gone')
     expect(addon.disposed).toBe(true)
   })

@@ -278,7 +278,7 @@ export function acquireWebgl(id: string) {
     try {
       addon?.dispose()
     } catch {
-      /* never activated */
+      /* activation failed partway; disposing only unregisters it from the terminal */
     }
   }
 }
