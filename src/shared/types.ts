@@ -23,6 +23,8 @@ export interface ProviderInfo {
   homeEnvVar?: string
   /** Install hint shown in the UI when the CLI is missing. */
   installHint: string
+  /** The folder the tool uses when nothing overrides it (~/.claude): an account there is its main folder. */
+  defaultHome: string
 }
 
 /** Which parts of a profile's home are linked to a shared source instead of being private. */

@@ -53,7 +53,8 @@ function mockProviders(p: Platform): ProviderInfo[] {
       desktopInstalled: true,
       desktopMultiAccount: true,
       homeEnvVar: 'CLAUDE_CONFIG_DIR',
-      installHint: 'npm install -g @anthropic-ai/claude-code'
+      installHint: 'npm install -g @anthropic-ai/claude-code',
+      defaultHome: `${home}${s}.claude`
     },
     {
       id: 'codex',
@@ -67,7 +68,8 @@ function mockProviders(p: Platform): ProviderInfo[] {
       desktopInstalled: true,
       desktopMultiAccount: false,
       homeEnvVar: 'CODEX_HOME',
-      installHint: 'npm install -g @openai/codex'
+      installHint: 'npm install -g @openai/codex',
+      defaultHome: `${home}${s}.codex`
     },
     {
       id: 'gemini',
@@ -80,7 +82,8 @@ function mockProviders(p: Platform): ProviderInfo[] {
       desktopInstalled: false,
       desktopMultiAccount: false,
       homeEnvVar: 'GEMINI_CLI_HOME',
-      installHint: 'npm install -g @google/gemini-cli'
+      installHint: 'npm install -g @google/gemini-cli',
+      defaultHome: home
     },
     {
       id: 'copilot',
@@ -91,7 +94,8 @@ function mockProviders(p: Platform): ProviderInfo[] {
       desktopInstalled: false,
       desktopMultiAccount: false,
       homeEnvVar: 'COPILOT_HOME',
-      installHint: 'npm install -g @github/copilot'
+      installHint: 'npm install -g @github/copilot',
+      defaultHome: `${home}${s}.copilot`
     }
   ]
 }

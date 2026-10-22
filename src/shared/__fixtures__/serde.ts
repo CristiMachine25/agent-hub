@@ -16,7 +16,8 @@ export const ProviderInfo = {
   "desktopPath": "/Applications/Claude.app",
   "desktopMultiAccount": false,
   "homeEnvVar": "CLAUDE_CONFIG_DIR",
-  "installHint": "npm i -g @anthropic-ai/claude-code"
+  "installHint": "npm i -g @anthropic-ai/claude-code",
+  "defaultHome": "/home/me/.claude"
 } satisfies Full<T.ProviderInfo>
 
 export const Account = {

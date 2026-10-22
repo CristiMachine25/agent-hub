@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { canDeleteHome, profilesDir } from './profiles'
+import { canDeleteHome, isMainFolder, profilesDir } from './profiles'
 
 describe('profilesDir', () => {
   it('uses settings.profilesDir when set, else "profiles" in the app data folder', () => {
@@ -12,19 +12,30 @@ describe('profilesDir', () => {
 describe('canDeleteHome matches the backend rule', () => {
   const profiles = '/Users/sam/Library/Application Support/dev.switchyard.app/profiles'
   const acc = (homeDir: string, isDefaultHome = false) => ({ homeDir, isDefaultHome })
+  const main = '/Users/sam/.claude'
 
   it('allows only a non-default home inside the profiles folder', () => {
-    expect(canDeleteHome(acc(`${profiles}/claude/side`), profiles, 'darwin')).toBe(true)
-    expect(canDeleteHome(acc(`${profiles}/claude/side/`), `${profiles}/`, 'darwin')).toBe(true)
-    expect(canDeleteHome(acc(`${profiles}/claude/side`, true), profiles, 'darwin')).toBe(false)
-    expect(canDeleteHome(acc('/Users/sam/.claude-personal'), profiles, 'darwin')).toBe(false)
-    expect(canDeleteHome(acc(profiles), profiles, 'darwin')).toBe(false)
-    expect(canDeleteHome(acc(`${profiles}-old/claude/x`), profiles, 'darwin')).toBe(false)
+    expect(canDeleteHome(acc(`${profiles}/claude/side`), profiles, main, 'darwin')).toBe(true)
+    expect(canDeleteHome(acc(`${profiles}/claude/side/`), `${profiles}/`, main, 'darwin')).toBe(true)
+    expect(canDeleteHome(acc(`${profiles}/claude/side`, true), profiles, main, 'darwin')).toBe(false)
+    expect(canDeleteHome(acc('/Users/sam/.claude-personal'), profiles, main, 'darwin')).toBe(false)
+    expect(canDeleteHome(acc(profiles), profiles, main, 'darwin')).toBe(false)
+    expect(canDeleteHome(acc(`${profiles}-old/claude/x`), profiles, main, 'darwin')).toBe(false)
   })
 
   it('compares case-insensitively with either slash on Windows only', () => {
     const win = 'C:\\Users\\sam\\AppData\\Roaming\\dev.switchyard.app/profiles'
-    expect(canDeleteHome(acc('c:\\users\\sam\\appdata\\roaming\\dev.switchyard.app\\Profiles\\gemini\\x'), win, 'win32')).toBe(true)
-    expect(canDeleteHome(acc(`${profiles.toLowerCase()}/claude/x`), profiles, 'darwin')).toBe(false)
+    expect(canDeleteHome(acc('c:\\users\\sam\\appdata\\roaming\\dev.switchyard.app\\Profiles\\gemini\\x'), win, undefined, 'win32')).toBe(true)
+    expect(canDeleteHome(acc(`${profiles.toLowerCase()}/claude/x`), profiles, main, 'darwin')).toBe(false)
+  })
+
+  // accounts.rs remove_account: a home at the tool's own folder is its main folder even when not flagged.
+  it("never deletes the tool's own folder, flagged or not", () => {
+    expect(canDeleteHome(acc('/Users/sam/.claude'), '/Users/sam', main, 'darwin')).toBe(false)
+    expect(canDeleteHome(acc('/Users/sam/.claude-side'), '/Users/sam', main, 'darwin')).toBe(true)
+    expect(isMainFolder(acc('/Users/sam/.claude/'), main, 'darwin')).toBe(true)
+    expect(isMainFolder(acc('C:\\Users\\Sam\\.claude'), 'c:/users/sam/.claude', 'win32')).toBe(true)
+    expect(isMainFolder(acc('/x', true), undefined, 'darwin')).toBe(true)
+    expect(isMainFolder(acc('/x'), undefined, 'darwin')).toBe(false)
   })
 })

@@ -746,6 +746,7 @@ impl ProviderAdapter for GeminiAdapter {
             desktop_multi_account: false,
             home_env_var: Some(HOME_ENV.into()),
             install_hint: "npm i -g @google/gemini-cli".into(),
+            default_home: self.default_home().to_string_lossy().into_owned(),
         }
     }
 

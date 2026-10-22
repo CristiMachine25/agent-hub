@@ -49,6 +49,8 @@ pub struct ProviderInfo {
     pub desktop_multi_account: bool,
     pub home_env_var: Option<String>,
     pub install_hint: String,
+    /// The folder the tool uses when nothing overrides it (~/.claude): an account there is its main folder.
+    pub default_home: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -682,6 +684,7 @@ mod contract_tests {
             desktop_multi_account: false,
             home_env_var: some("CLAUDE_CONFIG_DIR"),
             install_hint: s("npm i -g @anthropic-ai/claude-code"),
+            default_home: s("/home/me/.claude"),
         };
         f.value("ProviderInfo", "T.ProviderInfo", &provider);
 
