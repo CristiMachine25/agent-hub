@@ -4,7 +4,7 @@ import { ArrowRightLeft, FolderOpen, History, Loader2, LogIn, Maximize2, Minimiz
 import type { Account } from '@shared/types'
 import { api } from '@/api'
 import { useStore } from '@/store'
-import { atLimit, continueCandidates, historyShared, isBlocked, isSignedOut, isUsable, loginLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
+import { atLimit, continueCandidates, historyShared, isBlocked, isSignedOut, isUsable, statusLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { formatCountdown, formatPct, windowName } from '@/lib/format'
 import { PROVIDER_META } from '@/lib/providers'
@@ -47,8 +47,8 @@ function useAccount(id: string | undefined): Account | undefined {
 /** "Claude H2 (100% left)" style candidate text. */
 function leftText(a: Account, usage: ReturnType<typeof useStore.getState>['usage']): string {
   const b = bindingWindow(usage[a.id])
-  const login = loginLabel(a)
-  if (login) return login
+  const status = statusLabel(a)
+  if (status) return status
   if (!b) return 'No live limits'
   return atLimit(usage[a.id]) ? 'Limit reached' : `${formatPct(leftOf(b))} left`
 }

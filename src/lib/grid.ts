@@ -1,7 +1,6 @@
 // Pure helpers for the terminal grid: layout geometry, focus navigation, workspace persistence.
 import type { Account, Recommendation, TerminalInfo, UsageSnapshot } from '@shared/types'
 import { bindingWindow, leftOf } from './quota'
-import { PROVIDER_META } from './providers'
 
 export type LayoutId = 1 | 2 | 3 | 4 | 6 | 9
 export const LAYOUT_IDS: LayoutId[] = [1, 2, 3, 4, 6, 9]
@@ -264,9 +263,9 @@ export function isUsable(a: Account, usage: Record<string, UsageSnapshot>): bool
   return !isSignedOut(a) && !isBlocked(a) && !atLimit(usage[a.id])
 }
 
-/** Short status for an account whose login can't be used right now, or null when it can. */
-export function loginLabel(a: Pick<Account, 'status' | 'providerId'>): string | null {
-  if (isBlocked(a)) return `No ${PROVIDER_META[a.providerId].product} access`
+/** Short status for an account that is signed out, renewing its login or blocked; null when it is fine. */
+export function statusLabel(a: Pick<Account, 'status'>): string | null {
+  if (isBlocked(a)) return 'No access'
   return a.status === 'needs-login' ? 'Signed out' : a.status === 'expired' ? 'Login expired' : null
 }
 
