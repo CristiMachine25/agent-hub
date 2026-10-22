@@ -352,10 +352,10 @@ struct EventSink(AppHandle);
 
 impl pty::PtySink for EventSink {
     fn output(&self, id: &str, data: String) {
-        let _ = self.0.emit("terminal-output", serde_json::json!({ "id": id, "data": data }));
+        let _ = self.0.emit("terminal-output", TerminalOutput { id: id.to_string(), data });
     }
     fn exit(&self, id: &str, code: Option<i32>) {
-        let _ = self.0.emit("terminal-exit", serde_json::json!({ "id": id, "code": code }));
+        let _ = self.0.emit("terminal-exit", TerminalExit { id: id.to_string(), code });
     }
 }
 

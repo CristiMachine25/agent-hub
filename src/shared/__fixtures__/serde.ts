@@ -384,6 +384,92 @@ export const _PermissionModes_copilot: Same<(typeof PermissionModes_copilot)[num
 export const commands = ["providers_list","accounts_list","accounts_detect","accounts_import","accounts_create","accounts_update","accounts_remove","usage_latest","usage_history","usage_activity","usage_refresh","usage_set_manual","launch","terminal_spawn","terminal_write","terminal_resize","terminal_kill","terminal_list","terminal_scrollback","terminal_session","recommend","notifications_list","notifications_mark_read","settings_get","settings_set","transfer_export","transfer_preview","transfer_import","system_open_path","knowledge_get","knowledge_reseed","skills_search","skills_preview","skills_installed","skills_install","skills_remove","system_open_url"] as const
 export const _commands: Same<(typeof commands)[number], (typeof T.COMMANDS)[keyof typeof T.COMMANDS]> = true
 
+export const event_usage_updated = {
+  "acc-1": {
+    "accountId": "acc-1",
+    "providerId": "claude",
+    "fetchedAt": "2026-01-01T00:00:00Z",
+    "source": "api",
+    "windows": [
+      {
+        "id": "five_hour",
+        "label": "5-hour session",
+        "usedPercent": 42.5,
+        "resetsAt": "2026-01-01T05:00:00Z",
+        "windowMinutes": 300
+      }
+    ],
+    "plan": "Max 20x",
+    "email": "me@example.com",
+    "credits": {
+      "used": 1.5,
+      "limit": 10.0,
+      "unit": "USD"
+    },
+    "error": "timed out",
+    "stale": true
+  }
+} satisfies Full<T.AppEvents['usage-updated']>
+
+export const event_accounts_changed = [
+  {
+    "id": "acc-1",
+    "providerId": "claude",
+    "label": "Work",
+    "email": "me@example.com",
+    "plan": "Max 20x",
+    "homeDir": "/home/me/.claude-work",
+    "isDefaultHome": false,
+    "sharedFrom": "/home/me/.claude",
+    "sharing": {
+      "skills": true,
+      "plugins": true,
+      "agents": true,
+      "instructions": true,
+      "settings": false,
+      "mcp": true,
+      "history": true
+    },
+    "color": "#3987E5",
+    "tags": [
+      "coding"
+    ],
+    "notes": "notes",
+    "status": "ok",
+    "statusMessage": "signed in",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "lastLaunchedAt": "2026-01-02T00:00:00Z",
+    "launchCount": 3,
+    "monthlyCost": 200.0,
+    "pinned": true
+  }
+] satisfies Full<T.AppEvents['accounts-changed']>
+
+export const event_notification = {
+  "id": "n-1",
+  "kind": "limit-reset",
+  "accountId": "acc-1",
+  "title": "Reset",
+  "body": "Your limit reset",
+  "createdAt": "2026-01-01T00:00:00Z",
+  "read": false
+} satisfies Full<T.AppEvents['notification']>
+
+export const event_terminal_output = {
+  "id": "t-1",
+  "data": "hello"
+} satisfies Full<T.AppEvents['terminal-output']>
+
+export const event_terminal_exit = {
+  "id": "t-1",
+  "code": 0
+} satisfies Full<T.AppEvents['terminal-exit']>
+
+export const event_navigate = "terminals" satisfies Full<T.AppEvents['navigate']>
+
+export const events = ["accounts-changed","navigate","notification","terminal-exit","terminal-output","usage-updated"] as const
+export const _events: Same<(typeof events)[number], keyof T.AppEvents> = true
+
 // What the UI receives with every Option set to None.
 null satisfies T.ProviderInfo['cliPath']
 null satisfies T.ProviderInfo['cliVersion']
@@ -416,6 +502,7 @@ null satisfies T.AppSettings['defaultCwd']
 null satisfies T.AppSettings['profilesDir']
 null satisfies T.TerminalInfo['exitCode']
 null satisfies T.TerminalInfo['pid']
+null satisfies T.AppEvents['terminal-exit']['code']
 null satisfies T.InstalledSkill['id']
 null satisfies T.SkillInstallOutcome['error']
 null satisfies T.ImportPreview['accounts'][number]['alreadyHere']

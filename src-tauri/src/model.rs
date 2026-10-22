@@ -594,9 +594,24 @@ pub struct SkillInstallOutcome {
     pub error: Option<String>,
 }
 
+/// Payload of the `terminal-output` event: UTF-8 text from a terminal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalOutput {
+    pub id: String,
+    pub data: String,
+}
+
+/// Payload of the `terminal-exit` event.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalExit {
+    pub id: String,
+    pub code: Option<i32>,
+}
+
 /// Writes `src/shared/__fixtures__/serde.ts`: one value of every type the UI sends or receives, with
-/// every Option set, plus every enum value and every registered command. tsc checks that file against
-/// `src/shared/types.ts`, so a field or enum value that exists on one side only fails the typecheck.
+/// every Option set, plus every enum value, every registered command and every event Rust emits, with
+/// its payload. tsc checks that file against `src/shared/types.ts`, so a field or enum value that
+/// exists on one side only fails the typecheck.
 /// This test fails while the committed file is stale; `UPDATE_SERDE_FIXTURE=1 cargo test serde_fixture`
 /// rewrites it.
 #[cfg(test)]
@@ -703,6 +718,30 @@ mod contract_tests {
         // Comments inside the list (a disabled command) are not registrations.
         let list: String = list.lines().map(|l| l.split("//").next().unwrap_or_default()).collect::<Vec<_>>().join("\n");
         list.split(',').map(|path| path.rsplit("::").next().unwrap().trim().to_string()).filter(|name| !name.is_empty()).collect()
+    }
+
+    /// Event names passed to emit in any Rust file under src. Each must be a string literal.
+    fn emitted_events() -> Vec<String> {
+        fn walk(dir: &std::path::Path, needle: &str, out: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    walk(&path, needle, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    let src = std::fs::read_to_string(&path).unwrap();
+                    for (i, _) in src.match_indices(needle) {
+                        let name = src[i + needle.len()..].strip_prefix('"').and_then(|rest| rest.split('"').next());
+                        out.push(name.unwrap_or_else(|| panic!("{}: emit without a literal event name", path.display())).to_string());
+                    }
+                }
+            }
+        }
+        let mut names = Vec::new();
+        // Split so this file's own source doesn't match.
+        walk(std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/src")), concat!(".", "emit("), &mut names);
+        names.sort();
+        names.dedup();
+        names
     }
 
     #[test]
@@ -943,6 +982,17 @@ mod contract_tests {
         }
         f.values("commands", "(typeof T.COMMANDS)[keyof typeof T.COMMANDS]", &registered_commands());
 
+        // Event payloads, built from the types the emit sites send.
+        f.value("event_usage_updated", "T.AppEvents['usage-updated']", &HashMap::from([(s("acc-1"), snapshot.clone())]));
+        f.value("event_accounts_changed", "T.AppEvents['accounts-changed']", &std::slice::from_ref(&account));
+        f.value("event_notification", "T.AppEvents['notification']", &notification);
+        let output = TerminalOutput { id: s("t-1"), data: s("hello") };
+        f.value("event_terminal_output", "T.AppEvents['terminal-output']", &output);
+        let exit = TerminalExit { id: s("t-1"), code: Some(0) };
+        f.value("event_terminal_exit", "T.AppEvents['terminal-exit']", &exit);
+        f.value("event_navigate", "T.AppEvents['navigate']", &"terminals");
+        f.values("events", "keyof T.AppEvents", &emitted_events());
+
         f.0 += "\n// What the UI receives with every Option set to None.\n";
         f.nulls("T.ProviderInfo", &provider);
         f.nulls("T.Account", &account);
@@ -952,6 +1002,7 @@ mod contract_tests {
         f.nulls("T.AppNotification", &notification);
         f.nulls("T.AppSettings", &settings);
         f.nulls("T.TerminalInfo", &terminal);
+        f.nulls("T.AppEvents['terminal-exit']", &exit);
         f.nulls("T.InstalledSkill", &installed);
         f.nulls("T.SkillInstallOutcome", &outcome);
         f.nulls("T.ImportPreview", &import_preview);
