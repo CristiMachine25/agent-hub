@@ -47,22 +47,29 @@ fn reset_phrase(w: &UsageWindow, now: DateTime<Utc>) -> Option<String> {
 }
 
 /// Best other usable account of the same provider, with its percent left. Its CLI is the one this
-/// account uses, so whether it is installed doesn't change the pick.
-fn best_alternative<'a>(
-    account: &Account,
-    accounts: &'a [Account],
-    latest: &HashMap<String, UsageSnapshot>,
-    now: DateTime<Utc>,
-) -> Option<(&'a Account, Recommendation)> {
-    recommend::recommend(TaskType::Any, Some(account.provider_id), accounts, latest, &[], now)
+/// account uses, so whether it is installed doesn't change the pick. When the window caps one model
+/// (Weekly Opus), the other account must have at least 10% of that window left too.
+fn best_alternative<'a>(ctx: &WindowCtx<'a>) -> Option<(&'a Account, Recommendation)> {
+    let model = recommend::is_model_window(ctx.w).then_some(ctx.w.id.as_str());
+    recommend::recommend(TaskType::Any, Some(ctx.account.provider_id), ctx.accounts, ctx.latest, &[], ctx.now)
         .into_iter()
-        .filter(|r| r.account_id != account.id && r.score >= 10.0)
-        .find_map(|r| accounts.iter().find(|a| a.id == r.account_id).map(|a| (a, r)))
+        .filter(|r| r.account_id != ctx.account.id && r.score >= 10.0)
+        .filter(|r| model.is_none_or(|id| window_left(ctx.latest.get(&r.account_id), id).is_none_or(|left| left >= 10.0)))
+        .find_map(|r| ctx.accounts.iter().find(|a| a.id == r.account_id).map(|a| (a, r)))
 }
 
-fn alternative_sentence(alt: Option<&(&Account, Recommendation)>, latest: &HashMap<String, UsageSnapshot>) -> String {
+fn window_left(snap: Option<&UsageSnapshot>, id: &str) -> Option<f64> {
+    snap?.windows.iter().find(|w| w.id == id).map(|w| (100.0 - w.used_percent).clamp(0.0, 100.0))
+}
+
+fn alternative_sentence(alt: Option<&(&Account, Recommendation)>, ctx: &WindowCtx) -> String {
     let Some((a, _)) = alt else { return String::new() };
-    match latest.get(&a.id).and_then(recommend::left_percent) {
+    if recommend::is_model_window(ctx.w) {
+        if let Some(left) = window_left(ctx.latest.get(&a.id), &ctx.w.id) {
+            return format!(" {} has {:.0}% of {} left.", a.label, left, ctx.w.label);
+        }
+    }
+    match ctx.latest.get(&a.id).and_then(recommend::left_percent) {
         Some(left) => format!(" {} has {:.0}% left.", a.label, left),
         None => format!(" {} is available.", a.label),
     }
@@ -198,13 +205,13 @@ fn limit_rules(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotifi
         }
         state.fired.insert(limit_k, "1".into());
         state.fired.insert(nearly_k, "1".into());
-        let alt = best_alternative(ctx.account, ctx.accounts, ctx.latest, ctx.now);
+        let alt = best_alternative(ctx);
         let when = resets.map(|r| format!("It {r}.")).unwrap_or_else(|| "Reset time unknown.".into());
         out.push(note(
             NotificationKind::LimitReached,
             ctx.account,
             format!("{name} hit its {} limit", ctx.w.label),
-            format!("{when}{}", alternative_sentence(alt.as_ref(), ctx.latest)),
+            format!("{when}{}", alternative_sentence(alt.as_ref(), ctx)),
             ctx.now,
         ));
         if let Some((a, r)) = alt {
@@ -218,13 +225,13 @@ fn limit_rules(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotifi
         }
     } else if used >= th && !state.fired.contains_key(&nearly_k) && !state.fired.contains_key(&limit_k) {
         state.fired.insert(nearly_k, "1".into());
-        let alt = best_alternative(ctx.account, ctx.accounts, ctx.latest, ctx.now);
+        let alt = best_alternative(ctx);
         let when = resets.map(|r| format!("{} {r}.", ctx.w.label)).unwrap_or_else(|| format!("{} is nearly used up.", ctx.w.label));
         out.push(note(
             NotificationKind::NearlyExhausted,
             ctx.account,
             format!("{name} is at {used:.0}%"),
-            format!("{when}{}", alternative_sentence(alt.as_ref(), ctx.latest)),
+            format!("{when}{}", alternative_sentence(alt.as_ref(), ctx)),
             ctx.now,
         ));
     }
@@ -343,6 +350,26 @@ mod tests {
         after.insert("b".into(), new["b"].clone());
         assert_eq!(run(&new, &after, &accts, &mut st, now), vec![NotificationKind::LimitReset]);
         assert!(!st.fired.keys().any(|k| k.starts_with("limit|a")));
+    }
+
+    /// When a model window (Weekly Opus) runs out, the suggested account must have that model left too.
+    #[test]
+    fn model_limit_suggests_an_account_with_that_model_left() {
+        let now = Utc::now();
+        let accts = vec![account("a", "Max"), account("b", "Max"), account("c", "Max")];
+        let opus = |used: f64| UsageWindow { id: "seven_day_opus".into(), label: "Weekly Opus".into(), ..window("seven_day", used, Some(30), 10080, now) };
+        let new = HashMap::from([
+            ("a".to_string(), snap("a", vec![window("seven_day", 20.0, Some(30), 10080, now), opus(100.0)])),
+            ("b".to_string(), snap("b", vec![window("seven_day", 10.0, Some(30), 10080, now), opus(100.0)])),
+            ("c".to_string(), snap("c", vec![window("seven_day", 50.0, Some(30), 10080, now), opus(20.0)])),
+        ]);
+        let notes = evaluate(&HashMap::new(), &new, &accts[..1], &settings(), &mut NotifyState::default(), now);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        let notes = evaluate(&HashMap::new(), &new, &accts, &settings(), &mut NotifyState::default(), now);
+        let reached = notes.iter().find(|n| n.kind == NotificationKind::LimitReached && n.account_id.as_deref() == Some("a")).unwrap();
+        assert!(reached.body.ends_with(" c has 80% of Weekly Opus left."), "{}", reached.body);
+        let switch: Vec<_> = notes.iter().filter(|n| n.kind == NotificationKind::SwitchSuggested).map(|n| n.account_id.as_deref()).collect();
+        assert!(switch.iter().all(|id| *id == Some("c")), "{switch:?}");
     }
 
     #[test]
