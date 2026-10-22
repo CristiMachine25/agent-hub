@@ -18,7 +18,7 @@ import type {
 } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
 import { recommend as rankAccounts } from '@/lib/recommend'
-import { canDeleteHome, profilesDir } from '@/lib/profiles'
+import { canDeleteHome, isMainFolder, profilesDir } from '@/lib/profiles'
 import { ACCOUNT_COLORS, PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { FEATURED, featuredFor, folderOf } from '@/lib/skills'
 import type { Platform } from '@/lib/platform'
@@ -107,7 +107,8 @@ export function createMockApi(platform: Platform): AgentHubApi {
       cli += a.providerId === 'codex' ? ' resume --last' : a.providerId === 'gemini' ? ' --resume latest' : ' --continue'
     }
     if (req.extraArgs?.length) cli += ' ' + req.extraArgs.map(quote).join(' ')
-    const envVar = prov.homeEnvVar
+    // Like the adapters: the main folder (flagged, or at the default path) needs no override.
+    const envVar = isMainFolder(a, prov.defaultHome, platform) ? undefined : prov.homeEnvVar
     const term = db.settings.terminal
 
     if (req.target === 'desktop') {
@@ -121,12 +122,12 @@ export function createMockApi(platform: Platform): AgentHubApi {
     }
 
     if (platform === 'win32') {
-      const env = a.isDefaultHome || !envVar ? '' : `set ${envVar}=${a.homeDir}&& `
+      const env = !envVar ? '' : `set ${envVar}=${a.homeDir}&& `
       if (term === 'cmd') return `cmd.exe /c start "${a.label}" /d ${quote(cwd)} cmd /k "${env}${cli}"`
-      if (term === 'powershell') return `powershell.exe -NoExit -Command "${a.isDefaultHome || !envVar ? '' : `$env:${envVar}='${a.homeDir}'; `}${cli}"`
+      if (term === 'powershell') return `powershell.exe -NoExit -Command "${!envVar ? '' : `$env:${envVar}='${a.homeDir}'; `}${cli}"`
       return `wt.exe -w 0 new-tab --title "${a.label}" -d ${quote(cwd)} cmd /k "${env}${cli}"`
     }
-    const env = a.isDefaultHome || !envVar ? '' : `${envVar}=${quote(a.homeDir)} `
+    const env = !envVar ? '' : `${envVar}=${quote(a.homeDir)} `
     const script = `cd ${quote(cwd)} && ${env}${cli}`
     if (platform === 'darwin') {
       if (term === 'iterm') return `osascript -e 'tell application "iTerm" to create window with default profile command "${script}"'`

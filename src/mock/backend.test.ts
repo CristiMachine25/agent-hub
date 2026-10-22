@@ -54,4 +54,15 @@ describe('mock accounts behave like the real backend', () => {
     const kept = await api.accounts.create({ providerId: 'claude', label: 'Kept' })
     expect(await api.accounts.remove(kept.id, { deleteHome: false })).toBe(false)
   })
+
+  it('launches an account at the main folder without a home override, flagged or not, like the adapters', async () => {
+    const api = createMockApi('darwin')
+    const main = (await api.accounts.list()).find((a) => a.providerId === 'claude' && a.isDefaultHome)!
+    await api.accounts.remove(main.id, { deleteHome: false })
+    const unflagged = await api.accounts.create({ providerId: 'claude', label: 'Old', homeDir: '/Users/sam/.claude/' })
+    expect(unflagged.isDefaultHome).toBe(false)
+    expect((await api.launch({ accountId: unflagged.id, target: 'cli' })).commandLine).not.toContain('CLAUDE_CONFIG_DIR')
+    const work = await api.accounts.create({ providerId: 'claude', label: 'New', homeDir: '/Users/sam/.claude-new' })
+    expect((await api.launch({ accountId: work.id, target: 'cli' })).commandLine).toContain('CLAUDE_CONFIG_DIR=/Users/sam/.claude-new ')
+  })
 })
