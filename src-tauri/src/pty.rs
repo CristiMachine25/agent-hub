@@ -31,7 +31,8 @@ const EOF_TIMEOUT: Duration = Duration::from_secs(3);
 /// How long a closed terminal's CLI gets to exit after SIGHUP before it is killed outright.
 const KILL_GRACE: Duration = Duration::from_secs(1);
 
-/// ConPTY asks for the cursor position once at startup and blocks until it gets an answer.
+/// ConPTY asks for the cursor position once at startup and blocks until it gets an answer. Only
+/// there: elsewhere a query comes from the program itself and the terminal in the UI answers it.
 const DSR_REQUEST: &str = "\x1b[6n";
 const DSR_REPLY: &[u8] = b"\x1b[1;1R";
 
@@ -438,7 +439,7 @@ impl Pump {
     fn run(self, rx: Receiver<Msg>) {
         let mut batch = Batcher::default();
         let mut decoder = Utf8Decoder::default();
-        let mut dsr_answered = false;
+        let mut dsr_answered = !cfg!(windows);
         let mut eof = false;
         let mut exit: Option<Option<i32>> = None;
         let mut exited_at: Option<Instant> = None;
@@ -646,6 +647,19 @@ mod tests {
         assert!(terminals.scrollback(&id).unwrap_or_default().contains("hello"));
         terminals.kill(&id).expect("remove");
         assert!(terminals.list().is_empty());
+    }
+
+    /// Only ConPTY needs its startup cursor query answered here. Elsewhere the query belongs to the
+    /// program and reaches the terminal in the UI, which knows the real cursor position.
+    #[cfg(unix)]
+    #[test]
+    fn a_cursor_position_query_reaches_the_terminal() {
+        let script = r#"printf 'A\033[6nB'; read -t 1 r; printf '[%s]' "$r" | od -c | head -1"#;
+        let spec = CommandSpec { program: "bash".into(), args: vec!["-c".into(), script.into()], env: HashMap::new(), cwd: None, note: None };
+        let (out, _, _, _) = run_to_exit(spec);
+        assert!(out.contains("A\x1b[6nB"), "output: {out:?}");
+        // Nothing answered for the UI: the read saw no "\033[1;1R".
+        assert!(!out.contains("033   [   1   ;   1   R"), "output: {out:?}");
     }
 
     /// npm-style .cmd shim in a folder with spaces, with env set and removed.
