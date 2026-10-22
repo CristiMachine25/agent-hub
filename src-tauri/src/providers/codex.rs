@@ -518,14 +518,14 @@ fn threads(home: &Path) -> Vec<(String, String, Vec<PathBuf>)> {
     out
 }
 
-/// The threads started in `cwd` from this home that something was typed in, newest first.
-fn threads_in(home: &Path, cwd: &Path) -> Vec<String> {
+/// Of `threads`, the ones started in `cwd` that something was typed in, newest first.
+fn threads_in(threads: &[(String, String, Vec<PathBuf>)], cwd: &Path) -> Vec<String> {
     let want = util::path_key(cwd);
-    threads(home)
-        .into_iter()
+    threads
+        .iter()
         .filter(|(_, dir, _)| util::path_key(Path::new(dir)) == want)
         .filter(|(_, _, files)| files.iter().any(|f| has_user_message(f)))
-        .map(|(id, _, _)| id)
+        .map(|(id, _, _)| id.clone())
         .take(RESUME_CANDIDATES)
         .collect()
 }
@@ -727,10 +727,10 @@ impl ProviderAdapter for CodexAdapter {
     }
 
     fn resume_candidates(&self, account: &Account, cwd: &Path, wanted: Option<&str>) -> Vec<String> {
-        let home = Path::new(&account.home_dir);
+        let all = threads(Path::new(&account.home_dir));
         // Without shared history another account's thread isn't in this home to reopen.
-        let wanted = wanted.filter(|id| is_uuid(id) && threads(home).iter().any(|t| t.0 == *id)).map(str::to_string);
-        wanted_first(wanted, threads_in(home, cwd))
+        let wanted = wanted.filter(|id| is_uuid(id) && all.iter().any(|t| t.0 == *id)).map(str::to_string);
+        wanted_first(wanted, threads_in(&all, cwd))
     }
 
     async fn login_command(&self, account: &Account) -> anyhow::Result<CommandSpec> {
