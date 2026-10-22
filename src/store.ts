@@ -64,6 +64,8 @@ interface State {
 let toastSeq = 1
 let settingsSeq = 0
 let subscribed = false
+/** Set while init() loads: which of accounts/usage the backend pushed meanwhile (newer than the load). */
+let pushedDuringLoad: Set<'accounts' | 'usage'> | null = null
 
 export const useStore = create<State>((set, get) => ({
   phase: 'loading',
@@ -90,6 +92,30 @@ export const useStore = create<State>((set, get) => ({
 
   async init() {
     set({ phase: 'loading', loadError: undefined })
+    // Subscribe before loading: the backend may change accounts (a login renewed at startup)
+    // between answering the load and the subscription, and that change would be lost.
+    if (!subscribed) {
+      subscribed = true
+      api.on('usage-updated', (u) => {
+        pushedDuringLoad?.add('usage')
+        set({ usage: u })
+        void get().loadRecs()
+      })
+      api.on('accounts-changed', (a) => {
+        pushedDuringLoad?.add('accounts')
+        set({ accounts: a })
+        void get().loadRecs()
+      })
+      api.on('navigate', (screen) => {
+        if (['overview', 'accounts', 'knowledge', 'skills', 'terminals', 'notifications', 'settings'].includes(screen)) get().go(screen as Screen)
+      })
+      api.on('notification', (n) => {
+        set((s) => ({ notifications: [n, ...s.notifications.filter((x) => x.id !== n.id)] }))
+        get().toast({ kind: 'info', title: n.title, body: n.body })
+      })
+    }
+    const pushed = new Set<'accounts' | 'usage'>()
+    pushedDuringLoad = pushed
     try {
       const [providers, accounts, usage, notifications, settings] = await Promise.all([
         api.providers.list(),
@@ -98,28 +124,20 @@ export const useStore = create<State>((set, get) => ({
         api.notifications.list(),
         api.settings.get()
       ])
-      set({ providers, accounts, usage, notifications, settings, phase: 'ready', now: Date.now() })
-      if (!subscribed) {
-        subscribed = true
-        api.on('usage-updated', (u) => {
-          set({ usage: u })
-          void get().loadRecs()
-        })
-        api.on('accounts-changed', (a) => {
-          set({ accounts: a })
-          void get().loadRecs()
-        })
-        api.on('navigate', (screen) => {
-          if (['overview', 'accounts', 'knowledge', 'skills', 'terminals', 'notifications', 'settings'].includes(screen)) get().go(screen as Screen)
-        })
-        api.on('notification', (n) => {
-          set((s) => ({ notifications: [n, ...s.notifications.filter((x) => x.id !== n.id)] }))
-          get().toast({ kind: 'info', title: n.title, body: n.body })
-        })
-      }
+      set({
+        providers,
+        notifications,
+        settings,
+        phase: 'ready',
+        now: Date.now(),
+        ...(pushed.has('accounts') ? {} : { accounts }),
+        ...(pushed.has('usage') ? {} : { usage })
+      })
       void get().loadRecs()
     } catch (e) {
       set({ phase: 'error', loadError: errorText(e) })
+    } finally {
+      if (pushedDuringLoad === pushed) pushedDuringLoad = null
     }
   },
 

@@ -249,6 +249,12 @@ export function isSignedOut(a: Pick<Account, 'status'>): boolean {
   return a.status === 'needs-login' || a.status === 'expired'
 }
 
+/** Short status for an account that can't be used until it signs in. An expired login usually
+ *  renews by itself, so it doesn't read as signed out. */
+export function signedOutLabel(a: Pick<Account, 'status'>): string {
+  return a.status === 'expired' ? 'Login expired' : 'Signed out'
+}
+
 /**
  * Other accounts of the same provider to continue on, best first: recommendation order, then quota left.
  * Accounts at their limit or signed out sort last (the UI shows them disabled).

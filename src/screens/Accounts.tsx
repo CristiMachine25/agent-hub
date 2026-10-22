@@ -6,6 +6,7 @@ import { api, errorText } from '@/api'
 import { useStore } from '@/store'
 import { useGrid } from '@/terminals/store'
 import { ACCOUNT_COLORS, ACCOUNT_COLOR_NAMES, PROVIDER_META, PROVIDER_ORDER, SHARING_ITEMS, TASKS, launchVerb } from '@/lib/providers'
+import { signedOutLabel } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { PLANS, findPlan, planLabel } from '@/lib/plans'
 import { useDrafts } from '@/lib/drafts'
@@ -79,7 +80,7 @@ export function Accounts() {
                           <span className="flex items-center gap-2">
                             <AccountDot account={a} size={8} />
                             <span className={clsx('flex-1 truncate', on && 'font-semibold')}>{a.label}</span>
-                            <span className="text-xs tabular-nums text-muted">{signedOut ? 'Signed out' : left === null ? '' : left <= 0.5 ? 'Limit reached' : formatPct(left)}</span>
+                            <span className="text-xs tabular-nums text-muted">{signedOut ? signedOutLabel(a) : left === null ? '' : left <= 0.5 ? 'Limit reached' : formatPct(left)}</span>
                           </span>
                           {left !== null && !signedOut && <Meter left={left} cells={20} size="xs" label={`${a.label} quota left`} className="mt-1.5 pl-4" />}
                         </button>
