@@ -266,7 +266,8 @@ function releaseWebgl(e: TermEntry) {
 /** Draw a terminal that a pane just put on screen with WebGL when a context is available. */
 export function acquireWebgl(id: string) {
   const e = entries.get(id)
-  if (!e || e.webgl || e.noWebgl) return
+  // Untested on WebKitGTK, where a driver could draw blank or garbled text without failing; Linux stays on DOM.
+  if (!e || e.webgl || e.noWebgl || api.platform === 'linux') return
   const live = [...entries.values()].filter((x) => x.webgl)
   // At the cap, an off-screen terminal hands over its context, but only once the new one loaded (briefly one
   // over the cap, still far below the browser's limit).

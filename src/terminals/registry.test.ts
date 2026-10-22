@@ -90,6 +90,7 @@ vi.stubGlobal('document', { createElement: () => ({ isConnected: false, clientWi
 vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }))
 
 const { MAX_WEBGL, acquireWebgl, disposeTerm, getTerm, prepare } = await import('./registry')
+const { api } = await import('@/api')
 const output = (id: string, data: string) => handlers['terminal-output']!({ id, data } as never)
 const written = (id: string) => (getTerm(id, 'dark').term as unknown as { written: string[] }).written
 
@@ -160,6 +161,16 @@ describe('WebGL renderer', () => {
     const term = shown('half-gl').term as unknown as { canvases: unknown[] }
     expect(addonOf('half-gl')).toBeUndefined()
     expect(term.canvases).toEqual([])
+  })
+
+  it('keeps the DOM renderer on Linux', () => {
+    api.platform = 'linux'
+    try {
+      shown('linux')
+      expect(addonOf('linux')).toBeUndefined()
+    } finally {
+      api.platform = 'darwin'
+    }
   })
 
   it('renders at most MAX_WEBGL terminals with WebGL', () => {
