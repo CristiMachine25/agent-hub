@@ -268,8 +268,23 @@ impl Terminals {
                 return Err(anyhow!("could not start {}: {e}", req.spec.program));
             }
         };
-        let reader = pair.master.try_clone_reader().map_err(|e| anyhow!("terminal reader: {e}"))?;
-        let input = spawn_writer(pair.master.take_writer().map_err(|e| anyhow!("terminal writer: {e}"))?);
+        let streams = pair.master.try_clone_reader().map_err(|e| anyhow!("terminal reader: {e}")).and_then(|reader| {
+            let writer = pair.master.take_writer().map_err(|e| anyhow!("terminal writer: {e}"))?;
+            Ok((reader, writer))
+        });
+        let (reader, writer) = match streams {
+            Ok(s) => s,
+            Err(e) => {
+                // Nothing will ever read or stop this child, so end it here.
+                let _ = child.kill();
+                let _ = child.wait();
+                if let Some(s) = &script {
+                    let _ = std::fs::remove_file(s);
+                }
+                return Err(e);
+            }
+        };
+        let input = spawn_writer(writer);
         let exited = Arc::new(AtomicBool::new(false));
 
         let id = uuid::Uuid::new_v4().to_string();
