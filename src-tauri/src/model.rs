@@ -120,9 +120,11 @@ pub enum AccountStatus {
     NeedsLogin,
     Expired,
     Error,
-    Unknown,
     /// Signed in, but the plan doesn't include the tool (e.g. a canceled subscription).
     Blocked,
+    /// Also any status this build doesn't know (written by a newer one), so the account is kept.
+    #[serde(other)]
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -603,6 +605,14 @@ mod contract_tests {
     use serde_json::json;
 
     const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/shared/__fixtures__/serde.ts");
+
+    /// A status written by a newer build reads as Unknown, so the account is kept, not dropped.
+    #[test]
+    fn unknown_account_status_is_kept() {
+        let s: AccountStatus = serde_json::from_value(json!("some-future-status")).unwrap();
+        assert_eq!(s, AccountStatus::Unknown);
+        assert_eq!(serde_json::from_value::<AccountStatus>(json!("blocked")).unwrap(), AccountStatus::Blocked);
+    }
 
     /// Every variant of a fieldless enum. The match stops compiling when a variant is added and not listed.
     macro_rules! variants {
