@@ -10,8 +10,8 @@
 //!
 //! Verified against @google/gemini-cli 0.64.0 (npm bundle) and steipete/CodexBar docs/gemini.md.
 use super::common::{
-    any_json_line, finish_days, first_json_line, first_local_date, is_uuid, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, wanted_first,
-    DayMap, VersionCache, RESUME_CANDIDATES,
+    finish_days, first_json_line, first_local_date, is_uuid, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, wanted_first, DayMap,
+    VersionCache, RESUME_CANDIDATES,
 };
 use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
@@ -20,7 +20,8 @@ use async_trait::async_trait;
 use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -565,12 +566,103 @@ fn chat_meta(path: &Path) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// Whether a chat holds anything typed or answered: Gemini doesn't offer startup-only sessions.
-fn chat_has_messages(path: &Path, meta: &Value) -> bool {
-    let is_message = |m: &Value| m.get("id").is_some() && matches!(m.get("type").and_then(Value::as_str), Some("user" | "gemini"));
+/// A message's text as Gemini reads it for resuming (`partListUnionToString`): strings and text
+/// parts as they are, other parts as a bracketed label.
+fn content_text(content: &Value) -> String {
+    const LABELLED: [&str; 8] =
+        ["videoMetadata", "thought", "codeExecutionResult", "executableCode", "fileData", "functionCall", "functionResponse", "inlineData"];
+    match content {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts.iter().map(content_text).collect(),
+        Value::Object(part) if LABELLED.iter().any(|k| part.get(*k).is_some_and(|v| !v.is_null())) => "[part]".into(),
+        Value::Object(part) => part.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Prompts Gemini doesn't count as conversation: empty, slash commands, `?` help and injected
+/// context (core `isIgnoredUserContent`).
+fn ignored_prompt(text: &str) -> bool {
+    text.is_empty() || ["/", "?", "<session_context>", "<hook_context>"].iter().any(|p| text.starts_with(p))
+}
+
+/// Gemini's `isResumableMessageRecord`: a real prompt, or a reply with text, tool calls or thoughts.
+fn resumable_message(m: &Value) -> bool {
+    let text = m.get("content").map(content_text).unwrap_or_default();
+    let non_empty = |k: &str| m.get(k).and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+    match m.get("type").and_then(Value::as_str) {
+        Some("user") => !ignored_prompt(text.trim()),
+        Some("gemini") => !text.trim().is_empty() || non_empty("toolCalls") || non_empty("thoughts"),
+        _ => false,
+    }
+}
+
+/// Whether Gemini would resume a JSONL chat: some message left after its rewinds, patches and
+/// removals is resumable (the metadata-only pass of `chatRecordingService.ts` loading a chat).
+fn jsonl_chat_resumable(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    // Message ids in order, and each one's (is a prompt, is resumable).
+    let mut ids: Vec<String> = Vec::new();
+    let mut kinds: HashMap<String, (bool, bool)> = HashMap::new();
+    fn add(m: &Value, ids: &mut Vec<String>, kinds: &mut HashMap<String, (bool, bool)>) {
+        let Some(id) = m.get("id").and_then(Value::as_str).filter(|_| m.get("$patch").is_none()) else { return };
+        if !kinds.contains_key(id) {
+            ids.push(id.to_string());
+        }
+        kinds.insert(id.to_string(), (m.get("type").and_then(Value::as_str) == Some("user"), resumable_message(m)));
+    }
+    fn patch(p: &Value, kinds: &mut HashMap<String, (bool, bool)>) {
+        let (Some(id), Some(content)) = (p.get("id").and_then(Value::as_str), p.get("content")) else { return };
+        if let Some((is_user, resumable)) = kinds.get_mut(id) {
+            let text = content_text(content);
+            if *is_user {
+                *resumable = !ignored_prompt(text.trim());
+            } else if !text.trim().is_empty() {
+                *resumable = true;
+            }
+        }
+    }
+    for v in std::io::BufReader::new(file).lines().map_while(Result::ok).filter_map(|l| serde_json::from_str::<Value>(&l).ok()) {
+        if let Some(to) = v.get("$rewindTo").and_then(Value::as_str) {
+            match ids.iter().position(|i| i == to) {
+                Some(at) => {
+                    for gone in ids.split_off(at) {
+                        kinds.remove(&gone);
+                    }
+                }
+                None => {
+                    ids.clear();
+                    kinds.clear();
+                }
+            }
+        } else if let Some(p) = v.get("$patch").filter(|p| p.is_object()) {
+            patch(p, &mut kinds);
+            p.get("updates").and_then(Value::as_array).into_iter().flatten().for_each(|u| patch(u, &mut kinds));
+            for gone in p.get("removeIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                ids.retain(|i| i != gone);
+                kinds.remove(gone);
+            }
+        } else if v.get("id").is_some_and(Value::is_string) {
+            add(&v, &mut ids, &mut kinds);
+        } else if let Some(set) = v.get("$set").filter(|s| s.is_object()) {
+            if let Some(messages) = set.get("messages").and_then(Value::as_array) {
+                ids.clear();
+                kinds.clear();
+                messages.iter().for_each(|m| add(m, &mut ids, &mut kinds));
+            }
+        } else if v.get("sessionId").is_some_and(Value::is_string) && v.get("projectHash").is_some_and(Value::is_string) {
+            v.get("messages").and_then(Value::as_array).into_iter().flatten().for_each(|m| add(m, &mut ids, &mut kinds));
+        }
+    }
+    kinds.values().any(|(_, resumable)| *resumable)
+}
+
+/// Whether Gemini would resume a chat: startup-only, command-only and context-only ones it skips,
+/// and `--resume <id>` of one of those is a fatal error.
+fn chat_resumable(path: &Path, meta: &Value) -> bool {
     match meta.get("messages").and_then(Value::as_array) {
-        Some(legacy) => legacy.iter().any(is_message),
-        None => any_json_line(path, |l| l.contains("\"type\""), is_message),
+        Some(legacy) => legacy.iter().any(resumable_message),
+        None => jsonl_chat_resumable(path),
     }
 }
 
@@ -595,7 +687,7 @@ fn chats_in(home: &Path, cwd: &Path) -> Vec<String> {
         let Some(id) = meta.get("sessionId").and_then(Value::as_str).filter(|id| is_uuid(id)) else { continue };
         let ours = meta.get("projectHash").and_then(Value::as_str).is_some_and(|h| hashes.iter().any(|x| x == h));
         let subagent = meta.get("kind").and_then(Value::as_str) == Some("subagent");
-        if ours && !subagent && !out.iter().any(|o| o == id) && chat_has_messages(&path, &meta) {
+        if ours && !subagent && !out.iter().any(|o| o == id) && chat_resumable(&path, &meta) {
             out.push(id.to_string());
         }
     }
@@ -1158,6 +1250,55 @@ mod tests {
 
     fn said(text: &str) -> Value {
         json!({"id": "m1", "timestamp": "2026-10-20T10:00:01.000Z", "type": "user", "content": [{"text": text}]})
+    }
+
+    /// Gemini resumes a chat only when something in it is worth resuming (its
+    /// `isResumableMessageRecord`); asking it for any other one by id is a fatal error.
+    #[test]
+    fn only_chats_gemini_would_resume_are_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let id = |n: u8| format!("a1b2c3d4-e5f6-7890-abcd-ef12345678{n:02}");
+        let msg = |id: &str, kind: &str, content: Value| json!({"id": id, "timestamp": "2026-10-20T10:00:01.000Z", "type": kind, "content": content});
+        let cases: Vec<(u8, Vec<Value>, bool)> = vec![
+            (1, vec![said("/model")], false),
+            (2, vec![said("  <session_context>cwd</session_context>")], false),
+            (3, vec![said("?"), said("<hook_context>x")], false),
+            (4, vec![msg("g", "gemini", json!(""))], false),
+            (5, vec![msg("i", "info", json!("started"))], false),
+            (6, vec![said("fix the bug")], true),
+            (7, vec![msg("u", "user", json!("plain string prompt"))], true),
+            (8, vec![msg("u", "user", json!([{"inlineData": {"mimeType": "image/png", "data": "AA=="}}]))], true),
+            (9, vec![json!({"id": "g", "type": "gemini", "content": "", "toolCalls": [{"id": "t", "name": "ls"}]})], true),
+            (10, vec![json!({"id": "g", "type": "gemini", "content": "", "thoughts": [{"subject": "s"}]})], true),
+            // A prompt later rewound away, and one removed by a patch.
+            (11, vec![said("hello"), json!({"$rewindTo": "m1"})], false),
+            (12, vec![said("hello"), json!({"$patch": {"removeIds": ["m1"]}})], false),
+            // An empty reply patched with its text once it streamed in.
+            (13, vec![msg("g", "gemini", json!("")), json!({"$patch": {"id": "g", "content": "done"}})], true),
+            // A prompt rewritten into a command.
+            (14, vec![said("hello"), json!({"$patch": {"updates": [{"id": "m1", "content": [{"text": "/clear"}]}]}})], false),
+            // Messages replaced wholesale.
+            (15, vec![said("/help"), json!({"$set": {"messages": [msg("u2", "user", json!("real"))]}})], true),
+        ];
+        for (n, messages, _) in &cases {
+            chat(home, "work", &format!("session-2026-10-20T10-{n:02}-a1b2c3d4.jsonl"), meta(&id(*n), "/work", "main"), messages);
+        }
+        let legacy = |n: u8, content: &str| {
+            let v =
+                json!({"sessionId": id(n), "projectHash": hash("/work"), "startTime": "t", "lastUpdated": "t", "messages": [msg("u", "user", json!(content))]});
+            std::fs::write(home.join(format!(".gemini/tmp/work/chats/session-2026-10-19T10-{n:02}-a1b2c3d4.json")), serde_json::to_string_pretty(&v).unwrap())
+                .unwrap();
+        };
+        legacy(20, "/stats");
+        legacy(21, "a real legacy prompt");
+
+        let offered = GeminiAdapter::new().resume_candidates(&account(home), Path::new("/work"), None);
+        for (n, _, ok) in &cases {
+            assert_eq!(offered.contains(&id(*n)), *ok, "chat {n}: {offered:?}");
+        }
+        assert!(!offered.contains(&id(20)));
+        assert!(offered.contains(&id(21)));
     }
 
     #[test]
