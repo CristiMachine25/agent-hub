@@ -268,11 +268,10 @@ export function acquireWebgl(id: string) {
   const e = entries.get(id)
   if (!e || e.webgl || e.noWebgl) return
   const live = [...entries.values()].filter((x) => x.webgl)
-  if (live.length >= MAX_WEBGL) {
-    const offscreen = live.find((x) => !x.host.isConnected)
-    if (!offscreen) return
-    releaseWebgl(offscreen)
-  }
+  // At the cap, an off-screen terminal hands over its context, but only once the new one loaded (briefly one
+  // over the cap, still far below the browser's limit).
+  const offscreen = live.length >= MAX_WEBGL ? live.find((x) => !x.host.isConnected) : undefined
+  if (live.length >= MAX_WEBGL && !offscreen) return
   let addon: WebglAddon | undefined
   const before = new Set(canvases(e))
   try {
@@ -298,6 +297,7 @@ export function acquireWebgl(id: string) {
     // A renderer that failed after adding its canvas cannot remove it; it would cover the DOM renderer.
     for (const c of canvases(e)) if (!before.has(c)) c.remove()
   }
+  if (offscreen && e.webgl) releaseWebgl(offscreen)
 }
 
 /** Fit to the host's size and tell the backend when the character grid changed. */

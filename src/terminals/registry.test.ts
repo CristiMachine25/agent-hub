@@ -179,6 +179,17 @@ describe('WebGL renderer', () => {
     expect(addonOf('move-new')).toBeDefined()
   })
 
+  it('leaves an off-screen terminal its WebGL when the one being shown cannot load it', () => {
+    for (let i = 0; i < MAX_WEBGL; i++) shown(`keep-${i}`)
+    const hidden = addonOf('keep-0')!
+    hide('keep-0')
+    webgl.throws = 'early'
+    shown('keep-new')
+    expect(addonOf('keep-new')).toBeUndefined()
+    expect(hidden.disposed).toBe(false)
+    expect(addonOf('keep-0')).toBe(hidden)
+  })
+
   it('falls back to the DOM renderer when the context is lost, and retries once on the next show', () => {
     shown('lost')
     const addon = addonOf('lost')!
