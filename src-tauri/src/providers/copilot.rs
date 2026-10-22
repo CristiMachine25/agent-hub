@@ -278,9 +278,13 @@ fn refused(status: u16, headers: &reqwest::header::HeaderMap, body: &str, login:
     if rate_limited {
         return FetchError::other("GitHub is rate limiting Copilot usage requests; will retry later");
     }
-    if status == 403 && header("x-github-sso").starts_with("required") {
+    let sso = header("x-github-sso");
+    if status == 403 && sso.starts_with("required") {
+        // `required; url=https://github.com/orgs/<org>/sso?authorization_request=...` (as GitHub CLI reads it).
+        let url = sso.split(';').find_map(|p| p.trim().strip_prefix("url=")).filter(|u| !u.is_empty());
+        let how = url.map(|u| format!("at {u}")).unwrap_or_else(|| "for that organization on GitHub".into());
         return FetchError::other(format!(
-            "{login}'s GitHub token isn't authorized for an organization that uses single sign-on. Authorize it for that organization on GitHub, then refresh"
+            "{login}'s GitHub token isn't authorized for an organization that uses single sign-on. Authorize it {how}, then refresh"
         ));
     }
     FetchError::other(format!("{login} has no Copilot access (HTTP {status})"))
@@ -586,6 +590,10 @@ mod tests {
         );
         assert_eq!(sso.kind, ErrorKind::Other);
         assert!(sso.message.starts_with("octo's GitHub token isn't authorized for an organization that uses single sign-on"), "{}", sso.message);
+        // The header carries the one-hour link that authorizes the token for that organization.
+        assert!(sso.message.ends_with(". Authorize it at https://github.com/orgs/acme/sso?authorization_request=abc, then refresh"), "{}", sso.message);
+        let no_url = msg(403, h(&[("x-github-sso", "required")]), "{}");
+        assert!(no_url.message.ends_with(". Authorize it for that organization on GitHub, then refresh"), "{}", no_url.message);
 
         for status in [403, 404] {
             let plain = msg(status, h(&[("x-ratelimit-remaining", "4999")]), r#"{"message":"Resource not accessible by integration"}"#);
