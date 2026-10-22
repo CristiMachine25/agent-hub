@@ -88,6 +88,11 @@ vi.mock('@xterm/addon-webgl', () => ({
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
 vi.stubGlobal('document', { createElement: () => ({ isConnected: false, clientWidth: 960, clientHeight: 620, remove() {} }), documentElement: {} })
 vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }))
+/** The listener for the current pixel ratio's media query. */
+const dpr = vi.hoisted(() => ({ change: undefined as undefined | (() => void) }))
+vi.stubGlobal('devicePixelRatio', 2)
+vi.stubGlobal('matchMedia', () => ({ addEventListener: (_type: string, cb: () => void) => (dpr.change = cb) }))
+vi.stubGlobal('requestAnimationFrame', (cb: () => void) => cb())
 
 const { MAX_WEBGL, acquireWebgl, disposeTerm, getTerm, prepare } = await import('./registry')
 const { api } = await import('@/api')
@@ -223,6 +228,17 @@ describe('WebGL renderer', () => {
     fitTo.cols = 121
     addonOf('refit')!.lost()
     expect(resizes).toHaveBeenCalledWith('refit', 121, 24)
+  })
+
+  it('refits WebGL terminals when the display pixel ratio changes', () => {
+    shown('dpr')
+    ids.push('dpr-dom')
+    ;(getTerm('dpr-dom', 'dark').host as { isConnected: boolean }).isConnected = true
+    resizes.mockClear()
+    fitTo.cols = 135
+    dpr.change!()
+    expect(resizes).toHaveBeenCalledWith('dpr', 135, 24)
+    expect(resizes).toHaveBeenCalledTimes(1)
   })
 
   it('releases the addon when the terminal is disposed', () => {

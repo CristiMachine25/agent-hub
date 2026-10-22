@@ -133,6 +133,24 @@ function ensureListeners() {
   document.fonts?.addEventListener?.('loadingdone', () => {
     for (const e of entries.values()) e.webgl?.clearTextureAtlas()
   })
+  watchPixelRatio()
+}
+
+/**
+ * WebGL sizes cells in whole device pixels, so moving the window to a display with another pixel ratio changes
+ * how many columns fit while the pane keeps its size. Refit those terminals after xterm has re-measured.
+ */
+function watchPixelRatio() {
+  globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio}dppx)`).addEventListener(
+    'change',
+    () => {
+      watchPixelRatio()
+      requestAnimationFrame(() => {
+        for (const [id, e] of entries) if (e.webgl) fitTerm(id)
+      })
+    },
+    { once: true }
+  )
 }
 
 /** Called by the grid store so exits update pane status. */
