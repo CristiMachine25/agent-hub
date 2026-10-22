@@ -89,6 +89,7 @@ pub fn run() {
             commands::terminal_kill,
             commands::terminal_list,
             commands::terminal_scrollback,
+            commands::terminal_session,
             commands::recommend,
             commands::notifications_list,
             commands::notifications_mark_read,

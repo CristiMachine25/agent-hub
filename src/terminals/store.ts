@@ -38,6 +38,8 @@ export interface StartOptions {
   target: PaneTarget
   cwd?: string
   resume?: boolean
+  /** With `resume`: the conversation to reopen. */
+  resumeSession?: string
 }
 
 interface GridState {
@@ -115,6 +117,12 @@ const theme = () => useStore.getState().resolvedTheme
 
 /** The DOM node of a pane body, used to size a terminal before it exists. */
 const paneBody = (uid: string) => document.querySelector<HTMLElement>(`[data-pane-body="${uid}"]`)
+
+/** The conversation a pane's CLI is in, looked up before the pane is stopped. */
+async function paneSession(terminalId: string | undefined): Promise<string | undefined> {
+  if (!terminalId) return undefined
+  return (await api.terminals.session(terminalId).catch(() => null)) ?? undefined
+}
 
 async function killQuietly(id: string | undefined) {
   if (!id) return
@@ -233,11 +241,18 @@ export const useGrid = create<GridState>((set, get) => {
       if (!pane || get().starting[pane.uid]) return
       const uid = pane.uid
       set((s) => ({ starting: { ...s.starting, [uid]: true }, errors: { ...s.errors, [uid]: '' } }))
-      patchPane(uid, { accountId: opts.accountId, target: opts.target, cwd: opts.cwd, resume: opts.resume || undefined, terminalId: undefined })
+      patchPane(uid, {
+        accountId: opts.accountId,
+        target: opts.target,
+        cwd: opts.cwd,
+        resume: opts.resume || undefined,
+        resumeSession: (opts.resume && opts.resumeSession) || undefined,
+        terminalId: undefined
+      })
       try {
         const { cols, rows } = estimateSize(paneBody(uid))
         const cwd = opts.cwd ?? useStore.getState().settings?.defaultCwd
-        const info = await api.terminals.spawn({ accountId: opts.accountId, target: opts.target, resume: opts.resume, cwd, cols, rows })
+        const info = await api.terminals.spawn({ accountId: opts.accountId, target: opts.target, resume: opts.resume, resumeSession: opts.resumeSession, cwd, cols, rows })
         // While the CLI started, the pane may have been closed or its session switched away.
         const owns = (ws: Workspace) => ws.panes.some((p) => p.uid === uid && p.accountId === opts.accountId)
         const here = owns(get().ws)
@@ -265,15 +280,18 @@ export const useGrid = create<GridState>((set, get) => {
     async restart(index, resume) {
       const pane = get().ws.panes[index]
       if (!pane?.accountId) return
+      const resumeSession = resume ? await paneSession(pane.terminalId) : undefined
       await killQuietly(pane.terminalId)
-      await get().start(index, { accountId: pane.accountId, target: 'cli', cwd: pane.cwd, resume })
+      await get().start(index, { accountId: pane.accountId, target: 'cli', cwd: pane.cwd, resume, resumeSession })
     },
 
     async continueOn(index, accountId) {
       const pane = get().ws.panes[index]
       if (!pane) return
+      // This pane's own conversation: "the most recent" could be another pane's.
+      const resumeSession = await paneSession(pane.terminalId)
       await killQuietly(pane.terminalId)
-      await get().start(index, { accountId, target: 'cli', cwd: pane.cwd, resume: true })
+      await get().start(index, { accountId, target: 'cli', cwd: pane.cwd, resume: true, resumeSession })
     },
 
     async close(index) {

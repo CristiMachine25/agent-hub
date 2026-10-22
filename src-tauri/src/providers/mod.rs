@@ -124,7 +124,19 @@ pub trait ProviderAdapter: Send + Sync {
     async fn init_home(&self, home: &std::path::Path) -> anyhow::Result<()>;
 
     /// Command that starts the CLI for this account.
-    async fn cli_command(&self, account: &Account, resume: bool, extra_args: &[String]) -> anyhow::Result<CommandSpec>;
+    async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec>;
+
+    /// Conversations Resume may reopen for this account in `cwd`, best first: `wanted` when this
+    /// account can open it, then its own ones in that folder, newest first. Empty leaves the
+    /// choice to the CLI's "most recent".
+    fn resume_candidates(&self, _account: &Account, _cwd: &std::path::Path, _wanted: Option<&str>) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// The conversations this account's CLI processes have open right now, as (pid, conversation).
+    fn open_sessions(&self, _account: &Account) -> Vec<(u32, String)> {
+        Vec::new()
+    }
 
     /// Command that starts the provider's login flow for this account's home.
     async fn login_command(&self, account: &Account) -> anyhow::Result<CommandSpec>;
@@ -145,6 +157,17 @@ pub trait ProviderAdapter: Send + Sync {
 }
 
 pub type Adapter = Arc<dyn ProviderAdapter>;
+
+/// Which conversation a CLI start reopens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resume {
+    /// None: a new conversation.
+    No,
+    /// The CLI's own "most recent" one.
+    Last,
+    /// This one. A CLI that can't pick one reopens its most recent instead.
+    Session(String),
+}
 
 pub fn all() -> Vec<Adapter> {
     vec![

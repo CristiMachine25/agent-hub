@@ -200,6 +200,7 @@ export const TerminalSpawnRequest = {
   "accountId": "acc-1",
   "target": "login",
   "resume": false,
+  "resumeSession": "s-1",
   "cwd": "/work",
   "extraArgs": [
     "--verbose"
@@ -379,5 +380,5 @@ export const _PermissionModes_gemini: Same<(typeof PermissionModes_gemini)[numbe
 export const PermissionModes_copilot = ["default","allowAll"] as const
 export const _PermissionModes_copilot: Same<(typeof PermissionModes_copilot)[number], T.PermissionModes['copilot']> = true
 
-export const commands = ["providers_list","accounts_list","accounts_detect","accounts_import","accounts_create","accounts_update","accounts_remove","usage_latest","usage_history","usage_activity","usage_refresh","usage_set_manual","launch","terminal_spawn","terminal_write","terminal_resize","terminal_kill","terminal_list","terminal_scrollback","recommend","notifications_list","notifications_mark_read","settings_get","settings_set","transfer_export","transfer_preview","transfer_import","system_open_path","knowledge_get","knowledge_reseed","skills_search","skills_preview","skills_installed","skills_install","skills_remove","system_open_url"] as const
+export const commands = ["providers_list","accounts_list","accounts_detect","accounts_import","accounts_create","accounts_update","accounts_remove","usage_latest","usage_history","usage_activity","usage_refresh","usage_set_manual","launch","terminal_spawn","terminal_write","terminal_resize","terminal_kill","terminal_list","terminal_scrollback","terminal_session","recommend","notifications_list","notifications_mark_read","settings_get","settings_set","transfer_export","transfer_preview","transfer_import","system_open_path","knowledge_get","knowledge_reseed","skills_search","skills_preview","skills_installed","skills_install","skills_remove","system_open_url"] as const
 export const _commands: Same<(typeof commands)[number], (typeof T.COMMANDS)[keyof typeof T.COMMANDS]> = true

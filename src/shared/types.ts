@@ -359,6 +359,8 @@ export interface TerminalSpawnRequest {
   accountId: string
   target: 'cli' | 'login'
   resume?: boolean
+  /** With `resume`: reopen this conversation (from `terminals.session`) instead of the account's newest one. */
+  resumeSession?: string
   cwd?: string
   extraArgs?: string[]
   cols: number
@@ -420,6 +422,8 @@ export interface AgentHubApi {
     list(): Promise<TerminalInfo[]>
     /** Recent output kept by the backend (max ~256 KB per terminal), to restore a pane after a UI reload. */
     scrollback(id: string): Promise<string>
+    /** The conversation the CLI in this terminal is in now, when the tool can say. */
+    session(id: string): Promise<string | null>
   }
   recommend(task: TaskType, providerId?: ProviderId): Promise<Recommendation[]>
   notifications: {
@@ -505,6 +509,7 @@ export const COMMANDS = {
   terminalKill: 'terminal_kill', // { id }
   terminalList: 'terminal_list',
   terminalScrollback: 'terminal_scrollback', // { id }
+  terminalSession: 'terminal_session', // { id }
   transferExport: 'transfer_export', // { path, opts }
   transferPreview: 'transfer_preview', // { path, passphrase? }
   transferImport: 'transfer_import' // { path, passphrase?, choice }

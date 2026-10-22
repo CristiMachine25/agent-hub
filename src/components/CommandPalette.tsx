@@ -69,7 +69,7 @@ export function CommandPalette() {
       const left = bind ? leftOf(bind) : undefined
       const kw = `${a.label} ${p.short} ${p.product} ${a.plan ?? ''} ${a.email ?? ''} ${a.tags.join(' ')}`
       const lead = <AccountDot account={a} />
-      if (a.status === 'needs-login' || a.status === 'expired') {
+      if (a.status === 'needs-login') {
         out.push({
           id: `login-${a.id}`,
           group: 'Launch',

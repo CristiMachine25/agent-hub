@@ -10,7 +10,7 @@
 //! Live usage: `GET <chatgpt_base_url>/wham/usage`; fallback `codex app-server` JSON-RPC
 //! (`account/read`, `account/rateLimits/read`), which also lets Codex refresh its own tokens.
 use super::common::*;
-use super::{CommandSpec, FetchError, Identity, ProviderAdapter};
+use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
@@ -639,9 +639,9 @@ impl ProviderAdapter for CodexAdapter {
         Ok(())
     }
 
-    async fn cli_command(&self, account: &Account, resume: bool, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
+    async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut args = Vec::new();
-        if resume {
+        if resume != Resume::No {
             args.extend(["resume".to_string(), "--last".to_string()]);
         }
         args.extend(extra_args.iter().cloned());
@@ -932,7 +932,7 @@ mod tests {
             "lastLaunchedAt": null, "monthlyCost": null, "pinned": null}))
         .unwrap();
         let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
-        let spec = rt.block_on(adapter.cli_command(&acc, true, &["--model".into(), "x".into()])).unwrap();
+        let spec = rt.block_on(adapter.cli_command(&acc, Resume::Last, &["--model".into(), "x".into()])).unwrap();
         assert_eq!(spec.args, ["resume", "--last", "--model", "x"]);
         assert_eq!(spec.env["CODEX_HOME"].as_deref(), Some("/tmp/codex-work"));
         assert_eq!(spec.env["OPENAI_API_KEY"], None);

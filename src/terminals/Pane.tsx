@@ -4,7 +4,7 @@ import { ArrowRightLeft, FolderOpen, History, Loader2, LogIn, Maximize2, Minimiz
 import type { Account } from '@shared/types'
 import { api } from '@/api'
 import { useStore } from '@/store'
-import { atLimit, continueCandidates, historyShared, isSignedOut, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
+import { atLimit, continueCandidates, historyShared, isSignedOut, loginLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { formatCountdown, formatPct, windowName } from '@/lib/format'
 import { PROVIDER_META } from '@/lib/providers'
@@ -47,7 +47,8 @@ function useAccount(id: string | undefined): Account | undefined {
 /** "Claude H2 (100% left)" style candidate text. */
 function leftText(a: Account, usage: ReturnType<typeof useStore.getState>['usage']): string {
   const b = bindingWindow(usage[a.id])
-  if (isSignedOut(a)) return 'Signed out'
+  const login = loginLabel(a)
+  if (login) return login
   if (!b) return 'No live limits'
   return atLimit(usage[a.id]) ? 'Limit reached' : `${formatPct(leftOf(b))} left`
 }
@@ -258,7 +259,9 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
         className="picker m-auto flex w-full max-w-[420px] flex-col gap-3 p-5"
         onSubmit={(e) => {
           e.preventDefault()
-          if (accountId) void start(index, { accountId, target, cwd, resume: target === 'cli' && resume })
+          // Trying again after a failed resume reopens the conversation it was asked for.
+          const resumeSession = accountId === pane.accountId ? pane.resumeSession : undefined
+          if (accountId) void start(index, { accountId, target, cwd, resume: target === 'cli' && resume, resumeSession })
         }}
       >
         <p className="picker-title font-serif text-lg">{pane.accountId ? 'Start this pane again' : 'Start an AI CLI here'}</p>
@@ -343,7 +346,11 @@ function Picker({ index, pane }: { index: number; pane: PaneConfig }) {
             {prov.name} isn't installed. Install it with <code className="code text-ink">{prov.installHint}</code>
           </p>
         )}
-        {error && <p className="text-xs text-empty">{error}</p>}
+        {error && (
+          <p role="alert" className="text-xs text-empty">
+            {error}
+          </p>
+        )}
         <button type="submit" className="btn btn-primary" disabled={!accountId || starting || (!!prov && !prov.cliInstalled)}>
           {starting ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} fill="currentColor" />}
           {starting ? 'Starting…' : chosen ? `Start as ${chosen.label}` : 'Pick an account'}
