@@ -647,6 +647,7 @@ mod contract_tests {
             for p in &paths {
                 let mut expr = ts.to_string();
                 for (i, step) in p.iter().enumerate() {
+                    // A parent that can itself be null (credits) has to be unwrapped before indexing into it.
                     if paths.contains(&p[..i].to_vec()) {
                         expr = format!("NonNullable<{expr}>");
                     }
