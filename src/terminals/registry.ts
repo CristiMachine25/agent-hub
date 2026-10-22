@@ -4,6 +4,7 @@
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/api'
 
@@ -13,6 +14,10 @@ export interface TermEntry {
   host: HTMLDivElement
   cols: number
   rows: number
+  /** Set while the terminal draws with WebGL; otherwise xterm's DOM renderer is in use. */
+  webgl?: WebglAddon
+  /** WebGL failed to load or lost its context once; this terminal stays on the DOM renderer. */
+  noWebgl?: boolean
 }
 
 const entries = new Map<string, TermEntry>()
@@ -21,6 +26,14 @@ const pending = new Map<string, string[]>()
 const PENDING_LIMIT = 512
 /** Closed terminals whose last output may still be on its way; it is dropped until their exit event. */
 const disposed = new Set<string>()
+
+/**
+ * WebGL keeps busy grids smooth (the DOM renderer drops to ~15 fps with 9 busy panes in WKWebView), but each
+ * WebGL terminal holds a live context and WebKit drops the oldest past a limit (16). Terminals get WebGL
+ * when a pane shows them, at most MAX_WEBGL at once (the largest grid), taking it from one that is off
+ * screen if needed; terminals in hidden grid sessions keep theirs until then. Everything else uses DOM.
+ */
+export const MAX_WEBGL = 9
 
 let listening = false
 let exitHandler: (id: string, code: number | null) => void = () => {}
@@ -110,6 +123,11 @@ function ensureListeners() {
   api.on('terminal-exit', ({ id, code }) => {
     disposed.delete(id)
     exitHandler(id, code)
+  })
+  // WebGL caches glyph bitmaps, so glyphs drawn before the terminal font finished loading would stay in the
+  // fallback font.
+  document.fonts?.addEventListener?.('loadingdone', () => {
+    for (const e of entries.values()) e.webgl?.clearTextureAtlas()
   })
 }
 
@@ -230,6 +248,41 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
   return entry
 }
 
+function releaseWebgl(e: TermEntry) {
+  const addon = e.webgl
+  e.webgl = undefined
+  addon?.dispose()
+}
+
+/** Draw a terminal that a pane just put on screen with WebGL when a context is available. */
+export function acquireWebgl(id: string) {
+  const e = entries.get(id)
+  if (!e || e.webgl || e.noWebgl) return
+  const live = [...entries.values()].filter((x) => x.webgl)
+  if (live.length >= MAX_WEBGL) {
+    const offscreen = live.find((x) => !x.host.isConnected)
+    if (!offscreen) return
+    releaseWebgl(offscreen)
+  }
+  let addon: WebglAddon | undefined
+  try {
+    addon = new WebglAddon()
+    addon.onContextLoss(() => {
+      e.noWebgl = true
+      if (e.webgl === addon) releaseWebgl(e)
+    })
+    e.term.loadAddon(addon)
+    e.webgl = addon
+  } catch {
+    e.noWebgl = true
+    try {
+      addon?.dispose()
+    } catch {
+      /* never activated */
+    }
+  }
+}
+
 /** Fit to the host's size and tell the backend when the character grid changed. */
 export function fitTerm(id: string) {
   const e = entries.get(id)
@@ -261,6 +314,7 @@ export function disposeTerm(id: string) {
   disposed.add(id)
   if (!e) return
   entries.delete(id)
+  releaseWebgl(e)
   e.term.dispose()
   e.host.remove()
 }

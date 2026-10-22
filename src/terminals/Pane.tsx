@@ -10,7 +10,7 @@ import { formatCountdown, formatPct, windowName } from '@/lib/format'
 import { PROVIDER_META } from '@/lib/providers'
 import { Meter } from '@/components/Meter'
 import { AccountDot, ProviderMark, onRadioArrows } from '@/components/ui'
-import { fitTerm, getTerm } from './registry'
+import { acquireWebgl, fitTerm, getTerm } from './registry'
 import { useGrid } from './store'
 
 /** Adopts the registry's xterm host and keeps it fitted to the pane. */
@@ -22,6 +22,7 @@ function TermView({ id }: { id: string }) {
     if (!el) return
     const entry = getTerm(id, mode)
     el.appendChild(entry.host)
+    acquireWebgl(id)
     let timer: ReturnType<typeof setTimeout> | undefined
     const ro = new ResizeObserver(() => {
       clearTimeout(timer)

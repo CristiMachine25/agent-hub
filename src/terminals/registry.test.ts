@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const handlers: Record<string, (p: never) => void> = {}
 const writes = vi.hoisted(() => vi.fn(() => Promise.resolve()))
@@ -18,6 +18,7 @@ vi.mock('@xterm/xterm', () => ({
       this.input = cb
     }
     open() {}
+    dispose() {}
     write(d: string, cb?: () => void) {
       this.written.push(d)
       if (cb) this.parsed.push(cb)
@@ -26,13 +27,45 @@ vi.mock('@xterm/xterm', () => ({
 }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: class {} }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
+const webgl = vi.hoisted(() => ({ throws: false }))
+vi.mock('@xterm/addon-webgl', () => ({
+  WebglAddon: class {
+    lost = () => {}
+    disposed = false
+    constructor() {
+      if (webgl.throws) throw new Error('WebGL2 unavailable')
+    }
+    onContextLoss(cb: () => void) {
+      this.lost = cb
+      return { dispose() {} }
+    }
+    dispose() {
+      this.disposed = true
+    }
+    clearTextureAtlas() {}
+  }
+}))
 vi.mock('@xterm/xterm/css/xterm.css', () => ({}))
-vi.stubGlobal('document', { createElement: () => ({}), documentElement: {} })
+vi.stubGlobal('document', { createElement: () => ({ isConnected: false, remove() {} }), documentElement: {} })
 vi.stubGlobal('getComputedStyle', () => ({ getPropertyValue: () => '' }))
 
-const { disposeTerm, getTerm, prepare } = await import('./registry')
+const { MAX_WEBGL, acquireWebgl, disposeTerm, getTerm, prepare } = await import('./registry')
 const output = (id: string, data: string) => handlers['terminal-output']!({ id, data } as never)
 const written = (id: string) => (getTerm(id, 'dark').term as unknown as { written: string[] }).written
+
+interface FakeAddon {
+  lost(): void
+  disposed: boolean
+}
+const addonOf = (id: string) => getTerm(id, 'dark').webgl as unknown as FakeAddon | undefined
+/** Creates a terminal, puts its host on screen as a pane would, and asks for WebGL. */
+function show(id: string) {
+  const e = getTerm(id, 'dark')
+  ;(e.host as { isConnected: boolean }).isConnected = true
+  acquireWebgl(id)
+  return e
+}
+const hide = (id: string) => ((getTerm(id, 'dark').host as { isConnected: boolean }).isConnected = false)
 
 describe('terminal output buffering', () => {
   it('replays output that arrived before the terminal was created', () => {
@@ -59,5 +92,53 @@ describe('restored scrollback', () => {
     await Promise.resolve()
     expect(writes).toHaveBeenCalledWith('restored', 'x')
     expect(writes).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('WebGL renderer', () => {
+  const ids: string[] = []
+  const shown = (id: string) => (ids.push(id), show(id))
+  afterEach(() => {
+    webgl.throws = false
+    for (const id of ids.splice(0)) disposeTerm(id)
+  })
+
+  it('keeps the DOM renderer when the addon throws', () => {
+    webgl.throws = true
+    expect(() => shown('no-gl')).not.toThrow()
+    expect(addonOf('no-gl')).toBeUndefined()
+  })
+
+  it('renders at most MAX_WEBGL terminals with WebGL', () => {
+    for (let i = 0; i <= MAX_WEBGL; i++) shown(`cap-${i}`)
+    expect(ids.filter((id) => addonOf(id)).length).toBe(MAX_WEBGL)
+    expect(addonOf(`cap-${MAX_WEBGL}`)).toBeUndefined()
+  })
+
+  it('moves WebGL from a terminal that is off screen to one being shown', () => {
+    for (let i = 0; i < MAX_WEBGL; i++) shown(`move-${i}`)
+    const hidden = addonOf('move-0')!
+    hide('move-0')
+    shown('move-new')
+    expect(hidden.disposed).toBe(true)
+    expect(addonOf('move-0')).toBeUndefined()
+    expect(addonOf('move-new')).toBeDefined()
+  })
+
+  it('falls back to the DOM renderer when the context is lost', () => {
+    shown('lost')
+    const addon = addonOf('lost')!
+    addon.lost()
+    expect(addon.disposed).toBe(true)
+    expect(addonOf('lost')).toBeUndefined()
+    // A terminal that lost its context does not retry on the next show.
+    acquireWebgl('lost')
+    expect(addonOf('lost')).toBeUndefined()
+  })
+
+  it('releases the addon when the terminal is disposed', () => {
+    const addon = (shown('gone'), addonOf('gone')!)
+    disposeTerm('gone')
+    expect(addon.disposed).toBe(true)
   })
 })
