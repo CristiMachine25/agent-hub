@@ -63,9 +63,10 @@ Sizes: 13px base (desktop density), 12px secondary, 17px serif section titles, 2
 
 ## Icon
 
-A rail switch on a gradient charcoal tile: one periwinkle track enters from the left and is switched up onto the
-branch whose signal is green (quota left), while the amber and red branches stay idle. Reads at 16px. Source: `app-icon.svg`
-(`npx tauri icon app-icon.svg` regenerates the platform icons), mirrored in `src/components/Logo.tsx`.
+Relay is the approved app mark: a periwinkle route hands work to a green route inside a rounded charcoal tile.
+The source artwork is `app-icon.png`. Preserve that artwork when generating platform sizes; the in-app mark
+imports a small generated copy through `src/components/Logo.tsx`. Run `npm run icons:build` to regenerate the
+desktop icon formats, interface copy, and the website's favicon, navigation, and Apple touch icon.
 
 ## Terminal grid
 

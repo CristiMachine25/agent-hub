@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
+    "icons:build": "node scripts/generate-icons.mjs",
     "test": "vitest run",
     "app:dev": "tauri dev",
     "app:build": "tauri build"
