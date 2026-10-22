@@ -86,29 +86,33 @@ export function Overview() {
       <UseNow />
       {alerts.length > 0 && <Alerts alerts={alerts} />}
       <Board />
-      <section className="grid grid-cols-1 gap-x-8 gap-y-6 border-t border-rivet pt-6 min-[1180px]:grid-cols-[1.5fr_1fr]">
-        <div className="min-w-0">
-          <SectionTitle
-            aside={
-              <Segmented
-                size="sm"
-                label="Time range"
-                value={days}
-                onChange={setDays}
-                options={[
-                  { id: '7', label: '7 days' },
-                  { id: '30', label: '30 days' }
-                ]}
-              />
-            }
-          >
-            Weekly and monthly limits used
-          </SectionTitle>
-          <UsageOverTime accounts={accounts} usage={usage} history={history} days={Number(days)} />
-        </div>
-        <div className="min-w-0">
-          <SectionTitle
-            aside={
+      <section aria-labelledby="history-title">
+        <SectionTitle
+          aside={
+            <Segmented
+              size="sm"
+              label="Time range"
+              value={days}
+              onChange={setDays}
+              options={[
+                { id: '7', label: '7 days' },
+                { id: '30', label: '30 days' }
+              ]}
+            />
+          }
+        >
+          <span id="history-title">Usage history</span>
+        </SectionTitle>
+        <div className="grid grid-cols-1 gap-x-8 gap-y-8 rounded-lg border border-rivet p-6 min-[1180px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <div className="mb-4 flex min-h-7 items-center">
+              <h3 className="font-semibold">Weekly and monthly limits used</h3>
+            </div>
+            <UsageOverTime accounts={accounts} usage={usage} history={history} days={Number(days)} />
+          </div>
+          <div className="min-w-0 border-t border-rivet pt-6 min-[1180px]:border-l min-[1180px]:border-t-0 min-[1180px]:pl-8 min-[1180px]:pt-0">
+            <div className="mb-4 flex min-h-7 items-center justify-between gap-3">
+              <h3 className="font-semibold">Most used, last {days} days</h3>
               <Segmented
                 size="sm"
                 label="Measure"
@@ -119,12 +123,10 @@ export function Overview() {
                   { id: 'messages', label: 'Messages' }
                 ]}
               />
-            }
-          >
-            Most used, last {days} days
-          </SectionTitle>
-          <MostUsed accounts={accounts} activity={act} metric={metric} />
-          <Unused accounts={accounts} usage={usage} history={history} />
+            </div>
+            <MostUsed accounts={accounts} activity={act} metric={metric} />
+            <Unused accounts={accounts} usage={usage} history={history} />
+          </div>
         </div>
       </section>
     </Page>
@@ -515,11 +517,11 @@ function Unused({ accounts, usage, history }: { accounts: Account[]; usage: Reco
   const total = rows.reduce((s, r) => s + r.value, 0)
   return (
     <div className="mt-6 border-t border-rivet pt-4">
-      <p>
-        <span className="text-md font-semibold tabular-nums">About {formatMoney(Math.round(total))}</span>{' '}
+      <p className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-serif text-lg font-semibold tabular-nums">About {formatMoney(Math.round(total))}</span>
         <span className="text-muted">of paid quota reset unused in the last 30 days.</span>
       </p>
-      <p className="mt-1 text-xs text-muted">
+      <p className="mt-2 max-w-[72ch] text-xs text-muted">
         Most from {rows
           .slice(0, 2)
           .map((r) => `${r.a.label} (${formatMoney(Math.round(r.value))})`)
