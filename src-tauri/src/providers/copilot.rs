@@ -29,6 +29,8 @@ use std::time::Duration;
 
 const HOME_ENV: &str = "COPILOT_HOME";
 const DEFAULT_HOST: &str = "https://github.com";
+/// Copilot quotas reset monthly; the API gives only the reset date, so a month counts as 30 days.
+const MONTH_MINUTES: u32 = 30 * 24 * 60;
 const NEED_GH: &str = "Connect GitHub CLI (gh auth login) to read Copilot usage";
 
 pub struct CopilotAdapter {
@@ -179,7 +181,13 @@ fn parse_usage(v: &Value) -> CopilotUsage {
             return;
         }
         if let Some(used) = q.used_percent() {
-            out.windows.push(UsageWindow { id: id.into(), label: label.into(), used_percent: used, resets_at: reset.clone(), window_minutes: None });
+            out.windows.push(UsageWindow {
+                id: id.into(),
+                label: label.into(),
+                used_percent: used,
+                resets_at: reset.clone(),
+                window_minutes: Some(MONTH_MINUTES),
+            });
         }
     };
     let premium = snap("premiumInteractions", "premium_interactions");
@@ -650,6 +658,8 @@ mod tests {
         assert_eq!(u.windows[0].id, "premium");
         assert_eq!(u.windows[0].used_percent, 25.0);
         assert!(u.windows[0].resets_at.as_deref().unwrap().starts_with("2026-11-01T00:00:00"));
+        // A monthly quota, so charts, the wasted-quota estimate and use-it-or-lose-it see its length.
+        assert_eq!(u.windows[0].window_minutes, Some(30 * 24 * 60));
         let c = u.credits.unwrap();
         assert_eq!((c.used, c.limit), (375.0, Some(1500.0)));
     }

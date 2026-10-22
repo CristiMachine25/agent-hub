@@ -88,7 +88,7 @@ export function Settings() {
           </Row>
           <Row
             label="Use it or lose it"
-            help={`When a weekly or monthly limit resets within ${n.useItOrLoseItHours} hours and at least ${n.useItOrLoseItMinLeftPercent}% is still unused.`}
+            help={`When a weekly or monthly limit resets within ${n.useItOrLoseItHours} hours and at least ${n.useItOrLoseItMinLeftPercent}% is still unused. Claude, Codex and Copilot have such limits; Gemini's daily quotas get no reminder.`}
           >
             {(ids) => (
               <div role="group" {...ids} className="flex flex-col items-end gap-2">
