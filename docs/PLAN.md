@@ -90,7 +90,7 @@ site/                     Landing page, deployed to GitHub Pages
 - Dashboard: per-account limit bars, reset countdowns, usage-over-time and most-used charts.
 - Notifications and recommendations. Tray menu with quick launch. Ctrl/Cmd+K launcher.
 - Account-aware terminal grid inside the app (xterm.js + portable-pty): up to nine panes, each on its own account, in named sessions.
-- Continue on another account: when a pane's account hits its limit, one click reopens the chat on the next account with resume and shared history. Resume reopens that exact conversation (the pane's own, else the account's newest in that folder), never one another live window still has open.
+- Continue on another account: when a pane's account hits its limit, one click reopens the chat on the next account with resume and shared history. Resume reopens that exact conversation (the pane's own, else the account's newest in that folder), never one another live window still has open. Codex, Gemini and Copilot leave no live-process marker, so for them only the conversation a pane was started in is known while it runs (a pane started fresh resumes the account's newest in that folder), and only this app's own panes count as having one open.
 - Shared knowledge: one shared profile per tool that every account links its skills, plugins, agents and instructions from.
 - Skills explorer: browse and search skills.sh and install a skill into a tool's shared profile.
 - Export/import of a setup between machines (`.agenthub` file, sign-ins optional and encrypted with a passphrase).

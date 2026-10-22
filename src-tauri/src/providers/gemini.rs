@@ -9,14 +9,19 @@
 //! the rest of the user's environment keep working inside Gemini sessions.
 //!
 //! Verified against @google/gemini-cli 0.64.0 (npm bundle) and steipete/CodexBar docs/gemini.md.
-use super::common::{finish_days, first_local_date, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, DayMap, VersionCache};
+use super::common::{
+    finish_days, first_json_line, first_local_date, folder_forms, is_uuid, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, wanted_first,
+    DayMap, VersionCache, RESUME_CANDIDATES,
+};
 use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
 use crate::util;
 use async_trait::async_trait;
 use base64::Engine;
 use serde_json::{json, Value};
-use std::collections::BTreeMap;
+use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, HashMap};
+use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -529,6 +534,176 @@ fn scan_gemini_activity(home: &Path, account_id: &str, since_days: u32) -> Vec<D
     finish_days(days, account_id, &cutoff)
 }
 
+// ---------- conversations: tmp/<project>/chats/session-*.jsonl ----------
+//
+// A chat's first line (or, in the legacy `.json` format, the whole file) carries `sessionId` (a uuid),
+// `projectHash` (sha256 of the project root, i.e. the folder Gemini started in:
+// packages/core/src/utils/paths.ts `getProjectHash`, config.ts `getProjectRoot`) and `kind`
+// ("subagent" for a sub-agent's chat). `gemini --resume <uuid>` looks only in the current project's
+// chats and skips sub-agent chats (packages/cli/src/utils/sessionUtils.ts). Gemini CLI leaves no
+// per-process marker naming its chat, so `open_sessions` stays empty.
+
+/// What Gemini hashes for the project of `cwd`: its absolute path as given and, where the folder
+/// is reached through a symlink, the real path the process sees.
+fn project_hashes(cwd: &Path) -> Vec<String> {
+    folder_forms(cwd)
+        .iter()
+        .map(|p| {
+            let s = p.to_string_lossy();
+            let s = if s.len() > 1 { s.trim_end_matches(['/', '\\']) } else { &s };
+            format!("{:x}", Sha256::digest(s.as_bytes()))
+        })
+        .collect()
+}
+
+/// Whether a legacy `.json` chat names one of `hashes` as its project, from its first few KB:
+/// Gemini wrote `projectHash` near the top, and these files can be large.
+fn legacy_chat_is_for(path: &Path, hashes: &[String]) -> bool {
+    use std::io::Read;
+    let mut head = Vec::new();
+    let read = std::fs::File::open(path).and_then(|f| f.take(4096).read_to_end(&mut head));
+    let head = String::from_utf8_lossy(&head);
+    read.is_ok() && hashes.iter().any(|h| head.contains(h.as_str()))
+}
+
+/// A chat file's metadata: its first line, or the whole legacy `.json` file when it belongs to one
+/// of `hashes`.
+fn chat_meta(path: &Path, hashes: &[String]) -> Option<Value> {
+    if path.extension().is_some_and(|e| e == "jsonl") {
+        return first_json_line(path);
+    }
+    legacy_chat_is_for(path, hashes).then(|| serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()).flatten()
+}
+
+/// A message's text as Gemini reads it for resuming (`partListUnionToString`): strings and text
+/// parts as they are, other parts as a bracketed label.
+fn content_text(content: &Value) -> String {
+    const LABELLED: [&str; 8] =
+        ["videoMetadata", "thought", "codeExecutionResult", "executableCode", "fileData", "functionCall", "functionResponse", "inlineData"];
+    match content {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts.iter().map(content_text).collect(),
+        Value::Object(part) if LABELLED.iter().any(|k| part.get(*k).is_some_and(|v| !v.is_null())) => "[part]".into(),
+        Value::Object(part) => part.get("text").and_then(Value::as_str).unwrap_or_default().to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Prompts Gemini doesn't count as conversation: empty, slash commands, `?` help and injected
+/// context (core `isIgnoredUserContent`).
+fn ignored_prompt(text: &str) -> bool {
+    text.is_empty() || ["/", "?", "<session_context>", "<hook_context>"].iter().any(|p| text.starts_with(p))
+}
+
+/// Gemini's `isResumableMessageRecord`: a real prompt, or a reply with text, tool calls or thoughts.
+fn resumable_message(m: &Value) -> bool {
+    let text = m.get("content").map(content_text).unwrap_or_default();
+    let non_empty = |k: &str| m.get(k).and_then(Value::as_array).is_some_and(|a| !a.is_empty());
+    match m.get("type").and_then(Value::as_str) {
+        Some("user") => !ignored_prompt(text.trim()),
+        Some("gemini") => !text.trim().is_empty() || non_empty("toolCalls") || non_empty("thoughts"),
+        _ => false,
+    }
+}
+
+/// Whether Gemini would resume a JSONL chat: some message left after its rewinds, patches and
+/// removals is resumable (the metadata-only pass of `chatRecordingService.ts` loading a chat).
+fn jsonl_chat_resumable(path: &Path) -> bool {
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    // Message ids in order, and each one's (is a prompt, is resumable).
+    let mut ids: Vec<String> = Vec::new();
+    let mut kinds: HashMap<String, (bool, bool)> = HashMap::new();
+    fn add(m: &Value, ids: &mut Vec<String>, kinds: &mut HashMap<String, (bool, bool)>) {
+        let Some(id) = m.get("id").and_then(Value::as_str).filter(|_| m.get("$patch").is_none()) else { return };
+        if !kinds.contains_key(id) {
+            ids.push(id.to_string());
+        }
+        kinds.insert(id.to_string(), (m.get("type").and_then(Value::as_str) == Some("user"), resumable_message(m)));
+    }
+    fn patch(p: &Value, kinds: &mut HashMap<String, (bool, bool)>) {
+        let (Some(id), Some(content)) = (p.get("id").and_then(Value::as_str), p.get("content")) else { return };
+        if let Some((is_user, resumable)) = kinds.get_mut(id) {
+            let text = content_text(content);
+            if *is_user {
+                *resumable = !ignored_prompt(text.trim());
+            } else if !text.trim().is_empty() {
+                *resumable = true;
+            }
+        }
+    }
+    for v in std::io::BufReader::new(file).lines().map_while(Result::ok).filter_map(|l| serde_json::from_str::<Value>(&l).ok()) {
+        if let Some(to) = v.get("$rewindTo").and_then(Value::as_str) {
+            match ids.iter().position(|i| i == to) {
+                Some(at) => {
+                    for gone in ids.split_off(at) {
+                        kinds.remove(&gone);
+                    }
+                }
+                None => {
+                    ids.clear();
+                    kinds.clear();
+                }
+            }
+        } else if let Some(p) = v.get("$patch").filter(|p| p.is_object()) {
+            patch(p, &mut kinds);
+            p.get("updates").and_then(Value::as_array).into_iter().flatten().for_each(|u| patch(u, &mut kinds));
+            for gone in p.get("removeIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+                ids.retain(|i| i != gone);
+                kinds.remove(gone);
+            }
+        } else if v.get("id").is_some_and(Value::is_string) {
+            add(&v, &mut ids, &mut kinds);
+        } else if let Some(set) = v.get("$set").filter(|s| s.is_object()) {
+            if let Some(messages) = set.get("messages").and_then(Value::as_array) {
+                ids.clear();
+                kinds.clear();
+                messages.iter().for_each(|m| add(m, &mut ids, &mut kinds));
+            }
+        } else if v.get("sessionId").is_some_and(Value::is_string) && v.get("projectHash").is_some_and(Value::is_string) {
+            v.get("messages").and_then(Value::as_array).into_iter().flatten().for_each(|m| add(m, &mut ids, &mut kinds));
+        }
+    }
+    kinds.values().any(|(_, resumable)| *resumable)
+}
+
+/// Whether Gemini would resume a chat: startup-only, command-only and context-only ones it skips,
+/// and `--resume <id>` of one of those is a fatal error.
+fn chat_resumable(path: &Path, meta: &Value) -> bool {
+    match meta.get("messages").and_then(Value::as_array) {
+        Some(legacy) => legacy.iter().any(resumable_message),
+        None => jsonl_chat_resumable(path),
+    }
+}
+
+/// The chats of `cwd`'s project in this home that Gemini would resume, latest activity (file
+/// mtime) first; Gemini's own `--resume latest` takes the latest started (`startTime`) instead.
+fn chats_in(home: &Path, cwd: &Path) -> Vec<String> {
+    let hashes = project_hashes(cwd);
+    let mut files: Vec<(PathBuf, std::time::SystemTime)> = std::fs::read_dir(gemini_dir(home).join("tmp"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|project| std::fs::read_dir(project.path().join("chats")).ok())
+        .flatten()
+        .flatten()
+        .filter(|f| f.file_name().to_string_lossy().starts_with("session-"))
+        .filter(|f| f.path().extension().is_some_and(|e| e == "jsonl" || e == "json"))
+        .filter_map(|f| Some((f.path(), f.metadata().ok()?.modified().ok()?)))
+        .collect();
+    files.sort_by_key(|f| std::cmp::Reverse(f.1));
+    let mut out: Vec<String> = Vec::new();
+    for (path, _) in files {
+        let Some(meta) = chat_meta(&path, &hashes) else { continue };
+        let Some(id) = meta.get("sessionId").and_then(Value::as_str).filter(|id| is_uuid(id)) else { continue };
+        let ours = meta.get("projectHash").and_then(Value::as_str).is_some_and(|h| hashes.iter().any(|x| x == h));
+        let subagent = meta.get("kind").and_then(Value::as_str) == Some("subagent");
+        if ours && !subagent && !out.iter().any(|o| o == id) && chat_resumable(&path, &meta) {
+            out.push(id.to_string());
+        }
+    }
+    out
+}
+
 /// Gemini CLI's OAuth client (an "installed application" client the CLI ships in
 /// packages/core/src/code_assist/oauth2.ts as `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET`). We do not embed it:
 /// it is read at runtime, in order, from
@@ -830,11 +1005,21 @@ impl ProviderAdapter for GeminiAdapter {
 
     async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut spec = base_command(account);
-        if resume != Resume::No {
-            spec.args.extend(["--resume".to_string(), "latest".to_string()]);
+        match resume {
+            Resume::No => {}
+            Resume::Session(id) if is_uuid(&id) => spec.args.extend(["--resume".to_string(), id]),
+            Resume::Last | Resume::Session(_) => spec.args.extend(["--resume".to_string(), "latest".to_string()]),
         }
         spec.args.extend(extra_args.iter().cloned());
         Ok(spec)
+    }
+
+    fn resume_candidates(&self, account: &Account, cwd: &Path, wanted: Option<&str>) -> Vec<String> {
+        let mut own = chats_in(Path::new(&account.home_dir), cwd);
+        // Gemini opens a chat by id only from its own project's chats in this home.
+        let wanted = wanted.filter(|id| own.iter().any(|o| o == id)).map(str::to_string);
+        own.truncate(RESUME_CANDIDATES);
+        wanted_first(wanted, own)
     }
 
     /// Gemini CLI has no login subcommand: on first run (or after /auth) it asks how to sign in.
@@ -1052,6 +1237,158 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!((out[0].sessions, out[0].messages, out[0].input_tokens), (1, 2, 10));
         assert_eq!(out[0].account_id, "acc1");
+    }
+
+    /// A chat recording as Gemini CLI writes it: metadata first, then message records.
+    fn chat(home: &Path, project: &str, file: &str, meta: Value, messages: &[Value]) {
+        let dir = home.join(".gemini/tmp").join(project).join("chats");
+        std::fs::create_dir_all(dir.join(file).parent().unwrap()).unwrap();
+        let lines: Vec<String> = std::iter::once(&meta).chain(messages).map(Value::to_string).collect();
+        std::fs::write(dir.join(file), lines.join("\n")).unwrap();
+        // Distinct modification times, in call order.
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    /// What Gemini records as `projectHash` for a folder.
+    fn hash(project: &str) -> String {
+        format!("{:x}", Sha256::digest(project.as_bytes()))
+    }
+
+    fn meta(id: &str, project: &str, kind: &str) -> Value {
+        json!({"sessionId": id, "projectHash": hash(project), "startTime": "2026-10-20T10:00:00.000Z", "lastUpdated": "2026-10-20T10:00:00.000Z", "kind": kind})
+    }
+
+    fn said(text: &str) -> Value {
+        json!({"id": "m1", "timestamp": "2026-10-20T10:00:01.000Z", "type": "user", "content": [{"text": text}]})
+    }
+
+    #[test]
+    fn a_legacy_chat_of_another_project_is_not_read_in_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("session-x.json");
+        // As Gemini wrote them: pretty-printed, `projectHash` right after `sessionId`.
+        let big = json!([{"id": "u", "type": "user", "content": "x".repeat(100_000)}]);
+        let text =
+            format!("{{\n  \"sessionId\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"projectHash\": \"{}\",\n  \"messages\": {big}\n}}", hash("/work"));
+        std::fs::write(&f, text).unwrap();
+        assert!(legacy_chat_is_for(&f, &[hash("/work")]));
+        assert!(!legacy_chat_is_for(&f, &[hash("/elsewhere")]));
+        assert!(!legacy_chat_is_for(&dir.path().join("missing.json"), &[hash("/work")]));
+    }
+
+    /// Gemini resumes a chat only when something in it is worth resuming (its
+    /// `isResumableMessageRecord`); asking it for any other one by id is a fatal error.
+    #[test]
+    fn only_chats_gemini_would_resume_are_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let id = |n: u8| format!("a1b2c3d4-e5f6-7890-abcd-ef12345678{n:02}");
+        let msg = |id: &str, kind: &str, content: Value| json!({"id": id, "timestamp": "2026-10-20T10:00:01.000Z", "type": kind, "content": content});
+        let cases: Vec<(u8, Vec<Value>, bool)> = vec![
+            (1, vec![said("/model")], false),
+            (2, vec![said("  <session_context>cwd</session_context>")], false),
+            (3, vec![said("?"), said("<hook_context>x")], false),
+            (4, vec![msg("g", "gemini", json!(""))], false),
+            (5, vec![msg("i", "info", json!("started"))], false),
+            (6, vec![said("fix the bug")], true),
+            (7, vec![msg("u", "user", json!("plain string prompt"))], true),
+            (8, vec![msg("u", "user", json!([{"inlineData": {"mimeType": "image/png", "data": "AA=="}}]))], true),
+            (9, vec![json!({"id": "g", "type": "gemini", "content": "", "toolCalls": [{"id": "t", "name": "ls"}]})], true),
+            (10, vec![json!({"id": "g", "type": "gemini", "content": "", "thoughts": [{"subject": "s"}]})], true),
+            // A prompt later rewound away, and one removed by a patch.
+            (11, vec![said("hello"), json!({"$rewindTo": "m1"})], false),
+            (12, vec![said("hello"), json!({"$patch": {"removeIds": ["m1"]}})], false),
+            // An empty reply patched with its text once it streamed in.
+            (13, vec![msg("g", "gemini", json!("")), json!({"$patch": {"id": "g", "content": "done"}})], true),
+            // A prompt rewritten into a command.
+            (14, vec![said("hello"), json!({"$patch": {"updates": [{"id": "m1", "content": [{"text": "/clear"}]}]}})], false),
+            // Messages replaced wholesale.
+            (15, vec![said("/help"), json!({"$set": {"messages": [msg("u2", "user", json!("real"))]}})], true),
+        ];
+        for (n, messages, _) in &cases {
+            chat(home, "work", &format!("session-2026-10-20T10-{n:02}-a1b2c3d4.jsonl"), meta(&id(*n), "/work", "main"), messages);
+        }
+        let legacy = |n: u8, content: &str| {
+            let v =
+                json!({"sessionId": id(n), "projectHash": hash("/work"), "startTime": "t", "lastUpdated": "t", "messages": [msg("u", "user", json!(content))]});
+            std::fs::write(home.join(format!(".gemini/tmp/work/chats/session-2026-10-19T10-{n:02}-a1b2c3d4.json")), serde_json::to_string_pretty(&v).unwrap())
+                .unwrap();
+        };
+        legacy(20, "/stats");
+        legacy(21, "a real legacy prompt");
+
+        let offered = GeminiAdapter::new().resume_candidates(&account(home), Path::new("/work"), None);
+        for (n, _, ok) in &cases {
+            assert_eq!(offered.contains(&id(*n)), *ok, "chat {n}: {offered:?}");
+        }
+        assert!(!offered.contains(&id(20)));
+        assert!(offered.contains(&id(21)));
+    }
+
+    #[test]
+    fn resume_offers_this_homes_chats_in_the_folder_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let id = |n: u8| format!("a1b2c3d4-e5f6-7890-abcd-ef12345678{n:02}");
+        let legacy = json!({"sessionId": id(1), "projectHash": hash("/work"), "startTime": "2026-10-19T10:00:00Z", "lastUpdated": "2026-10-19T10:00:00Z",
+            "messages": [{"id": "m", "timestamp": "2026-10-19T10:00:00Z", "type": "user", "content": "hi"}]});
+        let legacy_file = home.join(".gemini/tmp/work/chats/session-2026-10-19T10-00-a1b2c3d4.json");
+        std::fs::create_dir_all(legacy_file.parent().unwrap()).unwrap();
+        std::fs::write(&legacy_file, serde_json::to_string_pretty(&legacy).unwrap()).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        chat(home, "work", "session-2026-10-20T10-00-a1b2c3d4.jsonl", meta(&id(2), "/work", "main"), &[said("old")]);
+        chat(home, "work", "session-2026-10-20T11-00-a1b2c3d4.jsonl", meta(&id(3), "/work", "main"), &[said("new")]);
+        chat(home, "elsewhere", "session-2026-10-20T12-00-a1b2c3d4.jsonl", meta(&id(4), "/elsewhere", "main"), &[said("other")]);
+        // A sub-agent's chat, and a session that only started up.
+        chat(home, "work", &format!("{}/{}.jsonl", id(3), id(5)), meta(&id(5), "/work", "subagent"), &[said("sub")]);
+        chat(home, "work", "session-2026-10-20T13-00-a1b2c3d4.jsonl", meta(&id(6), "/work", "subagent"), &[said("sub")]);
+        chat(home, "work", "session-2026-10-20T14-00-a1b2c3d4.jsonl", meta(&id(7), "/work", "main"), &[]);
+
+        let a = GeminiAdapter::new();
+        let acc = account(home);
+        let work = Path::new("/work");
+        assert_eq!(a.resume_candidates(&acc, work, None), [id(3), id(2), id(1)]);
+        // A chat asked for comes first, but only when Gemini can open it from here: `--resume <id>`
+        // looks in the folder's own chats only.
+        assert_eq!(a.resume_candidates(&acc, work, Some(&id(2))), [id(2), id(3), id(1)]);
+        assert_eq!(a.resume_candidates(&acc, work, Some(&id(4))), [id(3), id(2), id(1)]);
+        assert_eq!(a.resume_candidates(&acc, Path::new("/elsewhere"), Some(&id(4))), [id(4)]);
+        assert!(a.resume_candidates(&acc, Path::new("/nowhere"), None).is_empty());
+        let missing = account(&home.join("missing"));
+        assert!(a.resume_candidates(&missing, work, None).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_symlink_finds_its_chats() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = dir.path().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        // Gemini hashes the folder as the process sees it: the real path.
+        let id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+        let seen = std::fs::canonicalize(&real).unwrap();
+        chat(dir.path(), "real", "session-2026-10-20T10-00-a1b2c3d4.jsonl", meta(id, &seen.to_string_lossy(), "main"), &[said("hi")]);
+        let acc = account(dir.path());
+        assert_eq!(GeminiAdapter::new().resume_candidates(&acc, &link, None), [id]);
+        assert_eq!(GeminiAdapter::new().resume_candidates(&acc, &seen, None), [id]);
+    }
+
+    #[tokio::test]
+    async fn resume_by_id_names_the_chat() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, acc) = (GeminiAdapter::new(), account(dir.path()));
+        let args = |r: Resume| {
+            let (a, acc) = (&a, &acc);
+            async move { a.cli_command(acc, r, &[]).await.unwrap().args }
+        };
+        assert_eq!(args(Resume::Session("a1b2c3d4-e5f6-7890-abcd-ef1234567890".into())).await, ["--resume", "a1b2c3d4-e5f6-7890-abcd-ef1234567890"]);
+        assert_eq!(args(Resume::Last).await, ["--resume", "latest"]);
+        assert!(args(Resume::No).await.is_empty());
+        // Gemini reads a number as a list index; an id from a damaged file never becomes one.
+        assert_eq!(args(Resume::Session("3".into())).await, ["--resume", "latest"]);
+        assert_eq!(args(Resume::Session("--yolo".into())).await, ["--resume", "latest"]);
     }
 
     #[tokio::test]

@@ -17,7 +17,10 @@
 //! Usage: `GET https://api.github.com/copilot_internal/user` (headers as in steipete/CodexBar
 //! docs/copilot.md). We never read the keychain (that could pop OS prompts during background polls);
 //! the token comes from the plaintext store if present, else from GitHub CLI: `gh auth token --user <login>`.
-use super::common::{finish_days, first_local_date, local_date, num, parse_jsonc, scan_launcher_scripts, DayMap, VersionCache};
+use super::common::{
+    any_json_line, finish_days, first_local_date, folder_forms, is_uuid, local_date, num, parse_jsonc, scan_launcher_scripts, wanted_first, DayMap,
+    VersionCache, RESUME_CANDIDATES,
+};
 use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
 use crate::util;
@@ -447,6 +450,55 @@ fn scan_copilot_activity(home: &Path, account_id: &str, since_days: u32) -> Vec<
     finish_days(days, account_id, &cutoff)
 }
 
+// ---------- conversations: session-state/<id>/{workspace.yaml,events.jsonl} ----------
+//
+// Each session is a folder named by its uuid holding `workspace.yaml` (metadata: `id`, `cwd`,
+// `created_at`, `updated_at`, ...) and `events.jsonl` (the session's events, `user.message` for each
+// prompt). `copilot --resume=<uuid>` reopens one; with an id it doesn't know it starts a new session
+// under that id, so only ids with a folder here are offered. Copilot CLI leaves no per-process
+// marker naming its session, so `open_sessions` stays empty.
+
+/// The folder in a `workspace.yaml`: its top-level `cwd:` scalar, plain or quoted.
+fn workspace_cwd(yaml: &str) -> Option<String> {
+    let raw = yaml.lines().find_map(|l| l.strip_prefix("cwd:"))?.trim();
+    if raw.starts_with('"') {
+        return serde_json::from_str(raw).ok();
+    }
+    match raw.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
+        Some(quoted) => Some(quoted.replace("''", "'")),
+        None => Some(raw.to_string()).filter(|s| !s.is_empty()),
+    }
+}
+
+/// The sessions started in `cwd` from this home that something was typed in, newest first.
+fn sessions_in(home: &Path, cwd: &Path) -> Vec<String> {
+    let want: Vec<String> = folder_forms(cwd).iter().map(|f| util::path_key(f)).collect();
+    let mut sessions: Vec<(String, PathBuf, std::time::SystemTime)> = std::fs::read_dir(home.join("session-state"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|d| {
+            let id = d.file_name().to_string_lossy().into_owned();
+            let events = d.path().join("events.jsonl");
+            let modified = std::fs::metadata(&events).ok()?.modified().ok()?;
+            is_uuid(&id).then_some((id, d.path(), modified))
+        })
+        .collect();
+    sessions.sort_by_key(|s| std::cmp::Reverse(s.2));
+    sessions
+        .into_iter()
+        .filter(|(_, dir, _)| {
+            let cwd = std::fs::read_to_string(dir.join("workspace.yaml")).ok().and_then(|y| workspace_cwd(&y));
+            cwd.is_some_and(|c| want.contains(&util::path_key(Path::new(&c))))
+        })
+        .filter(|(_, dir, _)| {
+            any_json_line(&dir.join("events.jsonl"), |l| l.contains("user.message"), |v| v.get("type").and_then(Value::as_str) == Some("user.message"))
+        })
+        .map(|(id, _, _)| id)
+        .take(RESUME_CANDIDATES)
+        .collect()
+}
+
 fn base_command(account: &Account) -> CommandSpec {
     let program = util::which("copilot").map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|| "copilot".into());
     let mut spec = CommandSpec { program, ..Default::default() };
@@ -555,11 +607,21 @@ impl ProviderAdapter for CopilotAdapter {
 
     async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec> {
         let mut spec = base_command(account);
-        if resume != Resume::No {
-            spec.args.push("--continue".into());
+        match resume {
+            Resume::No => {}
+            // `--resume=<id>`: the documented form for picking a session without the picker.
+            Resume::Session(id) if is_uuid(&id) => spec.args.push(format!("--resume={id}")),
+            Resume::Last | Resume::Session(_) => spec.args.push("--continue".into()),
         }
         spec.args.extend(extra_args.iter().cloned());
         Ok(spec)
+    }
+
+    fn resume_candidates(&self, account: &Account, cwd: &Path, wanted: Option<&str>) -> Vec<String> {
+        let home = Path::new(&account.home_dir);
+        // Without shared history another account's session isn't in this home to reopen.
+        let wanted = wanted.filter(|id| is_uuid(id) && home.join("session-state").join(id).join("events.jsonl").is_file()).map(str::to_string);
+        wanted_first(wanted, sessions_in(home, cwd))
     }
 
     async fn login_command(&self, account: &Account) -> anyhow::Result<CommandSpec> {
@@ -791,6 +853,85 @@ mod tests {
         assert_eq!(d.cache_tokens, 800);
         assert_eq!(d.output_tokens, 150);
         assert_eq!(d.models["claude-sonnet-4.5"], 1650);
+    }
+
+    /// A session folder as Copilot CLI writes it: `workspace.yaml` metadata plus the `events.jsonl` log.
+    fn session(home: &Path, id: &str, cwd_line: &str, events: &[&str]) {
+        let dir = home.join("session-state").join(id);
+        std::fs::create_dir_all(&dir).unwrap();
+        let yaml = format!("id: {id}\n{cwd_line}\nsummary_count: 0\ncreated_at: 2026-10-20T10:00:00.000Z\nupdated_at: 2026-10-20T10:00:01.000Z\n");
+        std::fs::write(dir.join("workspace.yaml"), yaml).unwrap();
+        if !events.is_empty() {
+            let start = json!({"type": "session.start", "data": {"sessionId": id, "version": 1, "producer": "copilot-agent", "copilotVersion": "0.0.421", "startTime": "2026-10-20T10:00:00.000Z", "context": {"cwd": "/somewhere"}}, "id": "e0", "timestamp": "2026-10-20T10:00:00.000Z", "parentId": null});
+            let lines: Vec<String> = std::iter::once(start.to_string())
+                .chain(events.iter().enumerate().map(|(i, t)| {
+                    json!({"type": t, "data": {}, "id": format!("e{}", i + 1), "timestamp": "2026-10-20T10:00:01.000Z", "parentId": "e0"}).to_string()
+                }))
+                .collect();
+            std::fs::write(dir.join("events.jsonl"), lines.join("\n")).unwrap();
+        }
+        // Distinct modification times, in call order.
+        std::thread::sleep(Duration::from_millis(20));
+    }
+
+    #[test]
+    fn resume_offers_this_homes_sessions_in_the_folder_newest_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let id = |n: u8| format!("d6e732e6-506d-4120-988e-c10cac1396{n:02}");
+        session(home, &id(1), "cwd: /work", &["user.message", "assistant.message"]);
+        session(home, &id(2), "cwd: '/work'", &["session.model_change", "user.message"]);
+        session(home, &id(3), "cwd: /elsewhere", &["user.message"]);
+        // Started but nothing typed; and never got an event log at all.
+        session(home, &id(4), "cwd: /work", &["session.info"]);
+        session(home, &id(5), "cwd: /work", &[]);
+        session(home, &id(6), "cwd: \"/work\"", &["user.message"]);
+        // Not a session folder Copilot made.
+        session(home, "notes", "cwd: /work", &["user.message"]);
+
+        let a = CopilotAdapter::new();
+        let acc = account(home);
+        let work = Path::new("/work");
+        assert_eq!(a.resume_candidates(&acc, work, None), [id(6), id(2), id(1)]);
+        // A session asked for comes first, but only when this home has it: `--resume <uuid>` with an
+        // unknown id starts a new session under that id.
+        assert_eq!(a.resume_candidates(&acc, work, Some(&id(1))), [id(1), id(6), id(2)]);
+        assert_eq!(a.resume_candidates(&acc, work, Some(&id(3))), [id(3), id(6), id(2), id(1)]);
+        assert_eq!(a.resume_candidates(&acc, work, Some("d6e732e6-506d-4120-988e-c10cac139699")), [id(6), id(2), id(1)]);
+        assert_eq!(a.resume_candidates(&acc, work, Some("notes")), [id(6), id(2), id(1)]);
+        assert!(a.resume_candidates(&acc, Path::new("/nowhere"), None).is_empty());
+        assert!(a.resume_candidates(&account(&home.join("missing")), work, None).is_empty());
+    }
+
+    /// Copilot records the folder as the process sees it (the real path).
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_symlink_finds_its_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = std::fs::canonicalize(dir.path()).unwrap().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let id = "d6e732e6-506d-4120-988e-c10cac139601";
+        let home = dir.path().join("home");
+        session(&home, id, &format!("cwd: {}", real.display()), &["user.message"]);
+        assert_eq!(CopilotAdapter::new().resume_candidates(&account(&home), &link, None), [id]);
+    }
+
+    #[tokio::test]
+    async fn resume_by_id_names_the_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, acc) = (CopilotAdapter::new(), account(dir.path()));
+        let args = |r: Resume| {
+            let (a, acc) = (&a, &acc);
+            async move { a.cli_command(acc, r, &[]).await.unwrap().args }
+        };
+        assert_eq!(args(Resume::Session("d6e732e6-506d-4120-988e-c10cac139665".into())).await, ["--resume=d6e732e6-506d-4120-988e-c10cac139665"]);
+        assert_eq!(args(Resume::Last).await, ["--continue"]);
+        assert!(args(Resume::No).await.is_empty());
+        // Copilot also matches names and id prefixes; an id from a damaged file never reaches it.
+        assert_eq!(args(Resume::Session("--allow-all".into())).await, ["--continue"]);
+        assert_eq!(args(Resume::Session("d6e7".into())).await, ["--continue"]);
     }
 
     #[tokio::test]

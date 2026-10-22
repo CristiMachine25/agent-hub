@@ -565,9 +565,6 @@ async fn login_still_there(home: &Path, is_default: bool) -> bool {
 // running Claude Code process writes `sessions/<pid>.json` naming the conversation it is in, and
 // removes it on a clean exit (a killed process leaves it behind).
 
-/// How many of a folder's conversations Resume looks through.
-const RESUME_CANDIDATES: usize = 20;
-
 /// The conversations of prompts typed in `cwd` from this home, newest first, that still have a
 /// transcript to reopen.
 fn sessions_in(home: &Path, cwd: &Path) -> Vec<String> {
@@ -1056,8 +1053,7 @@ impl ProviderAdapter for ClaudeAdapter {
         let home = Path::new(&account.home_dir);
         // Without shared history another account's conversation isn't in this home to reopen.
         let wanted = wanted.filter(|id| transcript_exists(home, id)).map(str::to_string);
-        let own = sessions_in(home, cwd).into_iter().filter(|id| wanted.as_ref() != Some(id));
-        wanted.clone().into_iter().chain(own).collect()
+        wanted_first(wanted, sessions_in(home, cwd))
     }
 
     fn open_sessions(&self, account: &Account) -> Vec<(u32, String)> {
