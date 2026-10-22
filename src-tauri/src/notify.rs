@@ -1,6 +1,7 @@
 //! Notification rules: compare the previous and new usage per window and decide what to tell the
 //! user. Each rule fires once and re-arms only when the state changes (usage drops back below the
 //! threshold, or the window resets), so polls never repeat the same alert.
+use crate::events;
 use crate::model::*;
 use crate::recommend;
 use crate::store::AppState;
@@ -8,7 +9,7 @@ use crate::util;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
 /// At or above this, a window counts as exhausted.
 pub const LIMIT_PERCENT: f64 = 99.5;
@@ -271,7 +272,7 @@ pub async fn deliver(app: &AppHandle, state: &AppState, items: Vec<AppNotificati
         log::warn!("saving notifications failed: {e:#}");
     }
     for n in &items {
-        let _ = app.emit("notification", n);
+        events::emit(app, &events::Notification(n));
         if os_enabled {
             show_native(app, &n.title, &n.body);
         }

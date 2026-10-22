@@ -1,6 +1,7 @@
 //! App setup: plugins, state, commands, background poller and the system tray.
 pub mod accounts;
 pub mod commands;
+pub mod events;
 pub mod knowledge;
 pub mod launcher;
 pub mod model;
@@ -21,7 +22,7 @@ use std::sync::Arc;
 use store::AppState;
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::ManagerExt;
 
 /// User-facing product name for Rust-side strings (tray, messages). Rename here only.
@@ -251,7 +252,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
         "show" => show_main_window(app),
         "terminals" => {
             show_main_window(app);
-            let _ = app.emit("navigate", "terminals");
+            events::emit(app, &events::Navigate("terminals"));
         }
         "refresh" => {
             let app = app.clone();

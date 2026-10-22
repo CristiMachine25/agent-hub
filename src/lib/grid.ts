@@ -1,5 +1,7 @@
 // Pure helpers for the terminal grid: layout geometry, focus navigation, workspace persistence.
 import type { Account, Recommendation, TerminalInfo, UsageSnapshot } from '@shared/types'
+import type { Platform } from './platform'
+import { isMainFolder } from './profiles'
 import { bindingWindow, leftOf } from './quota'
 
 export type LayoutId = 1 | 2 | 3 | 4 | 6 | 9
@@ -298,11 +300,19 @@ export function continueCandidates(
     })
 }
 
-/** True when chats started on one account can be resumed from the other (history shared on both sides). */
-export function historyShared(a: Pick<Account, 'isDefaultHome' | 'sharing'>, b: Pick<Account, 'isDefaultHome' | 'sharing'>): boolean {
+type Shares = Pick<Account, 'homeDir' | 'isDefaultHome' | 'sharing'>
+
+/** True when chats started on one account can be resumed from the other (history shared on both sides).
+ *  Both are accounts of the provider whose default home is `defaultHome`. */
+export function historyShared(a: Shares, b: Shares, defaultHome: string | undefined, platform: Platform): boolean {
   // The provider's main folder is the source that others link to, so it always counts as sharing.
-  const shares = (x: typeof a) => x.isDefaultHome || x.sharing.history
+  const shares = (x: Shares) => isMainFolder(x, defaultHome, platform) || x.sharing.history
   return shares(a) && shares(b)
+}
+
+/** The accounts "Share history" has to turn history on for: the main folder already is the source. */
+export function historyToTurnOn<T extends Shares>(accounts: T[], defaultHome: string | undefined, platform: Platform): T[] {
+  return accounts.filter((x) => !isMainFolder(x, defaultHome, platform) && !x.sharing.history)
 }
 
 /** Account picker order: provider groups by their best account, accounts by recommendation within a group. */

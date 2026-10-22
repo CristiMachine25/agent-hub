@@ -2,12 +2,12 @@
 use crate::model::*;
 use crate::providers::{FetchError, Identity};
 use crate::store::{ActivityEntry, AppState};
-use crate::{notify, util};
+use crate::{events, notify, util};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::task::JoinSet;
 
 const FETCH_TIMEOUT: Duration = Duration::from_secs(60);
@@ -97,7 +97,7 @@ pub async fn publish(app: &AppHandle, state: &AppState, prev: &HashMap<String, U
         log::warn!("saving latest usage failed: {e:#}");
     }
     let latest = state.latest.read().await.clone();
-    let _ = app.emit("usage-updated", &latest);
+    events::emit(app, &events::UsageUpdated(&latest));
 
     let accounts = state.accounts.read().await.clone();
     let settings = state.settings.read().await.notifications.clone();
@@ -178,7 +178,7 @@ async fn update_accounts(app: &AppHandle, state: &AppState, fetched: &[Fetched])
         if let Err(e) = state.save_accounts().await {
             log::warn!("saving accounts failed: {e:#}");
         }
-        let _ = app.emit("accounts-changed", &*state.accounts.read().await);
+        events::emit(app, &events::AccountsChanged(&state.accounts.read().await));
     }
 }
 

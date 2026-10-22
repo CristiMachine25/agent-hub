@@ -595,13 +595,15 @@ pub struct SkillInstallOutcome {
 }
 
 /// Writes `src/shared/__fixtures__/serde.ts`: one value of every type the UI sends or receives, with
-/// every Option set, plus every enum value and every registered command. tsc checks that file against
-/// `src/shared/types.ts`, so a field or enum value that exists on one side only fails the typecheck.
+/// every Option set, plus every enum value, every registered command and every event Rust emits, with
+/// its payload. tsc checks that file against `src/shared/types.ts`, so a field or enum value that
+/// exists on one side only fails the typecheck.
 /// This test fails while the committed file is stale; `UPDATE_SERDE_FIXTURE=1 cargo test serde_fixture`
 /// rewrites it.
 #[cfg(test)]
 mod contract_tests {
     use super::*;
+    use crate::events::{self, AppEvent};
     use crate::transfer::{ExportOptions, ExportSummary, ImportChoice, ImportPreview, ImportReport, PreviewAccount, PreviewKind};
     use serde::{de::DeserializeOwned, Serialize};
     use serde_json::{json, Value};
@@ -626,9 +628,16 @@ mod contract_tests {
         }};
     }
 
-    struct Fixture(String);
+    /// The fixture text, and the events written so far.
+    struct Fixture(String, Vec<&'static str>);
 
     impl Fixture {
+        /// A payload tsc must accept as the `E::NAME` event.
+        fn event<E: AppEvent>(&mut self, e: &E) {
+            self.1.push(E::NAME);
+            self.value(&format!("event_{}", E::NAME.replace('-', "_")), &format!("T.AppEvents['{}']", E::NAME), e);
+        }
+
         /// A value tsc must accept as `ts` with every field present and none extra.
         fn value(&mut self, name: &str, ts: &str, v: &impl Serialize) {
             let json = serde_json::to_string_pretty(v).unwrap();
@@ -713,6 +722,7 @@ mod contract_tests {
              import type * as T from '../types'\n\
              import type { Full, Same } from './check'\n"
                 .into(),
+            vec![],
         );
 
         let provider = ProviderInfo {
@@ -943,6 +953,21 @@ mod contract_tests {
         }
         f.values("commands", "(typeof T.COMMANDS)[keyof typeof T.COMMANDS]", &registered_commands());
 
+        // Every event, as the type events::emit sends.
+        f.event(&events::UsageUpdated(&HashMap::from([(s("acc-1"), snapshot.clone())])));
+        f.event(&events::AccountsChanged(std::slice::from_ref(&account)));
+        f.event(&events::Notification(&notification));
+        f.event(&events::TerminalOutput { id: s("t-1"), data: s("hello") });
+        let exit = events::TerminalExit { id: s("t-1"), code: Some(0) };
+        f.event(&exit);
+        f.event(&events::Navigate("terminals"));
+        let mut written = f.1.clone();
+        written.sort_unstable();
+        let mut all = events::NAMES.to_vec();
+        all.sort_unstable();
+        assert_eq!(written, all, "write one value of every event in events.rs");
+        f.values("events", "keyof T.AppEvents", events::NAMES);
+
         f.0 += "\n// What the UI receives with every Option set to None.\n";
         f.nulls("T.ProviderInfo", &provider);
         f.nulls("T.Account", &account);
@@ -952,6 +977,7 @@ mod contract_tests {
         f.nulls("T.AppNotification", &notification);
         f.nulls("T.AppSettings", &settings);
         f.nulls("T.TerminalInfo", &terminal);
+        f.nulls("T.AppEvents['terminal-exit']", &exit);
         f.nulls("T.InstalledSkill", &installed);
         f.nulls("T.SkillInstallOutcome", &outcome);
         f.nulls("T.ImportPreview", &import_preview);

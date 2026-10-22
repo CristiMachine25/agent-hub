@@ -4,7 +4,7 @@ import { ArrowRightLeft, FolderOpen, History, Loader2, LogIn, Maximize2, Minimiz
 import type { Account } from '@shared/types'
 import { api } from '@/api'
 import { useStore } from '@/store'
-import { atLimit, continueCandidates, historyShared, isBlocked, isSignedOut, isUsable, statusLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
+import { atLimit, continueCandidates, historyShared, historyToTurnOn, isBlocked, isSignedOut, isUsable, statusLabel, pickerGroups, type PaneConfig, type PaneTarget } from '@/lib/grid'
 import { bindingWindow, leftOf } from '@/lib/quota'
 import { formatCountdown, formatPct, windowName } from '@/lib/format'
 import { PROVIDER_META } from '@/lib/providers'
@@ -60,6 +60,7 @@ function ContinueMenu({ index, account, onDone }: { index: number; account: Acco
   const recs = useStore((s) => s.recs)
   const updateAccount = useStore((s) => s.updateAccount)
   const continueOn = useGrid((s) => s.continueOn)
+  const defaultHome = useStore((s) => s.providers.find((p) => p.id === account.providerId)?.defaultHome)
   const list = continueCandidates(account, accounts, usage, recs)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -85,7 +86,7 @@ function ContinueMenu({ index, account, onDone }: { index: number; account: Acco
       {list.length === 0 && <p className="px-2 py-2 text-sm text-muted">No other {PROVIDER_META[account.providerId].short} accounts yet.</p>}
       {list.map((a) => {
         const usable = isUsable(a, usage)
-        const shared = historyShared(account, a)
+        const shared = historyShared(account, a, defaultHome, api.platform)
         return (
           <div key={a.id} className="flex items-center gap-1 rounded hover:bg-raised">
             <button
@@ -106,10 +107,8 @@ function ContinueMenu({ index, account, onDone }: { index: number; account: Acco
                 className="btn btn-ghost btn-sm mr-1 shrink-0 px-1.5"
                 data-tip="Turn on chat history sharing for both accounts so the chat continues"
                 onClick={async () => {
-                  for (const x of [account, a]) {
-                    if (!x.isDefaultHome && !x.sharing.history)
-                      await updateAccount(x.id, { sharing: { ...x.sharing, history: true } }, { quiet: true })
-                  }
+                  for (const x of historyToTurnOn([account, a], defaultHome, api.platform))
+                    await updateAccount(x.id, { sharing: { ...x.sharing, history: true } }, { quiet: true })
                   useStore.getState().toast({ kind: 'success', title: 'Chat history is now shared', body: `${account.label} and ${a.label} see the same chats.` })
                 }}
               >

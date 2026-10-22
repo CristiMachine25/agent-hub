@@ -106,6 +106,7 @@ function AccountDetail({ account: a }: { account: Account }) {
   const { launch, refresh, updateAccount } = useStore.getState()
   const prov = providers.find((p) => p.id === a.providerId)
   const meta = PROVIDER_META[a.providerId]
+  const main = isMainFolder(a, prov?.defaultHome, api.platform)
   const signedOut = isSignedOut(a)
   const blocked = isBlocked(a)
   // A blocked account's CLI refuses to start, so its launch buttons are hidden.
@@ -323,7 +324,7 @@ function AccountDetail({ account: a }: { account: Account }) {
               </button>
             </div>
             <p className="mt-2 text-xs text-muted">
-              {a.isDefaultHome ? (
+              {main ? (
                 <>This is {meta.short}'s main folder, so it launches without any override. </>
               ) : prov?.homeEnvVar ? (
                 <>
@@ -336,7 +337,7 @@ function AccountDetail({ account: a }: { account: Account }) {
 
           <section>
             <SectionTitle>Shared with your main setup</SectionTitle>
-            {a.isDefaultHome ? (
+            {main ? (
               <p className="text-muted">This is your main {meta.short} setup. Other {meta.short} accounts can share its skills, plugins and history.</p>
             ) : (
               <>

@@ -475,7 +475,7 @@ export interface AgentHubApi {
 /**
  * Tauri command names (Rust #[tauri::command] fns, snake_case). Arguments are passed as an object
  * with camelCase keys matching the AgentHubApi parameter names, e.g. invoke('accounts_update', { id, patch }).
- * Events are emitted from Rust with app.emit(<AppEvents key>, payload).
+ * Events are emitted from Rust with events::emit (src-tauri/src/events.rs), one type per AppEvents key.
  */
 export const COMMANDS = {
   providersList: 'providers_list',
