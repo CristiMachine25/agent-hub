@@ -654,12 +654,12 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_cursor_position_query_reaches_the_terminal() {
-        let script = r#"printf 'A\033[6nB'; read -t 1 r; printf '[%s]' "$r" | od -c | head -1"#;
-        let spec = CommandSpec { program: "bash".into(), args: vec!["-c".into(), script.into()], env: HashMap::new(), cwd: None, note: None };
+        let script = r"printf 'A\033[6nB'; sleep 0.3";
+        let spec = CommandSpec { program: "sh".into(), args: vec!["-c".into(), script.into()], env: HashMap::new(), cwd: None, note: None };
         let (out, _, _, _) = run_to_exit(spec);
         assert!(out.contains("A\x1b[6nB"), "output: {out:?}");
-        // Nothing answered for the UI: the read saw no "\033[1;1R".
-        assert!(!out.contains("033   [   1   ;   1   R"), "output: {out:?}");
+        // Nothing answered for the UI: the tty would echo an injected "\x1b[1;1R" back.
+        assert!(!out.contains("1;1R"), "output: {out:?}");
     }
 
     /// npm-style .cmd shim in a folder with spaces, with env set and removed.
