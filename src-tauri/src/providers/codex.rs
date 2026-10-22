@@ -520,10 +520,10 @@ fn threads(home: &Path) -> Vec<(String, String, Vec<PathBuf>)> {
 
 /// Of `threads`, the ones started in `cwd` that something was typed in, newest first.
 fn threads_in(threads: &[(String, String, Vec<PathBuf>)], cwd: &Path) -> Vec<String> {
-    let want = util::path_key(cwd);
+    let want: Vec<String> = folder_forms(cwd).iter().map(|f| util::path_key(f)).collect();
     threads
         .iter()
-        .filter(|(_, dir, _)| util::path_key(Path::new(dir)) == want)
+        .filter(|(_, dir, _)| want.contains(&util::path_key(Path::new(dir))))
         .filter(|(_, _, files)| files.iter().any(|f| has_user_message(f)))
         .map(|(id, _, _)| id.clone())
         .take(RESUME_CANDIDATES)
@@ -1095,6 +1095,22 @@ mod tests {
         assert!(a.resume_candidates(&acc, Path::new("/nowhere"), None).is_empty());
         let missing = Account { home_dir: home.join("missing").to_string_lossy().into(), ..acc };
         assert!(a.resume_candidates(&missing, work, None).is_empty());
+    }
+
+    /// Codex records the folder as the process sees it (`getcwd`: the real path).
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_symlink_finds_its_threads() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = std::fs::canonicalize(dir.path()).unwrap().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let id = "01a1554c-99d9-7531-8477-a42d7e29b001";
+        let home = dir.path().join("home");
+        rollout(&home, "2026/10/20", id, meta(id, &real.to_string_lossy(), json!("cli")), &[user_turn()]);
+        let acc = Account { home_dir: home.to_string_lossy().into(), ..crate::recommend::tests::account("a", "pro") };
+        assert_eq!(CodexAdapter::new().resume_candidates(&acc, &link, None), [id]);
     }
 
     #[test]

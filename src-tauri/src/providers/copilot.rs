@@ -18,8 +18,8 @@
 //! docs/copilot.md). We never read the keychain (that could pop OS prompts during background polls);
 //! the token comes from the plaintext store if present, else from GitHub CLI: `gh auth token --user <login>`.
 use super::common::{
-    any_json_line, finish_days, first_local_date, is_uuid, local_date, num, parse_jsonc, scan_launcher_scripts, wanted_first, DayMap, VersionCache,
-    RESUME_CANDIDATES,
+    any_json_line, finish_days, first_local_date, folder_forms, is_uuid, local_date, num, parse_jsonc, scan_launcher_scripts, wanted_first, DayMap,
+    VersionCache, RESUME_CANDIDATES,
 };
 use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
@@ -472,7 +472,7 @@ fn workspace_cwd(yaml: &str) -> Option<String> {
 
 /// The sessions started in `cwd` from this home that something was typed in, newest first.
 fn sessions_in(home: &Path, cwd: &Path) -> Vec<String> {
-    let want = util::path_key(cwd);
+    let want: Vec<String> = folder_forms(cwd).iter().map(|f| util::path_key(f)).collect();
     let mut sessions: Vec<(String, PathBuf, std::time::SystemTime)> = std::fs::read_dir(home.join("session-state"))
         .into_iter()
         .flatten()
@@ -489,7 +489,7 @@ fn sessions_in(home: &Path, cwd: &Path) -> Vec<String> {
         .into_iter()
         .filter(|(_, dir, _)| {
             let cwd = std::fs::read_to_string(dir.join("workspace.yaml")).ok().and_then(|y| workspace_cwd(&y));
-            cwd.is_some_and(|c| util::path_key(Path::new(&c)) == want)
+            cwd.is_some_and(|c| want.contains(&util::path_key(Path::new(&c))))
         })
         .filter(|(_, dir, _)| {
             any_json_line(&dir.join("events.jsonl"), |l| l.contains("user.message"), |v| v.get("type").and_then(Value::as_str) == Some("user.message"))
@@ -901,6 +901,21 @@ mod tests {
         assert_eq!(a.resume_candidates(&acc, work, Some("notes")), [id(6), id(2), id(1)]);
         assert!(a.resume_candidates(&acc, Path::new("/nowhere"), None).is_empty());
         assert!(a.resume_candidates(&account(&home.join("missing")), work, None).is_empty());
+    }
+
+    /// Copilot records the folder as the process sees it (the real path).
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_reached_through_a_symlink_finds_its_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = std::fs::canonicalize(dir.path()).unwrap().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let id = "d6e732e6-506d-4120-988e-c10cac139601";
+        let home = dir.path().join("home");
+        session(&home, id, &format!("cwd: {}", real.display()), &["user.message"]);
+        assert_eq!(CopilotAdapter::new().resume_candidates(&account(&home), &link, None), [id]);
     }
 
     #[tokio::test]

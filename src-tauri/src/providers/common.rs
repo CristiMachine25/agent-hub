@@ -179,6 +179,15 @@ pub fn is_uuid(s: &str) -> bool {
     s.len() == 36 && s.char_indices().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { c == '-' } else { c.is_ascii_hexdigit() })
 }
 
+/// The ways a CLI may have recorded the folder it ran in: as given and, where that goes through a
+/// symlink, the real path its process sees (`getcwd`). Unix only: Windows' canonical form is a
+/// `\\?\` path no CLI records.
+pub fn folder_forms(cwd: &Path) -> Vec<PathBuf> {
+    let mut forms = vec![cwd.to_path_buf()];
+    forms.extend(std::fs::canonicalize(cwd).ok().filter(|real| cfg!(unix) && real != cwd));
+    forms
+}
+
 /// `wanted` (already known to be openable), then this account's own conversations without it.
 pub fn wanted_first(wanted: Option<String>, own: Vec<String>) -> Vec<String> {
     let own = own.into_iter().filter(|id| wanted.as_ref() != Some(id));
@@ -479,6 +488,19 @@ mod tests {
         std::fs::write(&f, "garbage\n{\"n\":1}\n").unwrap();
         assert!(first_json_line(&f).is_none());
         assert!(first_json_line(&dir.path().join("missing.jsonl")).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_is_known_by_its_path_and_its_real_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let real = std::fs::canonicalize(dir.path()).unwrap().join("real");
+        std::fs::create_dir_all(&real).unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        assert_eq!(folder_forms(&real), std::slice::from_ref(&real));
+        assert_eq!(folder_forms(&link), [link, real]);
+        assert_eq!(folder_forms(Path::new("/nowhere/at/all")), [PathBuf::from("/nowhere/at/all")]);
     }
 
     #[test]

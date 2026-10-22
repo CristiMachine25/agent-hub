@@ -10,8 +10,8 @@
 //!
 //! Verified against @google/gemini-cli 0.64.0 (npm bundle) and steipete/CodexBar docs/gemini.md.
 use super::common::{
-    finish_days, first_json_line, first_local_date, is_uuid, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, wanted_first, DayMap,
-    VersionCache, RESUME_CANDIDATES,
+    finish_days, first_json_line, first_local_date, folder_forms, is_uuid, local_date, normalize_iso, num, read_jsonc, scan_launcher_scripts, wanted_first,
+    DayMap, VersionCache, RESUME_CANDIDATES,
 };
 use super::{CommandSpec, FetchError, Identity, ProviderAdapter, Resume};
 use crate::model::*;
@@ -546,9 +546,7 @@ fn scan_gemini_activity(home: &Path, account_id: &str, since_days: u32) -> Vec<D
 /// What Gemini hashes for the project of `cwd`: its absolute path as given and, where the folder
 /// is reached through a symlink, the real path the process sees.
 fn project_hashes(cwd: &Path) -> Vec<String> {
-    let mut paths = vec![cwd.to_path_buf()];
-    paths.extend(std::fs::canonicalize(cwd).ok().filter(|real| cfg!(unix) && real != cwd));
-    paths
+    folder_forms(cwd)
         .iter()
         .map(|p| {
             let s = p.to_string_lossy();
