@@ -1,4 +1,4 @@
-import type { ProviderId, SharingOptions, TaskType } from '@shared/types'
+import type { ProviderId, ProviderInfo, SharingOptions, TaskType } from '@shared/types'
 
 export const PROVIDER_ORDER: ProviderId[] = ['claude', 'codex', 'gemini', 'copilot']
 
@@ -47,4 +47,14 @@ export const ACCOUNT_COLOR_NAMES = ['Blue', 'Orange', 'Green', 'Amber', 'Pink', 
 
 export function launchVerb(p: ProviderId): string {
   return `Launch ${PROVIDER_META[p].short}`
+}
+
+/** What "Use now" launches: the desktop app when the CLI is missing but the app is installed, else the CLI. */
+export function primaryTarget(prov: Pick<ProviderInfo, 'cliInstalled' | 'desktopInstalled'> | undefined): 'cli' | 'desktop' {
+  return prov && !prov.cliInstalled && prov.desktopInstalled ? 'desktop' : 'cli'
+}
+
+/** "Launch Claude", or "Open Claude Desktop" when primaryTarget picks the desktop app. */
+export function primaryVerb(p: ProviderId, prov: Pick<ProviderInfo, 'cliInstalled' | 'desktopInstalled' | 'desktopName'> | undefined): string {
+  return primaryTarget(prov) === 'desktop' ? `Open ${prov?.desktopName ?? 'desktop app'}` : launchVerb(p)
 }

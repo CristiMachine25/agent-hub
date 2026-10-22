@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { AlertTriangle, Ban, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
+import { AlertTriangle, AppWindow, Ban, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
 import type { Account, DailyActivity, ProviderId, Recommendation, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
 import { api } from '@/api'
 import { modKey } from '@/lib/platform'
 import { useStore } from '@/store'
-import { PROVIDER_META, PROVIDER_ORDER, TASKS, launchVerb } from '@/lib/providers'
+import { PROVIDER_META, PROVIDER_ORDER, TASKS, launchVerb, primaryTarget, primaryVerb } from '@/lib/providers'
 import { isBlocked, isSignedOut, statusLabel } from '@/lib/grid'
 import { liveSnoozes, useSnoozes } from '@/lib/snooze'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
@@ -139,6 +139,7 @@ function UseNow() {
   const usage = useStore((s) => s.usage)
   const now = useStore((s) => s.now)
   const launching = useStore((s) => s.launching)
+  const providers = useStore((s) => s.providers)
   const { launch, go } = useStore.getState()
 
   // Score 0 means it can't be used now (signed out, blocked or at a limit), so it never appears as a pick here.
@@ -149,6 +150,8 @@ function UseNow() {
   const bind = bindingWindow(snap)
   const left = bind ? leftOf(bind) : undefined
   const others = usable.slice(1, 4)
+  const prov = acc && providers.find((p) => p.id === acc.providerId)
+  const target = primaryTarget(prov)
 
   return (
     <section aria-labelledby="usenow-title" className="rounded-lg border border-rivet bg-deck">
@@ -208,14 +211,16 @@ function UseNow() {
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 className="btn btn-primary btn-lg"
-                onClick={() => launch(acc.id, 'cli')}
-                disabled={launching === acc.id + 'cli'}
+                onClick={() => launch(acc.id, target)}
+                disabled={launching === acc.id + target}
               >
-                <Play size={16} fill="currentColor" /> {launchVerb(acc.providerId)}
+                {target === 'desktop' ? <AppWindow size={16} /> : <Play size={16} fill="currentColor" />} {primaryVerb(acc.providerId, prov)}
               </button>
-              <button className="btn btn-lg" onClick={() => launch(acc.id, 'cli', { resume: true })}>
-                <RotateCcw size={15} /> Resume last session
-              </button>
+              {target === 'cli' && (
+                <button className="btn btn-lg" onClick={() => launch(acc.id, 'cli', { resume: true })}>
+                  <RotateCcw size={15} /> Resume last session
+                </button>
+              )}
             </div>
           </div>
           <div className="border-t border-rivet px-5 py-4 min-[1100px]:border-l min-[1100px]:border-t-0">
@@ -235,6 +240,7 @@ function UseNow() {
 
 function AltRow({ rec, account, snap }: { rec: Recommendation; account: Account; snap?: UsageSnapshot }) {
   const launch = useStore((s) => s.launch)
+  const prov = useStore((s) => s.providers.find((p) => p.id === account.providerId))
   const bind = bindingWindow(snap)
   const left = bind ? leftOf(bind) : 0
   return (
@@ -250,8 +256,8 @@ function AltRow({ rec, account, snap }: { rec: Recommendation; account: Account;
           {rec.reason}
         </p>
       </div>
-      <button className="btn btn-sm" onClick={() => launch(account.id, 'cli')} aria-label={`${launchVerb(account.providerId)} as ${account.label}`}>
-        <Play size={12} fill="currentColor" /> Launch
+      <button className="btn btn-sm" onClick={() => launch(account.id, primaryTarget(prov))} aria-label={`${primaryVerb(account.providerId, prov)} as ${account.label}`}>
+        <Play size={12} fill="currentColor" /> {primaryTarget(prov) === 'desktop' ? 'Open' : 'Launch'}
       </button>
     </li>
   )
