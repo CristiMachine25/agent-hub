@@ -558,12 +558,23 @@ fn project_hashes(cwd: &Path) -> Vec<String> {
         .collect()
 }
 
-/// A chat file's metadata: its first line, or the whole legacy `.json` file.
-fn chat_meta(path: &Path) -> Option<Value> {
+/// Whether a legacy `.json` chat names one of `hashes` as its project, from its first few KB:
+/// Gemini wrote `projectHash` near the top, and these files can be large.
+fn legacy_chat_is_for(path: &Path, hashes: &[String]) -> bool {
+    use std::io::Read;
+    let mut head = Vec::new();
+    let read = std::fs::File::open(path).and_then(|f| f.take(4096).read_to_end(&mut head));
+    let head = String::from_utf8_lossy(&head);
+    read.is_ok() && hashes.iter().any(|h| head.contains(h.as_str()))
+}
+
+/// A chat file's metadata: its first line, or the whole legacy `.json` file when it belongs to one
+/// of `hashes`.
+fn chat_meta(path: &Path, hashes: &[String]) -> Option<Value> {
     if path.extension().is_some_and(|e| e == "jsonl") {
         return first_json_line(path);
     }
-    serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
+    legacy_chat_is_for(path, hashes).then(|| serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()).flatten()
 }
 
 /// A message's text as Gemini reads it for resuming (`partListUnionToString`): strings and text
@@ -683,7 +694,7 @@ fn chats_in(home: &Path, cwd: &Path) -> Vec<String> {
     files.sort_by_key(|f| std::cmp::Reverse(f.1));
     let mut out: Vec<String> = Vec::new();
     for (path, _) in files {
-        let Some(meta) = chat_meta(&path) else { continue };
+        let Some(meta) = chat_meta(&path, &hashes) else { continue };
         let Some(id) = meta.get("sessionId").and_then(Value::as_str).filter(|id| is_uuid(id)) else { continue };
         let ours = meta.get("projectHash").and_then(Value::as_str).is_some_and(|h| hashes.iter().any(|x| x == h));
         let subagent = meta.get("kind").and_then(Value::as_str) == Some("subagent");
@@ -1250,6 +1261,20 @@ mod tests {
 
     fn said(text: &str) -> Value {
         json!({"id": "m1", "timestamp": "2026-10-20T10:00:01.000Z", "type": "user", "content": [{"text": text}]})
+    }
+
+    #[test]
+    fn a_legacy_chat_of_another_project_is_not_read_in_full() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("session-x.json");
+        // As Gemini wrote them: pretty-printed, `projectHash` right after `sessionId`.
+        let big = json!([{"id": "u", "type": "user", "content": "x".repeat(100_000)}]);
+        let text =
+            format!("{{\n  \"sessionId\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"projectHash\": \"{}\",\n  \"messages\": {big}\n}}", hash("/work"));
+        std::fs::write(&f, text).unwrap();
+        assert!(legacy_chat_is_for(&f, &[hash("/work")]));
+        assert!(!legacy_chat_is_for(&f, &[hash("/elsewhere")]));
+        assert!(!legacy_chat_is_for(&dir.path().join("missing.json"), &[hash("/work")]));
     }
 
     /// Gemini resumes a chat only when something in it is worth resuming (its
