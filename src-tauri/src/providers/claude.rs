@@ -1167,7 +1167,7 @@ mod tests {
     }
 
     #[test]
-    fn an_organization_that_turned_off_claude_code_is_not_a_sign_in_problem() {
+    fn an_organization_block_is_not_a_sign_in_problem() {
         // As the usage API answered for such an account.
         let body = r#"{"type":"error","error":{"type":"permission_error","message":"OAuth authentication is currently not allowed for this organization.","details":{"error_visibility":"user_facing","error_code":"oauth_not_allowed_for_organization"}}}"#;
         assert_eq!(api_error(403, body), ApiError::OrgBlocked);
