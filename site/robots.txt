@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://cristimachine25.github.io/agent-hub/sitemap.xml
+Sitemap: https://cristimachine25.github.io/relay/sitemap.xml
