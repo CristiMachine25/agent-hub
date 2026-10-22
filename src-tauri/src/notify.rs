@@ -62,9 +62,10 @@ fn window_left(snap: Option<&UsageSnapshot>, id: &str) -> Option<f64> {
 fn alternative_sentence(alt: Option<&(&Account, Recommendation)>, ctx: &WindowCtx) -> String {
     let Some((a, _)) = alt else { return String::new() };
     if recommend::is_model_window(ctx.w) {
-        if let Some(left) = window_left(ctx.latest.get(&a.id), &ctx.w.id) {
-            return format!(" {} has {:.0}% of {} left.", a.label, left, ctx.w.label);
-        }
+        return match window_left(ctx.latest.get(&a.id), &ctx.w.id) {
+            Some(left) => format!(" {} has {:.0}% of {} left.", a.label, left, ctx.w.label),
+            None => format!(" {} has no separate {} limit.", a.label, ctx.w.label),
+        };
     }
     match ctx.latest.get(&a.id).and_then(recommend::left_percent) {
         Some(left) => format!(" {} has {:.0}% left.", a.label, left),
@@ -204,19 +205,16 @@ fn limit_rules(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotifi
         state.fired.insert(nearly_k, "1".into());
         let alt = best_alternative(ctx);
         let when = resets.map(|r| format!("It {r}.")).unwrap_or_else(|| "Reset time unknown.".into());
-        out.push(note(
-            NotificationKind::LimitReached,
-            ctx.account,
-            format!("{name} hit its {} limit", ctx.w.label),
-            format!("{when}{}", alternative_sentence(alt.as_ref(), ctx)),
-            ctx.now,
-        ));
+        let sentence = alternative_sentence(alt.as_ref(), ctx);
+        out.push(note(NotificationKind::LimitReached, ctx.account, format!("{name} hit its {} limit", ctx.w.label), format!("{when}{sentence}"), ctx.now));
         if let Some((a, r)) = alt {
+            // For a model limit, say how this account stands on that model; its reason covers the rest.
+            let model = if recommend::is_model_window(ctx.w) { sentence.as_str() } else { "" };
             out.push(note(
                 NotificationKind::SwitchSuggested,
                 a,
                 format!("Switch to {}", display_name(a)),
-                format!("{} hit its {} limit. {}", ctx.account.label, ctx.w.label, r.reason),
+                format!("{} hit its {} limit.{model} {}", ctx.account.label, ctx.w.label, r.reason),
                 ctx.now,
             ));
         }
@@ -365,8 +363,28 @@ mod tests {
         let notes = evaluate(&HashMap::new(), &new, &accts, &settings(), &mut NotifyState::default(), now);
         let reached = notes.iter().find(|n| n.kind == NotificationKind::LimitReached && n.account_id.as_deref() == Some("a")).unwrap();
         assert!(reached.body.ends_with(" c has 80% of Weekly Opus left."), "{}", reached.body);
-        let switch: Vec<_> = notes.iter().filter(|n| n.kind == NotificationKind::SwitchSuggested).map(|n| n.account_id.as_deref()).collect();
-        assert!(switch.iter().all(|id| *id == Some("c")), "{switch:?}");
+        let switch: Vec<_> = notes.iter().filter(|n| n.kind == NotificationKind::SwitchSuggested).collect();
+        assert!(switch.iter().all(|n| n.account_id.as_deref() == Some("c")), "{switch:?}");
+        // The switch note talks about the same limit as the limit note.
+        assert!(switch[0].body.starts_with("a hit its Weekly Opus limit. c has 80% of Weekly Opus left. "), "{}", switch[0].body);
+    }
+
+    /// An account that reports no such model window (Opus) has no separate cap on it, so it can be
+    /// suggested, and the notes say so.
+    #[test]
+    fn model_limit_may_suggest_an_account_without_that_window() {
+        let now = Utc::now();
+        let accts = vec![account("a", "Max"), account("d", "Pro")];
+        let opus = UsageWindow { id: "seven_day_opus".into(), label: "Weekly Opus".into(), ..window("seven_day", 100.0, Some(30), 10080, now) };
+        let new = HashMap::from([
+            ("a".to_string(), snap("a", vec![window("seven_day", 20.0, Some(30), 10080, now), opus])),
+            ("d".to_string(), snap("d", vec![window("seven_day", 50.0, Some(30), 10080, now)])),
+        ]);
+        let notes = evaluate(&HashMap::new(), &new, &accts, &settings(), &mut NotifyState::default(), now);
+        let kinds: Vec<_> = notes.iter().map(|n| n.kind).collect();
+        assert_eq!(kinds, vec![NotificationKind::LimitReached, NotificationKind::SwitchSuggested]);
+        assert!(notes[0].body.ends_with(" d has no separate Weekly Opus limit."), "{}", notes[0].body);
+        assert!(notes[1].body.starts_with("a hit its Weekly Opus limit. d has no separate Weekly Opus limit. "), "{}", notes[1].body);
     }
 
     #[test]
