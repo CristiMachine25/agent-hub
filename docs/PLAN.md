@@ -1,10 +1,12 @@
-# Agent Hub: plan
+# Relay: plan
+
+> 2026-10-23: renamed to Relay. Name history: AI Hopper → Baton → Switchyard → Agent Hub → Relay.
 
 ## The problem
 
 Power users pay for several AI subscriptions (Claude Pro/Max, ChatGPT Plus/Pro for Codex, Gemini, GitHub Copilot) and often several accounts of the same one. Each has rolling usage limits (5-hour sessions, weekly caps, monthly premium requests). Today you switch by logging out and back in, lose track of which account has quota left, and let limits reset unused, which wastes money.
 
-**Agent Hub** is a small desktop app (Windows, macOS, Linux) that:
+**Relay** is a small desktop app (Windows, macOS, Linux) that:
 
 1. Finds the AI accounts already on the machine.
 2. Keeps each account in its own isolated config home, so all of them stay logged in at once.
@@ -25,7 +27,7 @@ Power users pay for several AI subscriptions (Claude Pro/Max, ChatGPT Plus/Pro f
 | [aisw](https://burakdede.com/blog/switch-accounts-claude-code-codex-gemini-cli/), ccs, claude-profiles | Shell profile switchers | CLI only |
 | BridgeSpace (BridgeMind) | Grid of many agent terminals in one window | Not account-aware |
 
-Nobody ships a **cross-platform GUI** that combines profiles, live limits, launching and recommendations across providers. That is Agent Hub.
+Nobody ships a **cross-platform GUI** that combines profiles, live limits, launching and recommendations across providers. That is Relay.
 
 ## Tech choice
 
@@ -33,7 +35,7 @@ Nobody ships a **cross-platform GUI** that combines profiles, live limits, launc
 
 ## How accounts are isolated
 
-Every CLI supports pointing at an alternate home. Agent Hub creates one home per account and launches the CLI with the matching env var:
+Every CLI supports pointing at an alternate home. Relay creates one home per account and launches the CLI with the matching env var:
 
 | Provider | CLI | Isolation | Credentials | Usage source |
 |---|---|---|---|---|
@@ -69,7 +71,7 @@ src-tauri/src/
   sharing.rs              Junction/symlink management
   knowledge.rs            The shared profile per tool that accounts link skills, plugins and instructions from
   skills.rs               Search, preview and install skills from skills.sh into the shared profiles
-  transfer.rs             Export/import of a setup (.agenthub), sign-ins encrypted with a passphrase
+  transfer.rs             Export/import of a setup (.relay), sign-ins encrypted with a passphrase
   launcher.rs             Open the user's terminal per OS with the account env
   pty.rs                  Embedded terminals for the grid (ConPTY / openpty via portable-pty)
   usage.rs                Poll loop, history, activity cache
@@ -93,8 +95,8 @@ site/                     Landing page, deployed to GitHub Pages
 - Continue on another account: when a pane's account hits its limit, one click reopens the chat on the next account with resume and shared history. Resume reopens that exact conversation (the pane's own, else the account's newest in that folder), never one another live window still has open. Codex, Gemini and Copilot leave no live-process marker, so for them only the conversation a pane was started in is known while it runs (a pane started fresh resumes the account's newest in that folder), and only this app's own panes count as having one open.
 - Shared knowledge: one shared profile per tool that every account links its skills, plugins, agents and instructions from.
 - Skills explorer: browse and search skills.sh and install a skill into a tool's shared profile.
-- Export/import of a setup between machines (`.agenthub` file, sign-ins optional and encrypted with a passphrase).
-- Renamed to Agent Hub (the app identifier and data folders keep their earlier names, so existing data is kept).
+- Export/import of a setup between machines (`.relay` file, sign-ins optional and encrypted with a passphrase).
+- Renamed to Relay on 2026-10-23 (AI Hopper → Baton → Switchyard → Agent Hub → Relay). The bundle identifier `dev.switchyard.app` and the data folders keep their earlier names, so existing accounts, settings and history carry over, and import still opens `.agenthub` and `.switchyard` setup files.
 - CI on Windows, macOS and Linux; tagged releases build installers with tauri-action. macOS bundles are signed ad hoc.
 - Landing page on GitHub Pages: animated demo of the board, download buttons per OS with auto-detect, supported tools, privacy statement.
 
