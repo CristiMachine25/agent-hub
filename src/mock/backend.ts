@@ -415,7 +415,18 @@ export function createMockApi(platform: Platform): RelayApi {
         await wait(350)
         const name = folderOf(id)
         const description = featuredFor(id)?.blurb ?? 'A skill from the skills.sh directory.'
-        const body = `# ${name}\n\n${description}\n\n## When to use it\n\nWhen the task matches the description above, the agent reads the rest of this file and follows it.\n\n## Steps\n\n1. Read the request.\n2. Follow the checklist.\n3. Report what changed.`
+        const body = [
+          `# ${name}`,
+          description,
+          '## When to use it',
+          'When the task matches the description above, the agent reads the rest of this file and follows it. It loads `references/` only when a step asks for it.',
+          '## Steps',
+          '1. Read the request and find the files it touches.\n2. Follow the checklist:\n   - keep changes **small** and reversible\n   - run the project\'s own checks\n3. Report what changed, with the command that verifies it.',
+          '```bash\nnpm test -- --run\ngit diff --stat\n```',
+          '## Files',
+          '| File | What it holds |\n|---|---|\n| `SKILL.md` | These instructions |\n| `references/checklist.md` | The full checklist |\n| `scripts/check.sh` | A helper the agent may run |',
+          '> Scripts run with your permissions. See the [skills.sh guide](https://skills.sh) for how skills are reviewed.'
+        ].join('\n\n')
         return { id, name, description, body, files: 3 }
       },
       async installed() {
