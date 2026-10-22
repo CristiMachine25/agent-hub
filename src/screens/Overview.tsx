@@ -226,10 +226,10 @@ function UseNow() {
               )}
             </div>
           </div>
-          <div className="border-t border-rivet px-5 py-4 min-[1100px]:border-l min-[1100px]:border-t-0">
-            <h3 className="mb-2 text-xs font-medium text-muted">If not that one</h3>
-            {others.length === 0 && <p className="text-muted">No other account has room right now.</p>}
-            <ul className="space-y-1">
+          <div className="border-t border-rivet px-6 pb-3 pt-5 min-[1100px]:border-l min-[1100px]:border-t-0">
+            <h3 className="text-xs font-medium text-muted">If not that one</h3>
+            {others.length === 0 && <p className="mt-3 text-muted">No other account has room right now.</p>}
+            <ul className="mt-1 divide-y divide-rivet">
               {others.map((r) => (
                 <AltRow key={r.accountId} rec={r} account={accounts.find((a) => a.id === r.accountId)!} snap={usage[r.accountId]} />
               ))}
@@ -246,19 +246,19 @@ function AltRow({ rec, account, snap }: { rec: Recommendation; account: Account;
   const bind = bindingWindow(snap)
   const left = bind ? leftOf(bind) : 0
   return (
-    <li className="group flex items-center gap-3 rounded px-2 py-2 -mx-2 hover:bg-raised">
-      <AccountDot account={account} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate font-medium">{account.label}</span>
-          <span className="shrink-0 text-xs tabular-nums text-muted">{formatPct(left)} left</span>
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <AccountDot account={account} />
+          <span className="min-w-0 flex-1 truncate font-medium">{account.label}</span>
+          <span className="shrink-0 text-xs font-semibold tabular-nums">{formatPct(left)} left</span>
         </div>
-        <Meter left={left} cells={20} size="xs" label={`${account.label} quota left`} className="mt-1" />
-        <p className="mt-1 line-clamp-2 text-xs text-muted" data-tip={rec.reason}>
-          {rec.reason}
-        </p>
+        <Meter left={left} cells={20} size="xs" label={`${account.label} quota left`} className="mt-2" />
       </div>
       <PrimaryLaunch account={account} prov={prov} className="btn btn-sm" short />
+      <p className="col-span-2 mt-1.5 line-clamp-2 text-xs text-muted" data-tip={rec.reason}>
+        {rec.reason}
+      </p>
     </li>
   )
 }
