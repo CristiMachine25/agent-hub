@@ -94,7 +94,8 @@ export function computeAlerts(
   const out: Alert[] = []
   const n = settings.notifications
   for (const a of accounts) {
-    if (a.status === 'needs-login' || a.status === 'expired') {
+    // An expired login renews by itself: it shows as stale (below) until it does.
+    if (a.status === 'needs-login') {
       out.push({ kind: 'needs-login', accountId: a.id })
       continue
     }

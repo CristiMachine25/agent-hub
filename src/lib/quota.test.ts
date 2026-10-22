@@ -92,6 +92,12 @@ describe('computeAlerts', () => {
     const kinds = computeAlerts(accounts, usage, settings, NOW).map((x) => `${x.kind}:${x.accountId}`)
     expect(kinds).toEqual(['use-it-or-lose-it:c', 'limit-reached:a', 'nearly-exhausted:b', 'needs-login:d'])
   })
+
+  it('shows an expired login as stale numbers, not as signed out', () => {
+    const usage = { e: snap('e', [], { stale: true, error: 'The login expired; renewing it now.' }) }
+    const kinds = computeAlerts([account('e', { status: 'expired' })], usage, settings, NOW).map((x) => `${x.kind}:${x.accountId}`)
+    expect(kinds).toEqual(['stale:e'])
+  })
 })
 
 describe('unused quota', () => {

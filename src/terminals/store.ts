@@ -241,7 +241,14 @@ export const useGrid = create<GridState>((set, get) => {
       if (!pane || get().starting[pane.uid]) return
       const uid = pane.uid
       set((s) => ({ starting: { ...s.starting, [uid]: true }, errors: { ...s.errors, [uid]: '' } }))
-      patchPane(uid, { accountId: opts.accountId, target: opts.target, cwd: opts.cwd, resume: opts.resume || undefined, terminalId: undefined })
+      patchPane(uid, {
+        accountId: opts.accountId,
+        target: opts.target,
+        cwd: opts.cwd,
+        resume: opts.resume || undefined,
+        resumeSession: (opts.resume && opts.resumeSession) || undefined,
+        terminalId: undefined
+      })
       try {
         const { cols, rows } = estimateSize(paneBody(uid))
         const cwd = opts.cwd ?? useStore.getState().settings?.defaultCwd

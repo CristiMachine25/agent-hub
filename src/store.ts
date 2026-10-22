@@ -64,8 +64,8 @@ interface State {
 let toastSeq = 1
 let settingsSeq = 0
 let subscribed = false
-/** Set while init() loads: which of accounts/usage the backend pushed meanwhile (newer than the load). */
-let pushedDuringLoad: Set<'accounts' | 'usage'> | null = null
+/** How many times the backend has pushed accounts / usage, so a load answered before a push never overwrites it. */
+const pushes = { accounts: 0, usage: 0 }
 
 export const useStore = create<State>((set, get) => ({
   phase: 'loading',
@@ -97,12 +97,12 @@ export const useStore = create<State>((set, get) => ({
     if (!subscribed) {
       subscribed = true
       api.on('usage-updated', (u) => {
-        pushedDuringLoad?.add('usage')
+        pushes.usage++
         set({ usage: u })
         void get().loadRecs()
       })
       api.on('accounts-changed', (a) => {
-        pushedDuringLoad?.add('accounts')
+        pushes.accounts++
         set({ accounts: a })
         void get().loadRecs()
       })
@@ -114,8 +114,7 @@ export const useStore = create<State>((set, get) => ({
         get().toast({ kind: 'info', title: n.title, body: n.body })
       })
     }
-    const pushed = new Set<'accounts' | 'usage'>()
-    pushedDuringLoad = pushed
+    const before = { ...pushes }
     try {
       const [providers, accounts, usage, notifications, settings] = await Promise.all([
         api.providers.list(),
@@ -130,14 +129,12 @@ export const useStore = create<State>((set, get) => ({
         settings,
         phase: 'ready',
         now: Date.now(),
-        ...(pushed.has('accounts') ? {} : { accounts }),
-        ...(pushed.has('usage') ? {} : { usage })
+        ...(pushes.accounts === before.accounts ? { accounts } : {}),
+        ...(pushes.usage === before.usage ? { usage } : {})
       })
       void get().loadRecs()
     } catch (e) {
       set({ phase: 'error', loadError: errorText(e) })
-    } finally {
-      if (pushedDuringLoad === pushed) pushedDuringLoad = null
     }
   },
 

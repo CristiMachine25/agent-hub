@@ -6,7 +6,7 @@ import { api } from '@/api'
 import { modKey } from '@/lib/platform'
 import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER, TASKS, launchVerb } from '@/lib/providers'
-import { signedOutLabel } from '@/lib/grid'
+import { isSignedOut, loginLabel } from '@/lib/grid'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
 import { creditsText, formatAgo, formatCountdown, formatMoney, formatPct, plural, resetText, windowName } from '@/lib/format'
 import { Meter, WindowGauge, LEVEL_TEXT } from '@/components/Meter'
@@ -387,7 +387,7 @@ function Board() {
 
 function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot; now: number; provider: ProviderId }) {
   const { launch, go } = useStore.getState()
-  const signedOut = a.status === 'needs-login' || a.status === 'expired'
+  const signedOut = isSignedOut(a)
   const bind = bindingWindow(snap)
   const atLimit = bind ? leftOf(bind) <= 0.5 : false
   return (
@@ -398,7 +398,7 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
           <span className="block truncate font-semibold">{a.label}</span>
           <span className="flex items-center gap-1 truncate text-xs text-muted">
             <ProviderMark id={provider} size={11} />
-            {signedOut ? signedOutLabel(a) : snap?.stale ? `Checked ${formatAgo(snap.fetchedAt, now)}` : a.plan && !a.label.includes(a.plan) ? a.plan : PROVIDER_META[provider].short}
+            {loginLabel(a) ?? (snap?.stale ? `Checked ${formatAgo(snap.fetchedAt, now)}` : a.plan && !a.label.includes(a.plan) ? a.plan : PROVIDER_META[provider].short)}
           </span>
         </span>
       </button>

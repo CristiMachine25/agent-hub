@@ -101,6 +101,8 @@ export interface PaneConfig {
   target: PaneTarget
   cwd?: string
   resume?: boolean
+  /** The conversation the last start asked to reopen, so trying again reopens the same one. */
+  resumeSession?: string
   /** Backend terminal this pane shows; kept so a UI reload re-attaches instead of spawning again. */
   terminalId?: string
 }
@@ -245,14 +247,15 @@ export function atLimit(snap: UsageSnapshot | undefined): boolean {
   return !!b && b.usedPercent >= 99.5
 }
 
+/** Nothing works for this account until the user signs in again. An expired login isn't signed
+ *  out: it renews by itself, and starting the CLI renews it too. */
 export function isSignedOut(a: Pick<Account, 'status'>): boolean {
-  return a.status === 'needs-login' || a.status === 'expired'
+  return a.status === 'needs-login'
 }
 
-/** Short status for an account that can't be used until it signs in. An expired login usually
- *  renews by itself, so it doesn't read as signed out. */
-export function signedOutLabel(a: Pick<Account, 'status'>): string {
-  return a.status === 'expired' ? 'Login expired' : 'Signed out'
+/** Short status for an account whose login can't be used right now, or null when it can. */
+export function loginLabel(a: Pick<Account, 'status'>): string | null {
+  return a.status === 'needs-login' ? 'Signed out' : a.status === 'expired' ? 'Login expired' : null
 }
 
 /**

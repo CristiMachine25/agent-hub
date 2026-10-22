@@ -2,11 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { Account } from '@shared/types'
 
 const handlers: Record<string, (payload: unknown) => void> = {}
-let finishAccounts: (a: Account[]) => void = () => {}
+const finishAccounts: ((a: Account[]) => void)[] = []
 vi.mock('./api', () => ({
   api: {
     providers: { list: async () => [] },
-    accounts: { list: () => new Promise<Account[]>((r) => (finishAccounts = r)) },
+    accounts: { list: () => new Promise<Account[]>((r) => finishAccounts.push(r)) },
     usage: { latest: async () => ({}) },
     notifications: { list: async () => [] },
     settings: { get: async () => ({}) },
@@ -28,8 +28,19 @@ describe('starting up', () => {
     await vi.waitFor(() => expect(handlers['accounts-changed']).toBeDefined())
     // The backend renewed the login after it answered the load, but before the answer arrived.
     handlers['accounts-changed']!([account('ok')])
-    finishAccounts([account('expired')])
+    finishAccounts.shift()!([account('expired')])
     await started
+    expect(useStore.getState().accounts[0]!.status).toBe('ok')
+  })
+
+  it('keeps it when two loads overlap too (StrictMode runs the startup effect twice)', async () => {
+    const first = useStore.getState().init()
+    const second = useStore.getState().init()
+    await vi.waitFor(() => expect(finishAccounts).toHaveLength(2))
+    handlers['accounts-changed']!([account('ok')])
+    finishAccounts.shift()!([account('expired')])
+    finishAccounts.shift()!([account('expired')])
+    await Promise.all([first, second])
     expect(useStore.getState().accounts[0]!.status).toBe('ok')
   })
 })

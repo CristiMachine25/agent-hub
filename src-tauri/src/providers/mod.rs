@@ -126,20 +126,16 @@ pub trait ProviderAdapter: Send + Sync {
     /// Command that starts the CLI for this account.
     async fn cli_command(&self, account: &Account, resume: Resume, extra_args: &[String]) -> anyhow::Result<CommandSpec>;
 
-    /// The conversation Resume reopens for this account in `cwd`: its own newest one there. None
-    /// leaves the choice to the CLI's own "most recent".
-    fn last_session(&self, _account: &Account, _cwd: &std::path::Path) -> Option<String> {
-        None
+    /// Conversations Resume may reopen for this account in `cwd`, best first: `wanted` when this
+    /// account can open it, then its own ones in that folder, newest first. Empty leaves the
+    /// choice to the CLI's "most recent".
+    fn resume_candidates(&self, _account: &Account, _cwd: &std::path::Path, _wanted: Option<&str>) -> Vec<String> {
+        Vec::new()
     }
 
-    /// The conversation a running CLI process (`pid`) of this account is in.
-    fn running_session(&self, _account: &Account, _pid: u32) -> Option<String> {
-        None
-    }
-
-    /// A live CLI process, run by one of `accounts`, that has conversation `id` open: (account id, pid).
-    fn session_open_in(&self, _accounts: &[Account], _id: &str) -> Option<(String, u32)> {
-        None
+    /// The conversations this account's CLI processes have open right now, as (pid, conversation).
+    fn open_sessions(&self, _account: &Account) -> Vec<(u32, String)> {
+        Vec::new()
     }
 
     /// Command that starts the provider's login flow for this account's home.

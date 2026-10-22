@@ -8,7 +8,9 @@ import {
   continueCandidates,
   fitPanes,
   historyShared,
+  isSignedOut,
   layoutFor,
+  loginLabel,
   neighbor,
   parseWorkspace,
   pickerGroups,
@@ -243,6 +245,15 @@ describe('accounts in panes', () => {
     ]
     expect(continueCandidates(accounts[0]!, accounts, usage, recs).map((a) => a.id)).toEqual(['h3', 'h2', 'out'])
     expect(continueCandidates(accounts[1]!, accounts, usage, []).map((a) => a.id)).toEqual(['h3', 'h1', 'out'])
+  })
+
+  it('keeps an expired login usable: starting the CLI renews it', () => {
+    const expired = acc('exp', 'claude', { status: 'expired' })
+    expect(isSignedOut(expired)).toBe(false)
+    expect(loginLabel(expired)).toBe('Login expired')
+    expect(loginLabel(accounts[3]!)).toBe('Signed out')
+    expect(loginLabel(accounts[0]!)).toBeNull()
+    expect(continueCandidates(accounts[2]!, [...accounts, expired], usage, []).map((a) => a.id)).toEqual(['h2', 'exp', 'h1', 'out'])
   })
 
   it('knows when history is shared', () => {
