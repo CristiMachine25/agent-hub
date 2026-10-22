@@ -7,6 +7,7 @@ import { modKey } from '@/lib/platform'
 import { useStore } from '@/store'
 import { PROVIDER_META, PROVIDER_ORDER, TASKS, launchVerb } from '@/lib/providers'
 import { isBlocked, isSignedOut, loginLabel } from '@/lib/grid'
+import { liveSnoozes, useSnoozes } from '@/lib/snooze'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
 import { creditsText, formatAgo, formatCountdown, formatMoney, formatPct, plural, resetText, windowName } from '@/lib/format'
 import { Meter, WindowGauge, LEVEL_TEXT } from '@/components/Meter'
@@ -44,7 +45,13 @@ export function Overview() {
     }
   }, [accountKey])
 
-  const alerts = useMemo(() => (settings ? computeAlerts(accounts, usage, settings, now) : []), [accounts, usage, settings, now])
+  const snoozed = useSnoozes((s) => s.snoozed)
+  const alerts = useMemo(() => {
+    if (!settings) return []
+    // Sign-in reminders the user put off stay hidden until the account's status changes.
+    const off = liveSnoozes(snoozed, accounts)
+    return computeAlerts(accounts, usage, settings, now).filter((al) => !(al.kind === 'needs-login' && off[al.accountId]))
+  }, [accounts, usage, settings, now, snoozed])
 
   if (accounts.length === 0) {
     return (
@@ -334,9 +341,19 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
                 </button>
               )}
               {al.kind === 'needs-login' && (
-                <button className="btn btn-sm" onClick={() => launch(a.id, 'login')}>
-                  Sign in
-                </button>
+                <>
+                  <button className="btn btn-sm" onClick={() => launch(a.id, 'login')}>
+                    Sign in
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => useSnoozes.getState().snooze(a)}
+                    aria-label={`Not now for ${a.label}`}
+                    data-tip="Hide this until the account signs in or its status changes"
+                  >
+                    Not now
+                  </button>
+                </>
               )}
               {al.kind === 'blocked' && (
                 <button className="btn btn-sm" onClick={() => go('accounts', a.id)} aria-label={`Details for ${a.label}`}>

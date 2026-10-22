@@ -12,6 +12,7 @@ import type {
 } from '@shared/types'
 import { api, errorText } from './api'
 import { PROVIDER_META } from './lib/providers'
+import { useSnoozes } from './lib/snooze'
 
 export type Screen = 'overview' | 'accounts' | 'knowledge' | 'skills' | 'terminals' | 'notifications' | 'settings'
 
@@ -104,6 +105,7 @@ export const useStore = create<State>((set, get) => ({
       api.on('accounts-changed', (a) => {
         pushes.accounts++
         set({ accounts: a })
+        useSnoozes.getState().sync(a)
         void get().loadRecs()
       })
       api.on('navigate', (screen) => {
@@ -132,6 +134,7 @@ export const useStore = create<State>((set, get) => ({
         ...(pushes.accounts === before.accounts ? { accounts } : {}),
         ...(pushes.usage === before.usage ? { usage } : {})
       })
+      useSnoozes.getState().sync(get().accounts)
       void get().loadRecs()
     } catch (e) {
       set({ phase: 'error', loadError: errorText(e) })
