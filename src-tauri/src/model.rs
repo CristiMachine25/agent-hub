@@ -603,8 +603,8 @@ pub struct SkillInstallOutcome {
 mod contract_tests {
     use super::*;
     use crate::transfer::{ExportOptions, ExportSummary, ImportChoice, ImportPreview, ImportReport, PreviewAccount, PreviewKind};
-    use serde::Serialize;
-    use serde_json::json;
+    use serde::{de::DeserializeOwned, Serialize};
+    use serde_json::{json, Value};
 
     const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/shared/__fixtures__/serde.ts");
 
@@ -640,6 +640,50 @@ mod contract_tests {
             let json = serde_json::to_string(all).unwrap();
             self.0 += &format!("\nexport const {name} = {json} as const\nexport const _{name}: Same<(typeof {name})[number], {ts}> = true\n");
         }
+
+        /// Rust sends a None as `null`, so every field of `v` that can be null must accept it in `ts`.
+        fn nulls<T: Serialize + DeserializeOwned>(&mut self, ts: &str, v: &T) {
+            let paths = null_paths(v);
+            for p in &paths {
+                let mut expr = ts.to_string();
+                for (i, step) in p.iter().enumerate() {
+                    if paths.contains(&p[..i].to_vec()) {
+                        expr = format!("NonNullable<{expr}>");
+                    }
+                    expr += &step.as_ref().map_or("[number]".into(), |k| format!("['{k}']"));
+                }
+                self.0 += &format!("null satisfies {expr}\n");
+            }
+        }
+    }
+
+    /// Field paths (`None` = an array item) where Rust can send `null`: setting the field to null in
+    /// the all-Some JSON still deserializes, and serializes back as null (not skipped).
+    fn null_paths<T: Serialize + DeserializeOwned>(v: &T) -> Vec<Vec<Option<String>>> {
+        fn walk(v: &Value, at: &mut Vec<Option<String>>, out: &mut Vec<Vec<Option<String>>>) {
+            let children: Vec<(Option<String>, &Value)> = match v {
+                Value::Object(m) => m.iter().map(|(k, x)| (Some(k.clone()), x)).collect(),
+                Value::Array(a) => a.first().map(|x| (None, x)).into_iter().collect(),
+                _ => vec![],
+            };
+            for (step, child) in children {
+                at.push(step);
+                out.push(at.clone());
+                walk(child, at, out);
+                at.pop();
+            }
+        }
+        let pointer = |p: &[Option<String>]| p.iter().map(|s| format!("/{}", s.as_deref().unwrap_or("0"))).collect::<String>();
+        let full = serde_json::to_value(v).unwrap();
+        let mut paths = Vec::new();
+        walk(&full, &mut Vec::new(), &mut paths);
+        paths.retain(|p| {
+            let mut probe = full.clone();
+            *probe.pointer_mut(&pointer(p)).unwrap() = Value::Null;
+            let back = serde_json::from_value::<T>(probe).ok().and_then(|t| serde_json::to_value(t).ok());
+            back.is_some_and(|b| b.pointer(&pointer(p)) == Some(&Value::Null))
+        });
+        paths
     }
 
     fn s(v: &str) -> String {
@@ -897,6 +941,19 @@ mod contract_tests {
             f.values(&name, &format!("T.PermissionModes['{}']", p.as_str()), PermissionModes::allowed(p));
         }
         f.values("commands", "(typeof T.COMMANDS)[keyof typeof T.COMMANDS]", &registered_commands());
+
+        f.0 += "\n// What the UI receives with every Option set to None.\n";
+        f.nulls("T.ProviderInfo", &provider);
+        f.nulls("T.Account", &account);
+        f.nulls("T.DetectedAccount", &detected);
+        f.nulls("T.UsageSnapshot", &snapshot);
+        f.nulls("T.LaunchResult", &launched);
+        f.nulls("T.AppNotification", &notification);
+        f.nulls("T.AppSettings", &settings);
+        f.nulls("T.TerminalInfo", &terminal);
+        f.nulls("T.InstalledSkill", &installed);
+        f.nulls("T.SkillInstallOutcome", &outcome);
+        f.nulls("T.ImportPreview", &import_preview);
 
         let committed = std::fs::read_to_string(FIXTURE).unwrap_or_default().replace("\r\n", "\n");
         if std::env::var_os("UPDATE_SERDE_FIXTURE").is_some() {

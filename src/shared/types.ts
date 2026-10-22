@@ -11,16 +11,16 @@ export interface ProviderInfo {
   /** Executable name of the CLI, e.g. "claude". */
   cliCommand: string
   cliInstalled: boolean
-  cliPath?: string
-  cliVersion?: string
+  cliPath?: string | null
+  cliVersion?: string | null
   /** Desktop app (Claude Desktop, ChatGPT/Codex app, ...) if one exists for this provider. */
-  desktopName?: string
+  desktopName?: string | null
   desktopInstalled: boolean
-  desktopPath?: string
+  desktopPath?: string | null
   /** Desktop app can run several accounts at once (separate user-data dirs). */
   desktopMultiAccount: boolean
   /** Env var that points the CLI at an isolated config home, e.g. CLAUDE_CONFIG_DIR. */
-  homeEnvVar?: string
+  homeEnvVar?: string | null
   /** Install hint shown in the UI when the CLI is missing. */
   installHint: string
   /** The folder the tool uses when nothing overrides it (~/.claude): an account there is its main folder. */
@@ -55,26 +55,26 @@ export interface Account {
   id: string
   providerId: ProviderId
   label: string // user-facing name, e.g. "Work Max"
-  email?: string
-  plan?: string // "Max 20x", "Pro", "Plus", "Business", "Copilot Pro+"...
+  email?: string | null
+  plan?: string | null // "Max 20x", "Pro", "Plus", "Business", "Copilot Pro+"...
   /** Absolute path of the isolated config home for this account (value of homeEnvVar). */
   homeDir: string
   /** true when homeDir is the provider's stock location (~/.claude, ~/.codex ...). */
   isDefaultHome: boolean
   /** Path of the home whose skills/plugins/history are shared into this one. */
-  sharedFrom?: string
+  sharedFrom?: string | null
   sharing: SharingOptions
   color: string // hex, for charts and badges
   tags: string[] // free-form, e.g. "coding", "research"; feeds recommendations
-  notes?: string
+  notes?: string | null
   status: AccountStatus
-  statusMessage?: string
+  statusMessage?: string | null
   createdAt: string // ISO
-  lastLaunchedAt?: string
+  lastLaunchedAt?: string | null
   launchCount: number
   /** Manual monthly price, for "value left" maths. */
-  monthlyCost?: number
-  pinned?: boolean
+  monthlyCost?: number | null
+  pinned?: boolean | null
 }
 
 /** Fields to change on an account. JSON drops `undefined`, so a cleared field is sent as `null`. */
@@ -119,11 +119,11 @@ export interface ImportPreview {
     key: string
     providerId: ProviderId
     label: string
-    email?: string
-    plan?: string
+    email?: string | null
+    plan?: string | null
     hasSignIn: boolean
     /** Label of the matching account already here; such accounts are left alone. */
-    alreadyHere?: string
+    alreadyHere?: string | null
     targetHome: string
   }[]
   kinds: { providerId: ProviderId; kind: 'skills' | 'agents' | 'instructions'; files: number; newFiles: number }[]
@@ -154,12 +154,12 @@ export interface DetectedAccount {
   providerId: ProviderId
   homeDir: string
   isDefaultHome: boolean
-  email?: string
-  plan?: string
+  email?: string | null
+  plan?: string | null
   loggedIn: boolean
   alreadyManaged: boolean
   /** e.g. "found via ~/.local/bin/claude-h2.cmd" */
-  hint?: string
+  hint?: string | null
 }
 
 /** One rate-limit window, e.g. Claude "5-hour session" or "Weekly". */
@@ -167,8 +167,8 @@ export interface UsageWindow {
   id: string // stable key: "five_hour", "seven_day", "seven_day_opus", "primary", "secondary", "premium", "gemini-2.5-pro"...
   label: string // "5-hour session"
   usedPercent: number // 0..100
-  resetsAt?: string // ISO
-  windowMinutes?: number
+  resetsAt?: string | null // ISO
+  windowMinutes?: number | null
 }
 
 export interface UsageSnapshot {
@@ -177,13 +177,13 @@ export interface UsageSnapshot {
   fetchedAt: string // ISO
   source: 'api' | 'cli' | 'local-logs' | 'manual' | 'none'
   windows: UsageWindow[]
-  plan?: string
-  email?: string
+  plan?: string | null
+  email?: string | null
   /** Pay-as-you-go / extra usage credits, when the provider reports them. */
-  credits?: { used: number; limit?: number; unit: string }
+  credits?: { used: number; limit?: number | null; unit: string } | null
   /** Set when the fetch failed; windows may then hold the last good values. */
-  error?: string
-  stale?: boolean
+  error?: string | null
+  stale?: boolean | null
 }
 
 /** Point stored every poll, for charts. */
@@ -218,9 +218,9 @@ export interface LaunchRequest {
 
 export interface LaunchResult {
   ok: boolean
-  error?: string
+  error?: string | null
   /** The command that was run, shown to the user for transparency. */
-  commandLine?: string
+  commandLine?: string | null
   /** Something to tell the user after a successful launch. */
   note?: string
 }
@@ -237,7 +237,7 @@ export type NotificationKind =
 export interface AppNotification {
   id: string
   kind: NotificationKind
-  accountId?: string
+  accountId?: string | null
   title: string
   body: string
   createdAt: string
@@ -263,10 +263,10 @@ export interface AppSettings {
   }
   /** "auto" picks Windows Terminal / Terminal.app / the default Linux terminal. */
   terminal: string
-  defaultCwd?: string
+  defaultCwd?: string | null
   defaultSharing: SharingOptions
   /** Where new isolated homes are created. Default: <userData>/profiles */
-  profilesDir?: string
+  profilesDir?: string | null
   minimizeToTray: boolean
   launchAtLogin: boolean
   theme: 'system' | 'dark' | 'light'
@@ -375,7 +375,7 @@ export interface TerminalInfo {
   title: string // e.g. "Claude H2"
   commandLine: string
   cwd: string
-  pid?: number
+  pid?: number | null
   startedAt: string
   exited: boolean
   exitCode?: number | null

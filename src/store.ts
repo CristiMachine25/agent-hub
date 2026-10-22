@@ -180,7 +180,7 @@ export const useStore = create<State>((set, get) => ({
   async launch(accountId, target = 'cli', opts = {}) {
     const acc = get().accounts.find((a) => a.id === accountId)
     const name = acc ? PROVIDER_META[acc.providerId].short : 'the CLI'
-    const cwd = opts.cwd ?? get().settings?.defaultCwd
+    const cwd = opts.cwd ?? get().settings?.defaultCwd ?? undefined
     set({ launching: accountId + target })
     try {
       const res = await api.launch({ accountId, target, cwd, resume: opts.resume })
@@ -191,13 +191,13 @@ export const useStore = create<State>((set, get) => ({
             : target === 'desktop'
               ? `Opened the desktop app as ${acc?.label}`
               : `${opts.resume ? 'Resumed' : 'Launched'} ${name} as ${acc?.label}`
-        get().toast({ kind: 'success', title: what, body: res.note, command: res.commandLine })
+        get().toast({ kind: 'success', title: what, body: res.note, command: res.commandLine ?? undefined })
       } else {
         get().toast({
           kind: 'error',
           title: `Couldn't launch ${name}`,
           body: res.error ?? 'The launcher gave no reason. Check the terminal setting and try again.',
-          command: res.commandLine
+          command: res.commandLine ?? undefined
         })
       }
     } catch (e) {

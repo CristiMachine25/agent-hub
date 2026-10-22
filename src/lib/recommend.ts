@@ -40,7 +40,7 @@ function humanUntil(t: number, now: number): string {
   return `in ${Math.floor((m + 720) / 1440)} days`
 }
 
-function parseIso(s: string | undefined): number | null {
+function parseIso(s: string | null | undefined): number | null {
   const t = s ? Date.parse(s) : NaN
   return Number.isFinite(t) ? t : null
 }

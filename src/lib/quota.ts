@@ -73,7 +73,7 @@ export interface Alert {
   accountId: string
   windowId?: string
   left?: number
-  resetsAt?: string
+  resetsAt?: string | null
 }
 
 /** "Use it or lose it" only watches windows at least this long; same as notify.rs. Unknown length doesn't count. */

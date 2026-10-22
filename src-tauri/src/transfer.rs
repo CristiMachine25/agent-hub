@@ -130,6 +130,7 @@ pub struct ExportSummary {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(Deserialize))]
 #[serde(rename_all = "camelCase")]
 pub struct ImportPreview {
     pub from_os: String,
@@ -144,6 +145,7 @@ pub struct ImportPreview {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(Deserialize))]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewAccount {
     pub key: String,
@@ -159,6 +161,7 @@ pub struct PreviewAccount {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[cfg_attr(test, derive(Deserialize))]
 #[serde(rename_all = "camelCase")]
 pub struct PreviewKind {
     pub provider_id: ProviderId,
