@@ -484,9 +484,9 @@ export function createMockApi(platform: Platform): RelayApi {
           fromOs: 'windows',
           exportedAt: new Date(Date.now() - 3600e3).toISOString(),
           accounts: [
-            { key: 'x1', providerId: 'claude', label: here[0] ?? 'Work Max 20x', email: 'sam@northwind.dev', plan: 'Max 20x', hasSignIn: true, alreadyHere: here[0], targetHome: `${home}${sep}.claude` },
-            { key: 'x2', providerId: 'claude', label: 'Laptop Pro', email: 'sam.side@northwind.dev', plan: 'Pro', hasSignIn: true, targetHome: `${home}${sep}.claude-laptop` },
-            { key: 'x3', providerId: 'codex', label: 'Codex Plus', email: 'sam@northwind.dev', plan: 'Plus', hasSignIn: true, targetHome: `${home}${sep}.codex-plus` },
+            { key: 'x1', providerId: 'claude', label: here[0] ?? 'Work Max 20x', email: 'sam@example.com', plan: 'Max 20x', hasSignIn: true, alreadyHere: here[0], targetHome: `${home}${sep}.claude` },
+            { key: 'x2', providerId: 'claude', label: 'Laptop Pro', email: 'sam.laptop@example.com', plan: 'Pro', hasSignIn: true, targetHome: `${home}${sep}.claude-laptop` },
+            { key: 'x3', providerId: 'codex', label: 'Codex Plus', email: 'sam@example.com', plan: 'Plus', hasSignIn: true, targetHome: `${home}${sep}.codex-plus` },
             { key: 'x4', providerId: 'gemini', label: 'Gemini spare', plan: 'Google AI Pro', hasSignIn: false, targetHome: `${home}${sep}gemini-spare` }
           ],
           kinds: [
