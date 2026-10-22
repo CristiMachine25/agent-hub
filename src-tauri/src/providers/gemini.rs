@@ -675,7 +675,8 @@ fn chat_resumable(path: &Path, meta: &Value) -> bool {
     }
 }
 
-/// The chats of `cwd`'s project in this home that hold a conversation, newest first.
+/// The chats of `cwd`'s project in this home that Gemini would resume, latest activity (file
+/// mtime) first; Gemini's own `--resume latest` takes the latest started (`startTime`) instead.
 fn chats_in(home: &Path, cwd: &Path) -> Vec<String> {
     let hashes = project_hashes(cwd);
     let mut files: Vec<(PathBuf, std::time::SystemTime)> = std::fs::read_dir(gemini_dir(home).join("tmp"))
