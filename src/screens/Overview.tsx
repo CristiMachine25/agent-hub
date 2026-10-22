@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { AlertTriangle, Ban, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
 import type { Account, DailyActivity, ProviderId, Recommendation, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
@@ -141,11 +141,8 @@ function UseNow() {
   const launching = useStore((s) => s.launching)
   const { launch, go } = useStore.getState()
 
-  // Signed-out and blocked accounts can't be launched usefully, so they never appear as a pick here.
-  const usable = recs.filter((r) => {
-    const a = accounts.find((x) => x.id === r.accountId)
-    return r.score > 0 && !!a && a.status !== 'needs-login' && a.status !== 'expired' && !isBlocked(a)
-  })
+  // Score 0 means it can't be used now (signed out, blocked or at a limit), so it never appears as a pick here.
+  const usable = recs.filter((r) => r.score > 0 && accounts.some((a) => a.id === r.accountId))
   const top = usable[0]
   const acc = top && accounts.find((a) => a.id === top.accountId)
   const snap = acc && usage[acc.id]
@@ -294,7 +291,7 @@ function alertCopy(al: Alert, a: Account, snap: UsageSnapshot | undefined, now: 
     case 'needs-login':
       return `${a.label} is signed out, so its limits aren't tracked.`
     case 'blocked':
-      return `${a.label}: ${a.statusMessage ?? `this account can't use ${PROVIDER_META[a.providerId].product}.`}`
+      return `${a.label} can't use ${PROVIDER_META[a.providerId].product}.`
     case 'stale':
       return `${a.label}: usage last checked ${formatAgo(snap?.fetchedAt, now)}. ${snap?.error ?? ''}`
   }
@@ -315,10 +312,21 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
   const now = useStore((s) => s.now)
   const { launch, refresh, go } = useStore.getState()
   const [all, setAll] = useState(false)
+  const list = useRef<HTMLUListElement>(null)
   const shown = all ? alerts : alerts.slice(0, 3)
+  // The alert goes away with its button: keep focus on the alert now in its place, the one
+  // before it, or the board when none are left.
+  const snooze = (a: Account, i: number) => {
+    useSnoozes.getState().snooze(a)
+    requestAnimationFrame(() => {
+      const items = list.current?.querySelectorAll('li') ?? []
+      const next = (items[i] ?? items[i - 1])?.querySelector('button') ?? document.getElementById('board-title')
+      next?.focus()
+    })
+  }
   return (
     <section aria-label="Alerts" className="-mt-1">
-      <ul className="divide-y divide-rivet rounded-lg border border-rivet">
+      <ul ref={list} className="divide-y divide-rivet rounded-lg border border-rivet">
         {shown.map((al, i) => {
           const a = accounts.find((x) => x.id === al.accountId)
           if (!a) return null
@@ -347,7 +355,7 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
                   </button>
                   <button
                     className="btn btn-ghost btn-sm"
-                    onClick={() => useSnoozes.getState().snooze(a)}
+                    onClick={() => snooze(a, i)}
                     aria-label={`Not now for ${a.label}`}
                     data-tip="Hide this until the account signs in or its status changes"
                   >
@@ -395,7 +403,9 @@ function Board() {
           </button>
         }
       >
-        <span id="board-title">All accounts</span>
+        <span id="board-title" tabIndex={-1}>
+          All accounts
+        </span>
       </SectionTitle>
       <div className="overflow-hidden rounded-lg border border-rivet">
         {groups.map(({ p, list }) => (
@@ -458,11 +468,10 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
           <button className="btn btn-sm w-[92px]" onClick={() => launch(a.id, 'login')}>
             <LogIn size={13} /> Sign in
           </button>
-        ) : (
+        ) : blocked ? null : (
           <button
             className="btn btn-sm w-[92px]"
             onClick={() => launch(a.id, 'cli')}
-            disabled={blocked}
             data-tip={atLimit ? 'Limit reached: the CLI opens but will refuse new messages until the reset' : undefined}
             aria-label={`${launchVerb(a.providerId)} as ${a.label}`}
           >

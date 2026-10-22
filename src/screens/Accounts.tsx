@@ -169,7 +169,8 @@ function AccountDetail({ account: a }: { account: Account }) {
             <p className="flex flex-wrap items-center gap-x-1.5 text-muted">
               <ProviderMark id={a.providerId} size={14} />
               {meta.product}
-              {a.plan ? `, ${a.plan} plan` : ''}
+              {/* A blocked account's saved plan is out of date; the banner says what it is now. */}
+              {a.plan && !blocked ? `, ${a.plan} plan` : ''}
               {a.email ? (signedOut ? `, ${a.email}` : `, signed in as ${a.email}`) : ''}
             </p>
 
@@ -186,6 +187,9 @@ function AccountDetail({ account: a }: { account: Account }) {
               <div className="mt-4 flex items-center gap-3 rounded border border-rivet bg-deck px-4 py-2.5">
                 <Ban size={16} className="shrink-0 text-empty" aria-hidden />
                 <p className="flex-1">{a.statusMessage ?? `This account can't use ${meta.product}.`}</p>
+                <button className="btn btn-sm" onClick={() => refresh(a.id)}>
+                  <RefreshCw size={13} /> Check again
+                </button>
               </div>
             )}
             {canLaunch && (snap?.stale || snap?.error) && (
