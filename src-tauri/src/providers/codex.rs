@@ -478,9 +478,19 @@ fn scan_sessions(account_id: &str, home: &Path, since_days: u32) -> Vec<DailyAct
 // marker naming a thread: `thread-writer-locks/<id>.lock` is an empty advisory lock, and Codex
 // itself refuses a second writer of a thread, so `open_sessions` stays empty.
 
-/// A rollout file's thread and folder, for threads a person started (the sources Codex's own
-/// resume picker lists: `INTERACTIVE_SESSION_SOURCES`). Sub-agent and `codex exec` threads: None.
-fn rollout_thread(path: &Path) -> Option<(String, String)> {
+/// One thread's rollout files, newest first.
+struct Thread {
+    id: String,
+    cwd: String,
+    files: Vec<PathBuf>,
+    /// A page continuing earlier history (`history_base`): something was typed before it.
+    continued: bool,
+}
+
+/// A rollout file's thread, folder and whether it continues earlier history, for threads a person
+/// started (the sources Codex's own resume picker lists: `INTERACTIVE_SESSION_SOURCES`). Sub-agent
+/// and `codex exec` threads: None.
+fn rollout_thread(path: &Path) -> Option<(String, String, bool)> {
     let v = first_json_line(path).filter(|v| v.get("type").and_then(Value::as_str) == Some("session_meta"))?;
     let meta = v.get("payload")?;
     let interactive = match meta.get("source") {
@@ -489,7 +499,8 @@ fn rollout_thread(path: &Path) -> Option<(String, String)> {
         Some(s) => matches!(s.get("custom").and_then(Value::as_str), Some("atlas" | "chatgpt")),
     };
     let id = str_field(meta, "id").filter(|id| is_uuid(id))?;
-    interactive.then(|| (id.to_string(), str_field(meta, "cwd").unwrap_or_default().to_string()))
+    let continued = meta.get("history_base").is_some_and(Value::is_object);
+    interactive.then(|| (id.to_string(), str_field(meta, "cwd").unwrap_or_default().to_string(), continued))
 }
 
 /// Whether something was typed in a rollout file. Codex's picker skips threads with none.
@@ -505,29 +516,43 @@ fn has_user_message(path: &Path) -> bool {
     )
 }
 
-/// This home's resumable threads, newest activity first, each with its rollout files and folder.
-fn threads(home: &Path) -> Vec<(String, String, Vec<PathBuf>)> {
-    let mut out: Vec<(String, String, Vec<PathBuf>)> = Vec::new();
+/// This home's resumable threads in plain rollout files, newest activity first.
+fn threads(home: &Path) -> Vec<Thread> {
+    let mut out: Vec<Thread> = Vec::new();
     for (path, _) in jsonl_files_since(&[home.join("sessions")], std::time::UNIX_EPOCH) {
-        let Some((id, cwd)) = rollout_thread(&path) else { continue };
-        match out.iter_mut().find(|t| t.0 == id) {
-            Some(t) => t.2.push(path),
-            None => out.push((id, cwd, vec![path])),
+        let Some((id, cwd, continued)) = rollout_thread(&path) else { continue };
+        match out.iter_mut().find(|t| t.id == id) {
+            Some(t) => {
+                t.files.push(path);
+                t.continued |= continued;
+            }
+            None => out.push(Thread { id, cwd, files: vec![path], continued }),
         }
     }
     out
 }
 
 /// Of `threads`, the ones started in `cwd` that something was typed in, newest first.
-fn threads_in(threads: &[(String, String, Vec<PathBuf>)], cwd: &Path) -> Vec<String> {
+fn threads_in(threads: &[Thread], cwd: &Path) -> Vec<String> {
     let want: Vec<String> = folder_forms(cwd).iter().map(|f| util::path_key(f)).collect();
     threads
         .iter()
-        .filter(|(_, dir, _)| want.contains(&util::path_key(Path::new(dir))))
-        .filter(|(_, _, files)| files.iter().any(|f| has_user_message(f)))
-        .map(|(id, _, _)| id.clone())
+        .filter(|t| want.contains(&util::path_key(Path::new(&t.cwd))))
+        .filter(|t| t.continued || t.files.iter().any(|f| has_user_message(f)))
+        .map(|t| t.id.clone())
         .take(RESUME_CANDIDATES)
         .collect()
+}
+
+/// Whether a thread survives only compressed: after about a week Codex rewrites rollouts to
+/// `.jsonl.zst`, named `rollout-<time>-<thread id>[_<rollout id>].jsonl.zst`, which `codex resume`
+/// still opens. Without a zstd reader their folder is unknown, so they are only reopened by id.
+fn compressed_thread_exists(home: &Path, id: &str) -> bool {
+    let (whole, paged) = (format!("-{id}.jsonl.zst"), format!("-{id}_"));
+    walkdir::WalkDir::new(home.join("sessions")).follow_links(true).into_iter().flatten().any(|e| {
+        let name = e.file_name().to_string_lossy();
+        e.file_type().is_file() && name.starts_with("rollout-") && name.ends_with(".jsonl.zst") && (name.ends_with(&whole) || name.contains(&paged))
+    })
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -727,9 +752,10 @@ impl ProviderAdapter for CodexAdapter {
     }
 
     fn resume_candidates(&self, account: &Account, cwd: &Path, wanted: Option<&str>) -> Vec<String> {
-        let all = threads(Path::new(&account.home_dir));
+        let home = Path::new(&account.home_dir);
+        let all = threads(home);
         // Without shared history another account's thread isn't in this home to reopen.
-        let wanted = wanted.filter(|id| is_uuid(id) && all.iter().any(|t| t.0 == *id)).map(str::to_string);
+        let wanted = wanted.filter(|id| is_uuid(id) && (all.iter().any(|t| t.id == *id) || compressed_thread_exists(home, id))).map(str::to_string);
         wanted_first(wanted, threads_in(&all, cwd))
     }
 
@@ -1095,6 +1121,49 @@ mod tests {
         assert!(a.resume_candidates(&acc, Path::new("/nowhere"), None).is_empty());
         let missing = Account { home_dir: home.join("missing").to_string_lossy().into(), ..acc };
         assert!(a.resume_candidates(&missing, work, None).is_empty());
+    }
+
+    /// After about a week Codex compresses rollouts to `.jsonl.zst`; `codex resume <id>` still opens
+    /// them, and the thread id is in the file name (before any `_<rollout id>` page suffix).
+    #[test]
+    fn compressed_threads_can_still_be_asked_for() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        let (open, packed, paged, other) = (
+            "01a1554c-99d9-7531-8477-a42d7e29b001",
+            "01a1554c-99d9-7531-8477-a42d7e29b002",
+            "01a1554c-99d9-7531-8477-a42d7e29b003",
+            "01a1554c-99d9-7531-8477-a42d7e29b004",
+        );
+        rollout(home, "2026/10/20", open, meta(open, "/work", json!("cli")), &[user_turn()]);
+        let old = home.join("sessions/2026/10/01");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join(format!("rollout-2026-10-01T10-00-00-{packed}.jsonl.zst")), b"\x28\xb5\x2f\xfd").unwrap();
+        std::fs::write(old.join(format!("rollout-2026-10-01T11-00-00-{paged}_01a1554c-99d9-7531-8477-a42d7e29b0ff.jsonl.zst")), b"\x28\xb5\x2f\xfd").unwrap();
+        // Archived ones are not resumed.
+        let archived = home.join("archived_sessions");
+        std::fs::create_dir_all(&archived).unwrap();
+        std::fs::write(archived.join(format!("rollout-2026-10-01T10-00-00-{other}.jsonl.zst")), b"\x28\xb5\x2f\xfd").unwrap();
+
+        let a = CodexAdapter::new();
+        let acc = Account { home_dir: home.to_string_lossy().into(), ..crate::recommend::tests::account("a", "pro") };
+        let work = Path::new("/work");
+        assert_eq!(a.resume_candidates(&acc, work, Some(packed)), [packed, open]);
+        assert_eq!(a.resume_candidates(&acc, work, Some(paged)), [paged, open]);
+        assert_eq!(a.resume_candidates(&acc, work, Some(other)), [open]);
+    }
+
+    /// A long thread whose first page was compressed continues in a plain page that may not hold
+    /// a prompt yet; it still has one, in the earlier page.
+    #[test]
+    fn a_continued_thread_counts_as_typed_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let id = "01a1554c-99d9-7531-8477-a42d7e29b001";
+        let mut page = meta(id, "/work", json!("cli"));
+        page["history_base"] = json!({"thread_id": id, "end_ordinal_exclusive": 3, "end_byte_offset": 100});
+        rollout(dir.path(), "2026/10/22", "01a1554c-99d9-7531-8477-a42d7e29b0ff", page, &[]);
+        let acc = Account { home_dir: dir.path().to_string_lossy().into(), ..crate::recommend::tests::account("a", "pro") };
+        assert_eq!(CodexAdapter::new().resume_candidates(&acc, Path::new("/work"), None), [id]);
     }
 
     /// Codex records the folder as the process sees it (`getcwd`: the real path).
