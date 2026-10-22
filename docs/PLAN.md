@@ -90,7 +90,7 @@ site/                     Landing page, deployed to GitHub Pages
 - Dashboard: per-account limit bars, reset countdowns, usage-over-time and most-used charts.
 - Notifications and recommendations. Tray menu with quick launch. Ctrl/Cmd+K launcher.
 - Account-aware terminal grid inside the app (xterm.js + portable-pty): up to nine panes, each on its own account, in named sessions.
-- Continue on another account: when a pane's account hits its limit, one click reopens the chat on the next account with resume and shared history.
+- Continue on another account: when a pane's account hits its limit, one click reopens the chat on the next account with resume and shared history. Resume reopens that exact conversation (the pane's own, else the account's newest in that folder), never one another live window still has open.
 - Shared knowledge: one shared profile per tool that every account links its skills, plugins, agents and instructions from.
 - Skills explorer: browse and search skills.sh and install a skill into a tool's shared profile.
 - Export/import of a setup between machines (`.agenthub` file, sign-ins optional and encrypted with a passphrase).
@@ -107,7 +107,7 @@ site/                     Landing page, deployed to GitHub Pages
 
 - Everything is local. No telemetry, no server.
 - Tokens are read only to call that provider's own usage endpoint, only when "live usage" is on (default on, can be turned off for local-logs-only mode).
-- Never write to another tool's credential file except an atomic token refresh that keeps the file valid for the CLI.
+- Never write to another tool's credential file except an atomic token refresh that keeps the file valid for the CLI. A login kept in the macOS Keychain is never written: when it expires, the CLI renews it itself (Claude: `claude mcp list`, which makes no model request), so the CLI's own renewal lock is respected.
 - Uninstall leaves every CLI home intact.
 - Export follows links to skills kept elsewhere, but never into an account or tool folder, so a setup file carries sign-ins only when the user includes them (encrypted).
 - An offline or refused request never reads as signed out: each provider types its errors (auth, expired, network, other).
