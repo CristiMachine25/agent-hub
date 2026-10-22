@@ -41,7 +41,7 @@ More are planned: Cursor, Antigravity, Kiro, Amp, OpenRouter.
 ## Privacy
 
 - No servers, no telemetry, no account with us.
-- With **live usage** on, Agent Hub reads each account's own login token from your disk and sends it only to that provider's own usage endpoint. Turn it off in Settings to use local session logs only.
+- With **live usage** on, Agent Hub reads each account's own login token from your disk and sends it only to that provider's own servers: its usage endpoint, its account profile when usage is refused, and its sign-in renewal. Turn it off in Settings to use local session logs only.
 - Agent Hub never copies or links credential files between accounts.
 
 ## Install

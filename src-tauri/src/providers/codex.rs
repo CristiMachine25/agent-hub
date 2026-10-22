@@ -265,6 +265,17 @@ enum ApiError {
     Parse,
 }
 
+/// What a failed usage call means once Codex's own renewal has been tried.
+fn usage_error(e: ApiError) -> FetchError {
+    match e {
+        ApiError::Unauthorized => FetchError::auth("The login expired and Codex couldn't renew it. Sign in again."),
+        ApiError::RateLimited => FetchError::other("ChatGPT's usage API is rate-limiting requests; showing the last known limits."),
+        ApiError::Http(code) => FetchError::other(format!("ChatGPT's usage API returned HTTP {code}; showing the last known limits.")),
+        ApiError::Network(e) => FetchError::network(format!("Could not reach ChatGPT's usage API ({e}); showing the last known limits.")),
+        ApiError::Parse => FetchError::other("ChatGPT's usage API returned an unexpected response; showing the last known limits."),
+    }
+}
+
 async fn fetch_wham(url: &str, access_token: &str, account_id: Option<&str>) -> Result<Value, ApiError> {
     let mut req = util::http().get(url).bearer_auth(access_token).header("Accept", "application/json");
     if let Some(id) = account_id {
@@ -700,14 +711,7 @@ impl ProviderAdapter for CodexAdapter {
             }
         }
 
-        let error = match api_error {
-            ApiError::Unauthorized => FetchError::expired("Login expired. Launch Codex once or sign in again."),
-            ApiError::RateLimited => FetchError::other("ChatGPT's usage API is rate-limiting requests; showing the last known limits."),
-            ApiError::Http(code) => FetchError::other(format!("ChatGPT's usage API returned HTTP {code}; showing the last known limits.")),
-            ApiError::Network(e) => FetchError::network(format!("Could not reach ChatGPT's usage API ({e}); showing the last known limits.")),
-            ApiError::Parse => FetchError::other("ChatGPT's usage API returned an unexpected response; showing the last known limits."),
-        };
-        self.local_snapshot(account, &ident, Some(error)).await
+        self.local_snapshot(account, &ident, Some(usage_error(api_error))).await
     }
 
     async fn scan_activity(&self, account: &Account, since_days: u32) -> Vec<DailyActivity> {
@@ -720,6 +724,29 @@ impl ProviderAdapter for CodexAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Codex's own renewal already failed, so only the user can fix it: that is a sign-in problem
+    /// (and a "log in" notification), not a login that renews by itself.
+    #[test]
+    fn an_expired_login_codex_could_not_renew_asks_to_sign_in() {
+        let mut a = Account { provider_id: ProviderId::Codex, ..crate::recommend::tests::account("c", "Plus") };
+        let e = usage_error(ApiError::Unauthorized);
+        assert_eq!(e.kind, ErrorKind::Auth);
+        let snap = e.snapshot(&a, UsageSource::LocalLogs);
+        let (status, message) = crate::usage::derive_status(&snap, None);
+        assert_eq!(status, AccountStatus::NeedsLogin);
+        (a.status, a.status_message) = (status, message);
+        let latest = HashMap::from([(a.id.clone(), snap)]);
+        let notes = crate::notify::evaluate(
+            &HashMap::new(),
+            &latest,
+            &[a],
+            &AppSettings::default().notifications,
+            &mut crate::notify::NotifyState::default(),
+            Utc::now(),
+        );
+        assert_eq!(notes.iter().map(|n| n.kind).collect::<Vec<_>>(), [NotificationKind::LoginRequired]);
+    }
 
     fn b64(v: &Value) -> String {
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string())

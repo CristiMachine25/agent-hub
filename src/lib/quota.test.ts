@@ -93,6 +93,28 @@ describe('computeAlerts', () => {
     expect(kinds).toEqual(['use-it-or-lose-it:c', 'limit-reached:a', 'nearly-exhausted:b', 'needs-login:d'])
   })
 
+  it('shows a blocked account once, without stale or limit alerts', () => {
+    const usage = { x: snap('x', [{ id: 'primary', label: '5-hour session', usedPercent: 100, windowMinutes: 300, resetsAt: iso(1) }], { stale: true }) }
+    const kinds = computeAlerts([account('x', { status: 'blocked' })], usage, settings, NOW).map((x) => `${x.kind}:${x.accountId}`)
+    expect(kinds).toEqual(['blocked:x'])
+  })
+
+  it('raises no limit alert for a stale window that has already reset', () => {
+    const usage = {
+      a: snap(
+        'a',
+        [
+          { id: 'five_hour', label: '5-hour session', usedPercent: 100, windowMinutes: 300, resetsAt: iso(-2) },
+          { id: 'seven_day', label: 'Weekly limit', usedPercent: 90, windowMinutes: 10080, resetsAt: iso(-1) }
+        ],
+        { stale: true }
+      ),
+      b: snap('b', [{ id: 'five_hour', label: '5-hour session', usedPercent: 100, windowMinutes: 300, resetsAt: iso(2) }], { stale: true })
+    }
+    const kinds = computeAlerts([account('a'), account('b')], usage, settings, NOW).map((x) => `${x.kind}:${x.accountId}`)
+    expect(kinds).toEqual(['limit-reached:b', 'stale:a', 'stale:b'])
+  })
+
   it('shows an expired login as stale numbers, not as signed out', () => {
     const usage = { e: snap('e', [], { stale: true, error: 'The login expired; renewing it now.' }) }
     const kinds = computeAlerts([account('e', { status: 'expired' })], usage, settings, NOW).map((x) => `${x.kind}:${x.accountId}`)
@@ -129,6 +151,17 @@ describe('recommend', () => {
     expect(r.every((x) => x.score >= 0 && x.score <= 100)).toBe(true)
     // Overview's "Use now" only offers accounts scoring above 0.
     expect(r.filter((x) => x.score === 0).map((x) => x.accountId)).toEqual(['a', 'c'])
+  })
+
+  // Same vectors as recommend::tests::blocked_accounts_are_never_recommended on the Rust side.
+  it('never recommends a blocked account', () => {
+    const a = plan('a', 'Max', { status: 'blocked', statusMessage: "This account's subscription was canceled." })
+    const cases: Record<string, UsageSnapshot>[] = [{}, { a: snap('a', [win('five_hour', 10, 2, 300)]) }]
+    for (const usage of cases) {
+      const r = recommend('any', undefined, [a], usage, [], NOW)[0]!
+      expect(r.score).toBe(0)
+      expect(r.reason).toBe("Can't be used: This account's subscription was canceled.")
+    }
   })
 
   it('prefers Max for a long refactor and the small account for a quick question', () => {

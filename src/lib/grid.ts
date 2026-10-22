@@ -253,14 +253,25 @@ export function isSignedOut(a: Pick<Account, 'status'>): boolean {
   return a.status === 'needs-login'
 }
 
-/** Short status for an account whose login can't be used right now, or null when it can. */
-export function loginLabel(a: Pick<Account, 'status'>): string | null {
+/** Signed in, but the plan doesn't include the CLI (e.g. a canceled subscription). Signing in again won't fix it. */
+export function isBlocked(a: Pick<Account, 'status'>): boolean {
+  return a.status === 'blocked'
+}
+
+/** Can start or continue a session now: signed in, not blocked, not at its limit. */
+export function isUsable(a: Account, usage: Record<string, UsageSnapshot>): boolean {
+  return !isSignedOut(a) && !isBlocked(a) && !atLimit(usage[a.id])
+}
+
+/** Short status for an account that is signed out, renewing its login or blocked; null when it is fine. */
+export function statusLabel(a: Pick<Account, 'status'>): string | null {
+  if (isBlocked(a)) return 'No access'
   return a.status === 'needs-login' ? 'Signed out' : a.status === 'expired' ? 'Login expired' : null
 }
 
 /**
  * Other accounts of the same provider to continue on, best first: recommendation order, then quota left.
- * Accounts at their limit or signed out sort last (the UI shows them disabled).
+ * Accounts at their limit, signed out or blocked sort last (the UI shows them disabled).
  */
 export function continueCandidates(
   from: Pick<Account, 'id' | 'providerId'>,
@@ -273,7 +284,7 @@ export function continueCandidates(
     const b = bindingWindow(usage[a.id])
     return b ? leftOf(b) : -1
   }
-  const usable = (a: Account) => !isSignedOut(a) && !atLimit(usage[a.id])
+  const usable = (a: Account) => isUsable(a, usage)
   return accounts
     .filter((a) => a.providerId === from.providerId && a.id !== from.id)
     .sort((x, y) => {
@@ -297,7 +308,7 @@ export function historyShared(a: Pick<Account, 'isDefaultHome' | 'sharing'>, b: 
 /** Account picker order: provider groups by their best account, accounts by recommendation within a group. */
 export function pickerGroups(accounts: Account[], recs: Recommendation[]): { providerId: Account['providerId']; accounts: Account[] }[] {
   const score = new Map(recs.map((r) => [r.accountId, r.score]))
-  const s = (a: Account) => (isSignedOut(a) ? -2 : (score.get(a.id) ?? -1))
+  const s = (a: Account) => (isBlocked(a) ? -3 : isSignedOut(a) ? -2 : (score.get(a.id) ?? -1))
   const groups = new Map<Account['providerId'], Account[]>()
   for (const a of accounts) {
     const g = groups.get(a.providerId) ?? []

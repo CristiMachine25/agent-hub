@@ -46,7 +46,7 @@ export const DEFAULT_SHARING: SharingOptions = {
   history: true
 }
 
-export type AccountStatus = 'ok' | 'needs-login' | 'expired' | 'error' | 'unknown'
+export type AccountStatus = 'ok' | 'needs-login' | 'expired' | 'error' | 'unknown' | 'blocked'
 
 /** One AI subscription/login, bound to an isolated config home. */
 export interface Account {

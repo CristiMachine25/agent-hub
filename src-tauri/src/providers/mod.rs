@@ -51,6 +51,10 @@ impl FetchError {
         Self { kind: ErrorKind::Network, message: message.into() }
     }
 
+    pub fn blocked(message: impl Into<String>) -> Self {
+        Self { kind: ErrorKind::Blocked, message: message.into() }
+    }
+
     pub fn other(message: impl Into<String>) -> Self {
         Self { kind: ErrorKind::Other, message: message.into() }
     }

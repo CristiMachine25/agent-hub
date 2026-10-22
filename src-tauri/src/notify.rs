@@ -77,6 +77,7 @@ pub fn evaluate(
     let mut out = Vec::new();
     for account in accounts {
         login_rule(account, state, now, &mut out);
+        blocked_rule(account, state, now, &mut out);
         let Some(snap) = new.get(&account.id) else { continue };
         if snap.stale == Some(true) || snap.windows.is_empty() {
             continue;
@@ -110,9 +111,10 @@ impl WindowCtx<'_> {
     }
 }
 
+/// Once when an account is signed out. An expired login renews by itself, so it doesn't count.
 fn login_rule(account: &Account, state: &mut NotifyState, now: DateTime<Utc>, out: &mut Vec<AppNotification>) {
     let k = key("login", &account.id, "");
-    if !matches!(account.status, AccountStatus::NeedsLogin | AccountStatus::Expired) {
+    if account.status != AccountStatus::NeedsLogin {
         state.fired.remove(&k);
         return;
     }
@@ -126,6 +128,28 @@ fn login_rule(account: &Account, state: &mut NotifyState, now: DateTime<Utc>, ou
         account,
         format!("{} needs you to log in", display_name(account)),
         format!("Usage and launches for this account will not work until you log in again{why}. Use Log in on its card."),
+        now,
+    ));
+}
+
+/// Once when an account becomes blocked; again only after it was usable (ok) in between.
+fn blocked_rule(account: &Account, state: &mut NotifyState, now: DateTime<Utc>, out: &mut Vec<AppNotification>) {
+    let k = key("blocked", &account.id, "");
+    if account.status == AccountStatus::Ok {
+        state.fired.remove(&k);
+    }
+    if account.status != AccountStatus::Blocked {
+        return;
+    }
+    if state.fired.insert(k, "1".into()).is_some() {
+        return;
+    }
+    let why = account.status_message.as_deref().unwrap_or("This account has no access right now.");
+    out.push(note(
+        NotificationKind::Info,
+        account,
+        format!("{} can't be used", display_name(account)),
+        format!("{why} It won't be suggested until that changes."),
         now,
     ));
 }
@@ -344,6 +368,25 @@ mod tests {
         assert!(run(&HashMap::new(), &new, &accts, &mut NotifyState::default(), now).is_empty());
     }
 
+    /// A blocked account is told once, never asked to sign in, and never offered as the switch.
+    #[test]
+    fn blocked_account_notifies_once_and_is_no_alternative() {
+        let now = Utc::now();
+        let mut a = account("a", "Free");
+        a.status = AccountStatus::Blocked;
+        a.status_message = Some("This account's subscription was canceled.".into());
+        let accts = vec![a, account("b", "Pro")];
+        let mut st = NotifyState::default();
+        let new = one("b", window("five_hour", 100.0, Some(2), 300, now));
+        let notes = evaluate(&HashMap::new(), &new, &accts, &settings(), &mut st, now);
+        let kinds: Vec<_> = notes.iter().map(|n| n.kind).collect();
+        assert_eq!(kinds, vec![NotificationKind::Info, NotificationKind::LimitReached]);
+        assert_eq!(notes[0].title, "a (Claude) can't be used");
+        assert!(notes[0].body.starts_with("This account's subscription was canceled."), "{}", notes[0].body);
+        assert!(!notes[1].body.contains("a is available"), "{}", notes[1].body);
+        assert!(run(&new, &new, &accts, &mut st, now).is_empty(), "deduped");
+    }
+
     #[test]
     fn login_required_once_until_fixed_and_stale_skipped() {
         let now = Utc::now();
@@ -356,7 +399,10 @@ mod tests {
         assert!(run(&HashMap::new(), &stale, std::slice::from_ref(&a), &mut st, now).is_empty());
         a.status = AccountStatus::Ok;
         run(&HashMap::new(), &HashMap::new(), std::slice::from_ref(&a), &mut st, now);
+        // An expired login renews by itself: it isn't signed out, so no "log in" nag.
         a.status = AccountStatus::Expired;
+        assert!(run(&HashMap::new(), &HashMap::new(), std::slice::from_ref(&a), &mut st, now).is_empty());
+        a.status = AccountStatus::NeedsLogin;
         assert_eq!(run(&HashMap::new(), &HashMap::new(), &[a], &mut st, now), vec![NotificationKind::LoginRequired]);
     }
 }

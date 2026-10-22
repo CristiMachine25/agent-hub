@@ -120,6 +120,10 @@ pub enum AccountStatus {
     NeedsLogin,
     Expired,
     Error,
+    /// Signed in, but the plan doesn't include the tool (e.g. a canceled subscription).
+    Blocked,
+    /// Also any status this build doesn't know (written by a newer one), so the account is kept.
+    #[serde(other)]
     Unknown,
 }
 
@@ -230,10 +234,13 @@ pub struct UsageSnapshot {
 pub enum ErrorKind {
     /// No sign-in, or the provider rejected it: signing in again fixes it.
     Auth,
-    /// The sign-in lapsed: opening the tool once (or signing in again) renews it.
+    /// The sign-in lapsed and renews by itself (the tool renews it when it next runs). A lapsed
+    /// sign-in only the user can fix is `Auth`.
     Expired,
     /// The provider could not be reached.
     Network,
+    /// Signed in, but the account can't use the tool at all. Signing in again won't help.
+    Blocked,
     Other,
 }
 
@@ -599,6 +606,14 @@ mod contract_tests {
 
     const FIXTURE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../src/shared/__fixtures__/serde.ts");
 
+    /// A status written by a newer build reads as Unknown, so the account is kept, not dropped.
+    #[test]
+    fn unknown_account_status_is_kept() {
+        let s: AccountStatus = serde_json::from_value(json!("some-future-status")).unwrap();
+        assert_eq!(s, AccountStatus::Unknown);
+        assert_eq!(serde_json::from_value::<AccountStatus>(json!("blocked")).unwrap(), AccountStatus::Blocked);
+    }
+
     /// Every variant of a fieldless enum. The match stops compiling when a variant is added and not listed.
     macro_rules! variants {
         ($t:ident: $($v:ident),+) => {{
@@ -863,7 +878,7 @@ mod contract_tests {
         f.value("ImportReport", "T.ImportReport", &report);
 
         f.values("ProviderId", "T.ProviderId", &variants!(ProviderId: Claude, Codex, Gemini, Copilot));
-        f.values("AccountStatus", "T.AccountStatus", &variants!(AccountStatus: Ok, NeedsLogin, Expired, Error, Unknown));
+        f.values("AccountStatus", "T.AccountStatus", &variants!(AccountStatus: Ok, NeedsLogin, Expired, Error, Unknown, Blocked));
         f.values("UsageSource", "T.UsageSnapshot['source']", &variants!(UsageSource: Api, Cli, LocalLogs, Manual, None));
         f.values("LaunchTarget", "T.LaunchTarget", &variants!(LaunchTarget: Cli, Desktop, Login));
         f.values(

@@ -302,7 +302,7 @@ function seeds(now: number): Seed[] {
         color: '#008300',
         tags: [],
         status: 'needs-login',
-        statusMessage: 'The sign-in for this account expired. Sign in again to keep tracking it.',
+        statusMessage: 'Claude rejected the saved sign-in. Sign in again to keep tracking this account.',
         launchCount: 3,
         lastLaunchedAgo: 12 * DAY,
         monthlyCost: 30
@@ -403,7 +403,7 @@ export function buildMockDb(p: Platform, now: number = Date.now()): MockDb {
       kind: 'login-required',
       accountId: 'acc-client',
       title: 'Client team seat needs you to sign in again',
-      body: 'The saved sign-in expired. Open the account and choose Sign in.',
+      body: 'Claude rejected the saved sign-in. Open the account and choose Sign in.',
       createdAt: ago(20 * HOUR),
       read: true
     },

@@ -106,8 +106,8 @@ site/                     Landing page, deployed to GitHub Pages
 ## Privacy and safety rules
 
 - Everything is local. No telemetry, no server.
-- Tokens are read only to call that provider's own usage endpoint, only when "live usage" is on (default on, can be turned off for local-logs-only mode).
+- Tokens are read only to call that provider's own usage endpoint, only when "live usage" is on (default on, can be turned off for local-logs-only mode). When Claude first refuses usage for an account, a call to its profile endpoint (same token) says why, e.g. a canceled subscription; it is repeated only while the reason is unknown.
 - Never write to another tool's credential file except an atomic token refresh that keeps the file valid for the CLI. A login kept in the macOS Keychain is never written: when it expires, the CLI renews it itself (Claude: `claude mcp list`, which makes no model request), so the CLI's own renewal lock is respected.
 - Uninstall leaves every CLI home intact.
 - Export follows links to skills kept elsewhere, but never into an account or tool folder, so a setup file carries sign-ins only when the user includes them (encrypted).
-- An offline or refused request never reads as signed out: each provider types its errors (auth, expired, network, other).
+- An offline or refused request never reads as signed out: each provider types its errors (auth, expired, network, blocked, other). A blocked account (signed in, but its plan has no CLI access) drops its old numbers, is never recommended or launched, and stays blocked through temporary failures until a check succeeds or it is signed out. An expired login is one that renews by itself; one only the user can fix is a sign-in problem.

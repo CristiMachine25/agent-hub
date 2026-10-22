@@ -114,8 +114,9 @@ pub async fn publish(app: &AppHandle, state: &AppState, prev: &HashMap<String, U
 }
 
 /// Keep the last good windows when a fetch fails or returns nothing; manual entries stay as entered.
+/// A blocked account keeps nothing: its old numbers no longer mean anything.
 pub fn merge_snapshot(prev: Option<&UsageSnapshot>, new: UsageSnapshot) -> UsageSnapshot {
-    if !new.windows.is_empty() {
+    if !new.windows.is_empty() || new.error_kind == Some(ErrorKind::Blocked) {
         return new;
     }
     match prev.filter(|p| !p.windows.is_empty()) {
@@ -154,6 +155,7 @@ pub fn derive_status(snap: &UsageSnapshot, identity: Option<&Identity>) -> (Acco
     let status = match snap.error_kind.unwrap_or(ErrorKind::Other) {
         ErrorKind::Auth => AccountStatus::NeedsLogin,
         ErrorKind::Expired => AccountStatus::Expired,
+        ErrorKind::Blocked => AccountStatus::Blocked,
         // A transient failure with last-known numbers is still usable.
         _ if !snap.windows.is_empty() => AccountStatus::Ok,
         _ => AccountStatus::Error,
@@ -183,7 +185,12 @@ async fn update_accounts(app: &AppHandle, state: &AppState, fetched: &[Fetched])
 /// Copy one fetch's status, email and plan onto its account; true when anything changed.
 /// `snap` is the merged snapshot from `latest`, so last-known windows keep a failed fetch usable.
 fn apply_fetch(a: &mut Account, f: &Fetched, snap: &UsageSnapshot) -> bool {
-    let (status, message) = derive_status(snap, f.identity.as_ref());
+    let (mut status, mut message) = derive_status(snap, f.identity.as_ref());
+    // Blocked holds until a fetch succeeds or the account is signed out: a failed check says nothing new.
+    if a.status == AccountStatus::Blocked && !matches!(status, AccountStatus::Ok | AccountStatus::NeedsLogin | AccountStatus::Blocked) {
+        status = AccountStatus::Blocked;
+        message = a.status_message.clone();
+    }
     let email = f.snapshot.email.clone().or_else(|| f.identity.as_ref().and_then(|i| i.email.clone())).or_else(|| snap.email.clone());
     let plan = f.snapshot.plan.clone().or_else(|| f.identity.as_ref().and_then(|i| i.plan.clone())).or_else(|| snap.plan.clone());
     let mut changed = set_if_changed(&mut a.status, status);
@@ -309,6 +316,101 @@ mod tests {
         assert_eq!(fresh.error_kind, None);
     }
 
+    /// A blocked account's last numbers mean nothing now: drop them instead of keeping them stale.
+    #[test]
+    fn a_blocked_fetch_drops_last_known_windows() {
+        let now = Utc::now();
+        let mut good = snap("a", vec![window("five_hour", 40.0, Some(2), 300, now)]);
+        good.credits = Some(Credits { used: 1.0, limit: Some(10.0), unit: "USD".into() });
+        let fetched = failed(FetchError::blocked("No Claude Code on the Free plan."));
+        let m = merge_snapshot(Some(&good), fetched.clone());
+        assert!(m.windows.is_empty());
+        assert!(m.credits.is_none());
+        assert_eq!(m.stale, None);
+        let f = Fetched { account_id: "a".into(), snapshot: fetched, identity: Some(Identity { logged_in: true, ..Identity::default() }) };
+        let mut a = account("a", "Max");
+        apply_fetch(&mut a, &f, &m);
+        assert_eq!(a.status, AccountStatus::Blocked);
+        assert_eq!(a.status_message.as_deref(), Some("No Claude Code on the Free plan."));
+    }
+
+    /// Run fetches through merge, status, scoring and notifications as a poll does. Returns how
+    /// many notifications they raised.
+    fn poll_sequence(a: &mut Account, fetches: Vec<UsageSnapshot>, st: &mut notify::NotifyState, mut check: impl FnMut(&Account, &UsageSnapshot)) -> usize {
+        let now = Utc::now();
+        let settings = AppSettings::default().notifications;
+        let mut latest: Option<UsageSnapshot> = None;
+        let mut notes = 0;
+        for fetched in fetches {
+            let merged = merge_snapshot(latest.as_ref(), fetched.clone());
+            let f = Fetched { account_id: a.id.clone(), snapshot: fetched, identity: Some(Identity { logged_in: true, ..Identity::default() }) };
+            apply_fetch(a, &f, &merged);
+            check(a, &merged);
+            let new = HashMap::from([(a.id.clone(), merged.clone())]);
+            notes += notify::evaluate(&HashMap::new(), &new, std::slice::from_ref(a), &settings, st, now).len();
+            latest = Some(merged);
+        }
+        notes
+    }
+
+    /// A blocked account stays blocked through offline, rate-limited and live-usage-off checks:
+    /// only a successful fetch or a sign-out ends it. It is told once.
+    #[test]
+    fn blocked_holds_through_temporary_failures() {
+        let reason = "This account's subscription was canceled.";
+        let now = Utc::now();
+        let mut rate_limited = failed(FetchError::other("Claude's usage API is rate-limiting requests; will retry later."));
+        rate_limited.stale = Some(true);
+        let fetches = vec![
+            failed(FetchError::blocked(reason)),
+            failed(FetchError::network("Could not reach Claude's usage API (network error).")),
+            rate_limited,
+            failed(FetchError::blocked(reason)),
+            failed(FetchError::other("Live usage is off. Claude Code keeps no local copy of its limits.")),
+            failed(FetchError::network("Timed out fetching usage")),
+            failed(FetchError::blocked(reason)),
+        ];
+        let mut a = account("a", "Max");
+        let notes = poll_sequence(&mut a, fetches, &mut notify::NotifyState::default(), |a, merged| {
+            assert_eq!(a.status, AccountStatus::Blocked);
+            assert_eq!(a.status_message.as_deref(), Some(reason));
+            assert_eq!(crate::recommend::score_account(a, TaskType::Any, Some(merged), now).score, 0.0);
+        });
+        assert_eq!(notes, 1);
+    }
+
+    /// Resubscribing ends Blocked: fresh numbers, no message, the plan untouched, and a later block
+    /// is told again. Signing out ends it too.
+    #[test]
+    fn blocked_recovers_on_a_successful_fetch() {
+        let now = Utc::now();
+        let mut a = account("a", "Max 20x");
+        let mut st = notify::NotifyState::default();
+        let blocked = || failed(FetchError::blocked("Canceled."));
+        let mut good = snap("a", vec![window("seven_day", 40.0, Some(100), 10080, now)]);
+        good.credits = Some(Credits { used: 1.0, limit: Some(10.0), unit: "USD".into() });
+        let mut seen = vec![];
+        let notes = poll_sequence(&mut a, vec![blocked(), good, blocked()], &mut st, |a, merged| {
+            seen.push((a.status, a.status_message.clone(), a.plan.clone(), merged.windows.len(), merged.credits.is_some()));
+        });
+        let plan = Some("Max 20x".to_string());
+        assert_eq!(
+            seen,
+            vec![
+                (AccountStatus::Blocked, Some("Canceled.".into()), plan.clone(), 0, false),
+                (AccountStatus::Ok, None, plan.clone(), 1, true),
+                (AccountStatus::Blocked, Some("Canceled.".into()), plan, 0, false),
+            ]
+        );
+        assert_eq!(notes, 2);
+
+        // Signing out ends it too, but blocked again right after was never usable: no new note.
+        let signed_out = failed(FetchError::auth("Not signed in. Use Sign in to log this account in."));
+        let mut statuses = vec![];
+        assert_eq!(poll_sequence(&mut a, vec![signed_out, blocked()], &mut st, |a, _| statuses.push(a.status)), 1);
+        assert_eq!(statuses, [AccountStatus::NeedsLogin, AccountStatus::Blocked]);
+    }
+
     #[test]
     fn manual_entries_survive_empty_fetches() {
         let now = Utc::now();
@@ -323,7 +425,7 @@ mod tests {
     fn status_from_errors() {
         let status = |e: FetchError| derive_status(&failed(e), None).0;
         assert_eq!(status(FetchError::auth("Not signed in. Use Sign in to log this account in.")), AccountStatus::NeedsLogin);
-        assert_eq!(status(FetchError::expired("Login expired. Launch Codex once or sign in again.")), AccountStatus::Expired);
+        assert_eq!(status(FetchError::expired("The login expired and is being renewed now.")), AccountStatus::Expired);
         assert_eq!(status(FetchError::other("Claude's usage API returned HTTP 500.")), AccountStatus::Error);
         // The kind decides, not the wording.
         assert_eq!(status(FetchError::auth("GitHub refused the request")), AccountStatus::NeedsLogin);

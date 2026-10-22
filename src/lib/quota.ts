@@ -66,7 +66,7 @@ export function longWindow(snap: UsageSnapshot | undefined): UsageWindow | undef
   return pool.reduce((a, b) => ((b.windowMinutes ?? 0) > (a.windowMinutes ?? 0) ? b : a))
 }
 
-export type AlertKind = 'limit-reached' | 'nearly-exhausted' | 'use-it-or-lose-it' | 'needs-login' | 'stale'
+export type AlertKind = 'limit-reached' | 'nearly-exhausted' | 'use-it-or-lose-it' | 'needs-login' | 'blocked' | 'stale'
 
 export interface Alert {
   kind: AlertKind
@@ -81,7 +81,8 @@ const ALERT_RANK: Record<AlertKind, number> = {
   'limit-reached': 1,
   'nearly-exhausted': 2,
   'needs-login': 3,
-  stale: 4
+  blocked: 4,
+  stale: 5
 }
 
 /** Things worth surfacing on the dashboard right now, most actionable first. */
@@ -99,14 +100,21 @@ export function computeAlerts(
       out.push({ kind: 'needs-login', accountId: a.id })
       continue
     }
+    // Blocked is permanent: its reason replaces any stale numbers.
+    if (a.status === 'blocked') {
+      out.push({ kind: 'blocked', accountId: a.id })
+      continue
+    }
     const snap = usage[a.id]
     if (!snap) continue
     if (snap.stale) out.push({ kind: 'stale', accountId: a.id })
     for (const w of snap.windows) {
       const left = leftOf(w)
-      if (left <= 0.5) {
+      // Old numbers for a window that has reset since say nothing about its limit now.
+      const current = !snap.stale || !w.resetsAt || Date.parse(w.resetsAt) > now
+      if (current && left <= 0.5) {
         out.push({ kind: 'limit-reached', accountId: a.id, windowId: w.id, left, resetsAt: w.resetsAt })
-      } else if (w.usedPercent >= n.nearlyExhaustedPercent && left < 20) {
+      } else if (current && w.usedPercent >= n.nearlyExhaustedPercent && left < 20) {
         out.push({ kind: 'nearly-exhausted', accountId: a.id, windowId: w.id, left, resetsAt: w.resetsAt })
       }
       if (w.resetsAt && (w.windowMinutes ?? 0) >= 3 * 24 * 60 && !isModelWindow(w)) {
