@@ -156,7 +156,7 @@ function UseNow() {
 
   return (
     <section aria-labelledby="usenow-title" className="rounded-lg border border-rivet bg-deck">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rivet px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rivet px-6 py-3">
         <h2 id="usenow-title" className="font-serif text-[17px] font-semibold">
           Best account right now
         </h2>
@@ -171,13 +171,15 @@ function UseNow() {
       {!acc ? (
         <NothingUsable accounts={accounts} usage={usage} now={now} />
       ) : (
-        <div className="grid grid-cols-1 min-[1100px]:grid-cols-[1fr_320px]">
-          <div className="min-w-0 px-5 pb-5 pt-4">
-            <div className="flex items-center gap-2.5">
-              <AccountDot account={acc} size={12} />
-              <button className="truncate font-serif text-[26px] font-semibold leading-8 hover:underline" onClick={() => go('accounts', acc.id)}>
-                {acc.label}
-              </button>
+        <div className="grid grid-cols-1 min-[1100px]:grid-cols-[minmax(0,1fr)_336px]">
+          <div className="min-w-0 px-6 pb-6 pt-5">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="flex min-w-0 items-center gap-2.5">
+                <AccountDot account={acc} size={12} />
+                <button className="truncate font-serif text-[26px] font-semibold leading-8 hover:underline" onClick={() => go('accounts', acc.id)}>
+                  {acc.label}
+                </button>
+              </span>
               <span className="flex items-center gap-1.5 text-muted">
                 <ProviderMark id={acc.providerId} size={16} />
                 {PROVIDER_META[acc.providerId].product}
@@ -186,21 +188,21 @@ function UseNow() {
             </div>
 
             {bind && left !== undefined && (
-              <div className="mt-4 flex items-end gap-5">
+              <div className="mt-5 flex items-end gap-6">
                 <div className="shrink-0">
                   <div className={clsx('font-serif text-hero font-semibold tabular-nums', LEVEL_TEXT[levelFor(left)])}>
                     {formatPct(left)}
                   </div>
-                  <div className="mt-1 text-xs text-muted">left of {windowName(bind.label)}</div>
+                  <div className="mt-2 text-xs text-muted">left of {windowName(bind.label)}</div>
                 </div>
-                <div className="min-w-0 flex-1 pb-1">
+                <div className="min-w-0 flex-1">
                   <Meter left={left} cells={20} size="lg" label={`${acc.label}, ${bind.label}`} />
-                  <div className="mt-1.5 text-xs text-muted">{resetText(bind.resetsAt, now) ?? 'No reset scheduled'}</div>
+                  <div className="mt-2 text-xs tabular-nums text-ink">{resetText(bind.resetsAt, now) ?? 'No reset scheduled'}</div>
                 </div>
               </div>
             )}
             {snap && snap.windows.length > 1 && (
-              <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 min-[1240px]:grid-cols-3">
+              <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-rivet pt-4 min-[1240px]:grid-cols-3">
                 {snap.windows
                   .filter((w) => w.id !== bind?.id)
                   .map((w) => (
@@ -208,7 +210,7 @@ function UseNow() {
                   ))}
               </div>
             )}
-            <p className="mt-4 text-muted">{top.reason}</p>
+            <p className="mt-5 max-w-[72ch] text-muted">{top.reason}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 className="btn btn-primary btn-lg"
