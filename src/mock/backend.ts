@@ -1,11 +1,11 @@
-// In-memory AgentHubApi used when the UI runs in a plain browser. Mutations persist for the page's lifetime.
+// In-memory RelayApi used when the UI runs in a plain browser. Mutations persist for the page's lifetime.
 import type {
   Account,
   AppEvents,
   AppSettings,
   DetectedAccount,
   DirectorySkill,
-  AgentHubApi,
+  RelayApi,
   InstalledSkill,
   KnowledgeItem,
   LaunchRequest,
@@ -42,7 +42,7 @@ function importLabel(f: DetectedAccount): string {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const clone = <T,>(x: T): T => structuredClone(x)
 
-export function createMockApi(platform: Platform): AgentHubApi {
+export function createMockApi(platform: Platform): RelayApi {
   const db = buildMockDb(platform)
   const listeners = new Map<keyof AppEvents, Set<Listener>>()
   const { home, sep } = homeRoot(platform)
@@ -171,7 +171,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
   const directory = mockDirectory()
   const installedFrom = new Map<string, string>() // "<provider>/<folder>" -> directory id
 
-  const api: AgentHubApi = {
+  const api: RelayApi = {
     platform,
     providers: {
       async list() {
@@ -443,7 +443,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
       async remove(id, providerId) {
         await wait(300)
         const folder = folderOf(id)
-        if (installedFrom.get(`${providerId}/${folder}`) !== id) throw new Error("Agent Hub didn't install this copy, so it was left alone")
+        if (installedFrom.get(`${providerId}/${folder}`) !== id) throw new Error("Relay didn't install this copy, so it was left alone")
         const k = knowledge[providerId]
         k.items = k.items.filter(([kind, name]) => !(kind === 'skills' && name === folder))
         installedFrom.delete(`${providerId}/${folder}`)

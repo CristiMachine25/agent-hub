@@ -1,6 +1,6 @@
 //! Skills from the public skills.sh directory, installed into each tool's shared folder so every
 //! account that links its skills gets them at once. The files come from the skill's GitHub
-//! repository at one commit. Nothing is ever overwritten, and only folders Agent Hub installed
+//! repository at one commit. Nothing is ever overwritten, and only folders Relay installed
 //! (they carry a marker file) are ever removed.
 use crate::model::{DirectorySkill, ShareKind, SkillPreview};
 use crate::providers::ProviderAdapter;
@@ -12,7 +12,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-/// Written into every skill folder Agent Hub installs: where it came from.
+/// Written into every skill folder Relay installs: where it came from. The name predates the
+/// rename and stays, so skills installed by earlier versions are still recognized.
 pub const MARKER: &str = ".switchyard-skill.json";
 
 /// Most files and bytes one skill may bring.
@@ -129,7 +130,7 @@ pub fn plan_files(files: &[TreeFile], folder: &str) -> anyhow::Result<Vec<TreeFi
             continue;
         }
         if !sharing::is_safe_rel(rel) || rel.contains('\\') {
-            bail!("The skill has a file Agent Hub can't save safely: {rel}");
+            bail!("The skill has a file Relay can't save safely: {rel}");
         }
         // On macOS and Windows one of the two would silently replace the other.
         if !seen.insert(rel.to_lowercase()) {
@@ -165,7 +166,7 @@ pub fn write_skill(skills_dir: &Path, r: &SkillRef, d: &Download) -> anyhow::Res
         bail!("A skill named {} is already in the shared folder", r.skill);
     }
     fs::create_dir_all(skills_dir).with_context(|| format!("creating {}", skills_dir.display()))?;
-    let tmp = skills_dir.parent().unwrap_or(skills_dir).join(format!(".switchyard-install-{}", uuid::Uuid::new_v4().simple()));
+    let tmp = skills_dir.parent().unwrap_or(skills_dir).join(format!(".relay-install-{}", uuid::Uuid::new_v4().simple()));
     let written = fill(&tmp, r, d).and_then(|_| fs::rename(&tmp, &target).map_err(Into::into));
     if written.is_err() {
         let _ = fs::remove_dir_all(&tmp);
@@ -193,18 +194,18 @@ fn fill(dir: &Path, r: &SkillRef, d: &Download) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The directory id of a skill folder Agent Hub installed, from its marker.
+/// The directory id of a skill folder Relay installed, from its marker.
 pub fn installed_id(dir: &Path) -> Option<String> {
     util::read_json(&dir.join(MARKER))?.get("id")?.as_str().map(str::to_string)
 }
 
-/// Delete `<skills_dir>/<skill>` when Agent Hub installed it from `r`. A link, or a folder that
+/// Delete `<skills_dir>/<skill>` when Relay installed it from `r`. A link, or a folder that
 /// someone else put there, is left alone.
 pub fn remove_skill(skills_dir: &Path, r: &SkillRef) -> anyhow::Result<()> {
     let target = skills_dir.join(&r.skill);
     let meta = fs::symlink_metadata(&target).map_err(|_| anyhow!("It isn't installed"))?;
     if !meta.is_dir() || sharing::is_link(&target) || installed_id(&target).as_deref() != Some(r.id().as_str()) {
-        bail!("Agent Hub didn't install this copy, so it was left alone");
+        bail!("Relay didn't install this copy, so it was left alone");
     }
     fs::remove_dir_all(&target).with_context(|| format!("deleting {}", target.display()))
 }
@@ -281,7 +282,7 @@ fn field(head: &str, key: &str) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-/// The skill folders in `skills_dir`, with the directory id of those Agent Hub installed.
+/// The skill folders in `skills_dir`, with the directory id of those Relay installed.
 pub fn list_installed(skills_dir: &Path) -> Vec<(String, Option<String>)> {
     let Ok(entries) = fs::read_dir(skills_dir) else { return Vec::new() };
     let mut out: Vec<(String, Option<String>)> = entries
@@ -299,7 +300,7 @@ pub fn install_into(shared: &Path, adapter: &dyn ProviderAdapter, r: &SkillRef, 
     write_skill(&tool_skills_dir(shared, adapter)?, r, d)
 }
 
-/// Remove a skill Agent Hub installed from one tool's shared folder.
+/// Remove a skill Relay installed from one tool's shared folder.
 pub fn remove_from(shared: &Path, adapter: &dyn ProviderAdapter, r: &SkillRef) -> anyhow::Result<()> {
     remove_skill(&tool_skills_dir(shared, adapter)?, r)
 }
@@ -659,7 +660,7 @@ mod tests {
     }
 
     #[test]
-    fn removes_only_what_agent_hub_installed() {
+    fn removes_only_what_relay_installed() {
         let t = tempfile::tempdir().unwrap();
         // Someone else's skill with the same name stays.
         fs::create_dir_all(t.path().join("pdf")).unwrap();

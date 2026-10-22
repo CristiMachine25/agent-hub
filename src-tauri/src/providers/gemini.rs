@@ -3,7 +3,7 @@
 //! Isolation: Gemini CLI resolves its "home" as `process.env.GEMINI_CLI_HOME || os.homedir()` and keeps
 //! everything in `<home>/.gemini` (packages/core/src/utils/paths.ts `homedir()`, used by
 //! `Storage.getGlobalGeminiDir()`). So GEMINI_CLI_HOME is NOT the `.gemini` dir itself: it replaces the
-//! user's home. An Agent Hub account home for Gemini is therefore a directory that *contains* `.gemini/`,
+//! user's home. An Relay account home for Gemini is therefore a directory that *contains* `.gemini/`,
 //! and every relative path below is prefixed with `.gemini/`. The stock account's home is the user's
 //! real home dir (`~`, holding `~/.gemini`). No HOME/USERPROFILE override is needed, so git, ssh and
 //! the rest of the user's environment keep working inside Gemini sessions.

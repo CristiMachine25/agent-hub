@@ -1,13 +1,13 @@
-// AgentHubApi: Tauri invoke/listen inside the app, an in-memory mock in a plain browser.
+// RelayApi: Tauri invoke/listen inside the app, an in-memory mock in a plain browser.
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { appDataDir } from '@tauri-apps/api/path'
-import type { AppEvents, AgentHubApi } from '@shared/types'
+import type { AppEvents, RelayApi } from '@shared/types'
 import { COMMANDS } from '@shared/types'
 import { createMockApi } from './mock/backend'
 import { detectPlatform, isTauri } from './lib/platform'
 
-function createTauriApi(): AgentHubApi {
+function createTauriApi(): RelayApi {
   const call = <T,>(cmd: string, args?: Record<string, unknown>) => invoke<T>(cmd, args)
   return {
     platform: detectPlatform(),
@@ -69,11 +69,11 @@ function createTauriApi(): AgentHubApi {
       },
       async pickSavePath(defaultName) {
         const { save } = await import('@tauri-apps/plugin-dialog')
-        return (await save({ defaultPath: defaultName, filters: [{ name: 'Agent Hub setup', extensions: ['agenthub'] }] })) ?? null
+        return (await save({ defaultPath: defaultName, filters: [{ name: 'Relay setup', extensions: ['agenthub'] }] })) ?? null
       },
       async pickSetupFile() {
         const { open } = await import('@tauri-apps/plugin-dialog')
-        const picked = await open({ multiple: false, filters: [{ name: 'Agent Hub setup', extensions: ['agenthub', 'switchyard', 'json'] }] })
+        const picked = await open({ multiple: false, filters: [{ name: 'Relay setup', extensions: ['agenthub', 'switchyard', 'json'] }] })
         return typeof picked === 'string' ? picked : null
       },
       appDataDir
@@ -100,7 +100,7 @@ function createTauriApi(): AgentHubApi {
 
 export const IS_MOCK = !isTauri()
 
-export const api: AgentHubApi = IS_MOCK ? createMockApi(detectPlatform()) : createTauriApi()
+export const api: RelayApi = IS_MOCK ? createMockApi(detectPlatform()) : createTauriApi()
 
 /** Where the backend writes its log file (tauri-plugin-log's LogDir target). */
 const LOG_DIR = {
@@ -114,5 +114,5 @@ export function errorText(e: unknown): string {
   if (typeof e === 'string') return e
   if (e instanceof Error) return e.message
   if (e && typeof e === 'object' && 'message' in e) return String((e as { message: unknown }).message)
-  return `Something went wrong. Try again; if it keeps happening, check Agent Hub.log in ${LOG_DIR[detectPlatform()]}.`
+  return `Something went wrong. Try again; if it keeps happening, check Relay.log in ${LOG_DIR[detectPlatform()]}.`
 }

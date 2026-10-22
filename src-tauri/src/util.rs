@@ -34,7 +34,7 @@ pub async fn run_capture(program: &Path, args: &[&str], timeout: Duration) -> Op
 /// Shared HTTP client with a sane timeout.
 pub fn http() -> reqwest::Client {
     static CLIENT: once_cell::sync::Lazy<reqwest::Client> = once_cell::sync::Lazy::new(|| {
-        reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(concat!("switchyard/", env!("CARGO_PKG_VERSION"))).build().expect("http client")
+        reqwest::Client::builder().timeout(Duration::from_secs(15)).user_agent(concat!("relay/", env!("CARGO_PKG_VERSION"))).build().expect("http client")
     });
     CLIENT.clone()
 }
@@ -46,7 +46,7 @@ pub fn download_http() -> reqwest::Client {
         reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(15))
             .timeout(Duration::from_secs(120))
-            .user_agent(concat!("switchyard/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("relay/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("http client")
     });
@@ -216,7 +216,7 @@ pub mod gui_path {
     use std::process::{Command, Stdio};
     use std::time::Duration;
 
-    const MARK: &str = "__SWITCHYARD_PATH__";
+    const MARK: &str = "__RELAY_PATH__";
 
     /// Put the PATH a new terminal would get in front of ours, plus the usual install dirs.
     /// Call first thing in main, before other threads read the environment.

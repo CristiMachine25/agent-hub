@@ -234,7 +234,7 @@ export const useStore = create<State>((set, get) => ({
         body: deleted
           ? 'Its profile folder was deleted too.'
           : deleteHome
-            ? 'Its folder was left on disk: Agent Hub only deletes folders it made in its profiles folder.'
+            ? 'Its folder was left on disk: Relay only deletes folders it made in its profiles folder.'
             : 'Its profile folder was left on disk.'
       })
       void get().loadRecs()

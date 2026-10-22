@@ -75,7 +75,7 @@ export function Sidebar() {
         className={clsx('flex h-14 items-center gap-2.5 px-4 compact:justify-center compact:px-0', MAC_TRAFFIC_LIGHTS && 'pl-[92px]')}
       >
         {!MAC_TRAFFIC_LIGHTS && <Logo size={26} />}
-        <span className="flex-1 font-serif text-[19px] font-semibold compact:hidden">Agent Hub</span>
+        <span className="flex-1 font-serif text-[19px] font-semibold compact:hidden">Relay</span>
       </div>
       <ul className="flex flex-col gap-0.5 px-2 pt-2">
         {NAV.map((n) => (

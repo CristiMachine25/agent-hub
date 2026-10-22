@@ -252,7 +252,7 @@ fn identity_from(creds: Option<&OAuthCreds>, oauth_account: Option<&Value>, logg
 // ---------------------------------------------------------------------------------------------
 
 const ORG_BLOCKED: &str = "This account's organization doesn't allow Claude Code with a subscription login. Use another account or ask an admin.";
-const BLOCKED_UNKNOWN: &str = "Claude doesn't allow Claude Code for this account right now. Check its plan at claude.ai, or remove it from Agent Hub.";
+const BLOCKED_UNKNOWN: &str = "Claude doesn't allow Claude Code for this account right now. Check its plan at claude.ai, or remove it from Relay.";
 
 /// Why Claude Code is blocked for this account, from its `/api/oauth/profile` answer (None when
 /// that couldn't be read). Personal plans never point at an admin.
@@ -261,11 +261,11 @@ fn blocked_reason(profile: Option<&Value>) -> String {
     let field = |k: &str| org.and_then(|o| str_field(o, k));
     let personal = |t: &str| matches!(t, "claude_pro" | "claude_max");
     match (field("organization_type"), field("subscription_status")) {
-        (Some("claude_free"), Some("canceled")) => "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.".into(),
-        (Some("claude_free"), _) => "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Agent Hub.".into(),
-        (Some(t), Some("canceled")) if personal(t) => "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub.".into(),
+        (Some("claude_free"), Some("canceled")) => "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Relay.".into(),
+        (Some("claude_free"), _) => "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Relay.".into(),
+        (Some(t), Some("canceled")) if personal(t) => "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Relay.".into(),
         (Some(t), Some(s)) if personal(t) && s != "active" => format!(
-            "This account's subscription isn't active ({}), so it can't use Claude Code. Check it at claude.ai, or remove it from Agent Hub.",
+            "This account's subscription isn't active ({}), so it can't use Claude Code. Check it at claude.ai, or remove it from Relay.",
             s.replace('_', " ")
         ),
         (Some(t), _) if !personal(t) => ORG_BLOCKED.into(),
@@ -458,7 +458,7 @@ async fn refresh_file_creds(home: &Path, creds: &OAuthCreds) -> Result<OAuthCred
 //
 // The access token lasts 8 hours. Claude Code renews it under a lock that its own processes
 // share, and drops a login whose renewal the server refuses. Renewing it here would race those
-// processes, so Agent Hub asks Claude Code to do it: `claude mcp list` loads the claude.ai
+// processes, so Relay asks Claude Code to do it: `claude mcp list` loads the claude.ai
 // connectors, which renews the login first, and makes no model request (so it uses no quota).
 
 const RENEW_ARGS: [&str; 2] = ["mcp", "list"];
@@ -472,7 +472,7 @@ const LOGIN_EXPIRED: &str = "Login token expired. Open Claude once to refresh th
 const LOGIN_NEEDS_CLI: &str = "The login expired and Claude Code isn't installed to renew it. Install Claude Code, then open it once or sign in again.";
 const LOGIN_RENEWING: &str = "The login expired and is being renewed now.";
 const LOGIN_RENEW_FAILED: &str = "Claude Code could not renew this login. Sign in again.";
-const LOGIN_RENEW_LATER: &str = "The login expired and could not be renewed yet; Agent Hub will try again later. Starting Claude also renews it.";
+const LOGIN_RENEW_LATER: &str = "The login expired and could not be renewed yet; Relay will try again later. Starting Claude also renews it.";
 
 /// Claude Code processes renewing logins at once.
 static RENEW_SLOTS: once_cell::sync::Lazy<tokio::sync::Semaphore> = once_cell::sync::Lazy::new(|| tokio::sync::Semaphore::new(2));
@@ -778,7 +778,8 @@ fn desktop_main_account() -> Option<String> {
 }
 
 /// Where a profile's own Claude Desktop data lives. Kept in the profile folder, except for Store builds
-/// whose profile folder is under AppData: those go to ~/.switchyard so Windows doesn't redirect them.
+/// whose profile folder is under AppData: those go to ~/.switchyard (named before the rename,
+/// kept so existing data stays put) so Windows doesn't redirect them.
 fn desktop_data_dir(account: &Account, home: &Path, app: &Path) -> PathBuf {
     let in_profile = home.join("desktop-data");
     let used = std::fs::read_dir(&in_profile).is_ok_and(|mut d| d.next().is_some());
@@ -816,7 +817,7 @@ impl ClaudeAdapter {
         env.insert("CLAUDE_CONFIG_DIR".into(), value);
         // Strip API-key style auth so the subscription login is used.
         env_unset(&mut env, &["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
-        // When Agent Hub itself was started from a Claude Code terminal, don't let the new CLI think it is
+        // When Relay itself was started from a Claude Code terminal, don't let the new CLI think it is
         // a child of that session (it would turn off transcript saving and talk to the parent's socket).
         let inherited: Vec<&str> = SESSION_MARKERS.iter().copied().filter(|k| std::env::var_os(k).is_some()).collect();
         env_unset(&mut env, &inherited);
@@ -1399,21 +1400,21 @@ mod tests {
         let canceled: Value = serde_json::from_str(CANCELED_PROFILE).unwrap();
         assert_eq!(
             blocked_reason(Some(&canceled)),
-            "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub."
+            "This account's subscription was canceled, so it's on the Free plan, which doesn't include Claude Code. Resubscribe at claude.ai, or remove it from Relay."
         );
         let org = |t: &str, status: Option<&str>| json!({"organization": {"organization_type": t, "subscription_status": status}});
         assert_eq!(
             blocked_reason(Some(&org("claude_free", None))),
-            "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Agent Hub."
+            "This account is on the Free plan, which doesn't include Claude Code. Subscribe at claude.ai, or remove it from Relay."
         );
         // A personal plan never points at an admin.
         assert_eq!(
             blocked_reason(Some(&org("claude_max", Some("past_due")))),
-            "This account's subscription isn't active (past due), so it can't use Claude Code. Check it at claude.ai, or remove it from Agent Hub."
+            "This account's subscription isn't active (past due), so it can't use Claude Code. Check it at claude.ai, or remove it from Relay."
         );
         assert_eq!(
             blocked_reason(Some(&org("claude_pro", Some("canceled")))),
-            "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Agent Hub."
+            "This account's subscription was canceled, so it can't use Claude Code. Resubscribe at claude.ai, or remove it from Relay."
         );
         assert_eq!(blocked_reason(Some(&org("claude_pro", Some("active")))), BLOCKED_UNKNOWN);
         // A team or company organization that turned Claude Code off: the admin decides.
