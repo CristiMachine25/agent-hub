@@ -5,6 +5,7 @@ import type { KnowledgeItem, KnowledgeKind, PermissionModes, ProviderId, Provide
 import { DEFAULT_PERMISSION_MODES } from '@shared/types'
 import { api, errorText } from '@/api'
 import { useStore } from '@/store'
+import { isMainFolder } from '@/lib/profiles'
 import { PROVIDER_META, PROVIDER_ORDER } from '@/lib/providers'
 import { AccountDot, EmptyState, ProviderMark, Segmented } from '@/components/ui'
 import { Page } from '@/components/Page'
@@ -301,7 +302,7 @@ function UsedBy({ k }: { k: ProviderKnowledge }) {
                     {acc && <AccountDot account={acc} size={8} />}
                     <span className="truncate font-medium">{ka.label}</span>
                   </span>
-                  {ka.isDefaultHome ? (
+                  {(acc ? isMainFolder(acc, k.mainFolder, api.platform) : ka.isDefaultHome) ? (
                     <span className="text-xs text-muted" data-tip={k.mainFolder}>
                       Uses its own folder (main)
                     </span>

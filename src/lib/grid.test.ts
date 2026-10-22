@@ -275,9 +275,13 @@ describe('accounts in panes', () => {
     const on = acc('a', 'claude')
     const off = acc('b', 'claude', { sharing: { ...DEFAULT_SHARING, history: false } })
     const main = acc('m', 'claude', { isDefaultHome: true, sharing: { ...DEFAULT_SHARING, history: false } })
-    expect(historyShared(on, on)).toBe(true)
-    expect(historyShared(on, off)).toBe(false)
-    expect(historyShared(main, on)).toBe(true)
+    // Not flagged, but at the path the tool uses by default: still the main folder.
+    const atMainPath = acc('p', 'claude', { homeDir: '/Users/sam/.claude/', sharing: { ...DEFAULT_SHARING, history: false } })
+    expect(historyShared(on, on, undefined, 'darwin')).toBe(true)
+    expect(historyShared(on, off, undefined, 'darwin')).toBe(false)
+    expect(historyShared(main, on, undefined, 'darwin')).toBe(true)
+    expect(historyShared(atMainPath, on, '/Users/sam/.claude', 'darwin')).toBe(true)
+    expect(historyShared(atMainPath, on, undefined, 'darwin')).toBe(false)
   })
 
   it('orders picker groups by their best account', () => {
