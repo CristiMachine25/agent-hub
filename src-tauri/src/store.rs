@@ -64,9 +64,12 @@ impl AppState {
                 Err(e) => log::warn!("migrating {} failed: {e:#}", legacy.display()),
             }
         }
+        let adapters = providers::all();
+        let mut accounts = load_accounts(&dir.join(ACCOUNTS_FILE));
+        flag_default_homes(&mut accounts, &adapters);
         let state = Self {
-            adapters: providers::all(),
-            accounts: RwLock::new(load_accounts(&dir.join(ACCOUNTS_FILE))),
+            adapters,
+            accounts: RwLock::new(accounts),
             settings: RwLock::new(load_settings(&dir.join(SETTINGS_FILE))),
             notifications: RwLock::new(load_or_default(&dir.join(NOTIFICATIONS_FILE))),
             latest: RwLock::new(load_or_default(&dir.join(LATEST_FILE))),
@@ -215,6 +218,16 @@ fn load_accounts(path: &Path) -> Vec<Account> {
     out
 }
 
+/// An account at its tool's default home is the main folder, even if it was saved without the flag.
+/// Create, update and import set it the same way (accounts.rs), so the flag alone decides.
+fn flag_default_homes(accounts: &mut [Account], adapters: &[Adapter]) {
+    for a in accounts {
+        if let Some(adapter) = adapters.iter().find(|x| x.id() == a.provider_id) {
+            a.is_default_home |= util::path_key(&adapter.default_home()) == util::path_key(Path::new(&a.home_dir));
+        }
+    }
+}
+
 /// Settings merge onto defaults key by key, so new fields get defaults and a bad value only resets itself.
 fn load_settings(path: &Path) -> AppSettings {
     let raw = util::read_json(path).unwrap_or(serde_json::Value::Null);
@@ -343,6 +356,29 @@ mod tests {
         std::fs::write(legacy.join(ACCOUNTS_FILE), "[1]").unwrap();
         assert!(!migrate_legacy(&legacy, &dir).unwrap());
         assert_eq!(std::fs::read_to_string(dir.join(ACCOUNTS_FILE)).unwrap(), "[]");
+    }
+
+    /// Saved before the flag was set (or by an older build): an account at the tool's default home
+    /// still loads as the main folder.
+    #[test]
+    fn load_flags_accounts_at_the_default_home() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("dev.switchyard.app");
+        std::fs::create_dir_all(&dir).unwrap();
+        let main = providers::all().into_iter().find(|a| a.id() == ProviderId::Claude).unwrap().default_home();
+        let account = |id: &str, home: &str| {
+            serde_json::json!({
+                "id": id, "providerId": "claude", "label": id, "homeDir": home, "isDefaultHome": false,
+                "sharing": SharingOptions::default(), "color": "#3987E5", "status": "ok", "createdAt": "2026-01-01T00:00:00Z", "launchCount": 0
+            })
+        };
+        let main_slash = format!("{}/", main.display());
+        let raw = serde_json::json!([account("main", &main_slash), account("work", "/somewhere/else")]);
+        std::fs::write(dir.join(ACCOUNTS_FILE), raw.to_string()).unwrap();
+
+        let state = AppState::load(dir).unwrap();
+        let accounts = state.accounts.blocking_read();
+        assert_eq!(accounts.iter().map(|a| (a.id.as_str(), a.is_default_home)).collect::<Vec<_>>(), [("main", true), ("work", false)]);
     }
 
     #[test]
