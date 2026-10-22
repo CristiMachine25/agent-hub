@@ -4,6 +4,7 @@
 import { Terminal, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { api } from '@/api'
 
@@ -13,6 +14,14 @@ export interface TermEntry {
   host: HTMLDivElement
   cols: number
   rows: number
+  /** Set while the terminal draws with WebGL; otherwise xterm's DOM renderer is in use. */
+  webgl?: WebglAddon
+  /** The canvas holding the addon's WebGL context, freed when the addon is released. */
+  webglCanvas?: HTMLCanvasElement
+  /** The context was lost once; the next show tries WebGL again. */
+  lostWebgl?: boolean
+  /** WebGL failed to load or lost its context twice; this terminal stays on the DOM renderer. */
+  noWebgl?: boolean
 }
 
 const entries = new Map<string, TermEntry>()
@@ -21,6 +30,14 @@ const pending = new Map<string, string[]>()
 const PENDING_LIMIT = 512
 /** Closed terminals whose last output may still be on its way; it is dropped until their exit event. */
 const disposed = new Set<string>()
+
+/**
+ * WebGL keeps busy grids smooth (the DOM renderer drops to ~15 fps with 9 busy panes in WKWebView), but each
+ * WebGL terminal holds a live context and WebKit drops the oldest past a limit (16). Terminals get WebGL
+ * when a pane shows them, at most MAX_WEBGL at once (the largest grid), taking it from one that is off
+ * screen if needed; terminals in hidden grid sessions keep theirs until then. Everything else uses DOM.
+ */
+export const MAX_WEBGL = 9
 
 let listening = false
 let exitHandler: (id: string, code: number | null) => void = () => {}
@@ -111,6 +128,29 @@ function ensureListeners() {
     disposed.delete(id)
     exitHandler(id, code)
   })
+  // WebGL caches glyph bitmaps, so glyphs drawn before the terminal font finished loading would stay in the
+  // fallback font.
+  document.fonts?.addEventListener?.('loadingdone', () => {
+    for (const e of entries.values()) e.webgl?.clearTextureAtlas()
+  })
+  watchPixelRatio()
+}
+
+/**
+ * WebGL sizes cells in whole device pixels, so moving the window to a display with another pixel ratio changes
+ * how many columns fit while the pane keeps its size. Refit those terminals after xterm has re-measured.
+ */
+function watchPixelRatio() {
+  globalThis.matchMedia?.(`(resolution: ${globalThis.devicePixelRatio}dppx)`).addEventListener(
+    'change',
+    () => {
+      watchPixelRatio()
+      requestAnimationFrame(() => {
+        for (const [id, e] of entries) if (e.webgl) fitTerm(id)
+      })
+    },
+    { once: true }
+  )
 }
 
 /** Called by the grid store so exits update pane status. */
@@ -230,6 +270,55 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
   return entry
 }
 
+const canvases = (e: TermEntry) => [...(e.term.element?.querySelectorAll('canvas') ?? [])]
+
+function releaseWebgl(e: TermEntry) {
+  const { webgl: addon, webglCanvas: canvas } = e
+  e.webgl = e.webglCanvas = undefined
+  addon?.dispose()
+  // Disposing only removes the canvas; its context would count against the browser's limit until garbage
+  // collection and could push out a live terminal's. Lose it now, after dispose so the addon no longer listens.
+  canvas?.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext()
+}
+
+/** Draw a terminal that a pane just put on screen with WebGL when a context is available. */
+export function acquireWebgl(id: string) {
+  const e = entries.get(id)
+  // Untested on WebKitGTK, where a driver could draw blank or garbled text without failing; Linux stays on DOM.
+  if (!e || e.webgl || e.noWebgl || api.platform === 'linux') return
+  const live = [...entries.values()].filter((x) => x.webgl)
+  // At the cap, an off-screen terminal hands over its context, but only once the new one loaded (briefly one
+  // over the cap, still far below the browser's limit).
+  const offscreen = live.length >= MAX_WEBGL ? live.find((x) => !x.host.isConnected) : undefined
+  if (live.length >= MAX_WEBGL && !offscreen) return
+  let addon: WebglAddon | undefined
+  const before = new Set(canvases(e))
+  try {
+    addon = new WebglAddon()
+    addon.onContextLoss(() => {
+      if (e.lostWebgl) e.noWebgl = true
+      e.lostWebgl = true
+      if (e.webgl !== addon) return
+      releaseWebgl(e)
+      // WebGL rounds cells to whole device pixels, so the DOM renderer fits fewer columns in the same pane.
+      fitTerm(id)
+    })
+    e.term.loadAddon(addon)
+    e.webgl = addon
+    e.webglCanvas = canvases(e).find((c) => !before.has(c) && c.getContext('webgl2'))
+  } catch {
+    e.noWebgl = true
+    try {
+      addon?.dispose()
+    } catch {
+      /* activation failed partway; disposing only unregisters it from the terminal */
+    }
+    // A renderer that failed after adding its canvas cannot remove it; it would cover the DOM renderer.
+    for (const c of canvases(e)) if (!before.has(c)) c.remove()
+  }
+  if (offscreen && e.webgl) releaseWebgl(offscreen)
+}
+
 /** Fit to the host's size and tell the backend when the character grid changed. */
 export function fitTerm(id: string) {
   const e = entries.get(id)
@@ -261,6 +350,7 @@ export function disposeTerm(id: string) {
   disposed.add(id)
   if (!e) return
   entries.delete(id)
+  releaseWebgl(e)
   e.term.dispose()
   e.host.remove()
 }
