@@ -1,18 +1,26 @@
 import { describe, expect, it, vi } from 'vitest'
 
 const handlers: Record<string, (p: never) => void> = {}
-vi.mock('@/api', () => ({ api: { platform: 'darwin', on: (event: string, cb: (p: never) => void) => (handlers[event] = cb) } }))
+const writes = vi.hoisted(() => vi.fn(() => Promise.resolve()))
+vi.mock('@/api', () => ({
+  api: { platform: 'darwin', on: (event: string, cb: (p: never) => void) => (handlers[event] = cb), terminals: { write: writes } }
+}))
 vi.mock('@xterm/xterm', () => ({
   Terminal: class {
     written: string[] = []
+    parsed: (() => void)[] = []
+    input: (d: string) => void = () => {}
     cols = 80
     rows = 24
     loadAddon() {}
     attachCustomKeyEventHandler() {}
-    onData() {}
+    onData(cb: (d: string) => void) {
+      this.input = cb
+    }
     open() {}
-    write(d: string) {
+    write(d: string, cb?: () => void) {
       this.written.push(d)
+      if (cb) this.parsed.push(cb)
     }
   }
 }))
@@ -38,5 +46,18 @@ describe('terminal output buffering', () => {
     disposeTerm('closed')
     output('closed', 'trailing chunk')
     expect(written('closed')).toEqual([])
+  })
+})
+
+describe('restored scrollback', () => {
+  it('does not send replies to queries in the replayed scrollback, but sends typing after it', async () => {
+    const term = getTerm('restored', 'dark', 'old\x1b[6n').term as unknown as { input: (d: string) => void; parsed: (() => void)[] }
+    term.input('\x1b[1;1R') // xterm answering the stale query while it parses the seed
+    expect(writes).not.toHaveBeenCalled()
+    for (const done of term.parsed) done()
+    term.input('x')
+    await Promise.resolve()
+    expect(writes).toHaveBeenCalledWith('restored', 'x')
+    expect(writes).toHaveBeenCalledTimes(1)
   })
 })
