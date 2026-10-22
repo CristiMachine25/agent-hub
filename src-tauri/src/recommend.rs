@@ -27,17 +27,10 @@ pub fn left_percent(snapshot: &UsageSnapshot) -> Option<f64> {
     tightest(snapshot).map(|w| (100.0 - w.used_percent).clamp(0.0, 100.0))
 }
 
-/// Short rolling windows (5-hour sessions) reset constantly, so they never count as "about to be lost".
-pub fn is_short_window(w: &UsageWindow) -> bool {
-    match w.window_minutes {
-        Some(m) => m < 24 * 60,
-        None => {
-            let id = w.id.to_ascii_lowercase();
-            let label = w.label.to_ascii_lowercase();
-            id.contains("five_hour") || id.contains("5h") || label.contains("5-hour") || label.contains("hour")
-        }
-    }
-}
+/// Only windows at least this long (weekly, monthly) count as "about to be lost", for the recommender's
+/// bonus and the use-it-or-lose-it alert alike; same as `USE_IT_MIN_WINDOW_MINUTES` in src/lib/quota.ts.
+/// Short ones (5-hour sessions, daily quotas) reset constantly; a window of unknown length doesn't count.
+pub const USE_IT_MIN_WINDOW_MINUTES: u32 = 3 * 24 * 60;
 
 /// 0 = unknown/free, 1 = Plus, 2 = Pro/Team/Business, 3 = Max/Pro+/Ultra/Enterprise and ChatGPT Pro 100/200/500.
 pub fn tier(account: &Account) -> u8 {
@@ -178,7 +171,7 @@ pub fn score_account(account: &Account, task: TaskType, snap: Option<&UsageSnaps
 fn use_it_or_lose_it(snap: &UsageSnapshot, now: DateTime<Utc>) -> Option<(&UsageWindow, f64)> {
     snap.windows
         .iter()
-        .filter(|w| !is_short_window(w))
+        .filter(|w| w.window_minutes.unwrap_or(0) >= USE_IT_MIN_WINDOW_MINUTES)
         .filter_map(|w| {
             let t = util::parse_iso(w.resets_at.as_deref()?)?;
             let left = (100.0 - w.used_percent).clamp(0.0, 100.0);
@@ -302,6 +295,20 @@ pub(crate) mod tests {
         let r = recommend(TaskType::Any, None, &accts, &latest, &[], now);
         assert_eq!(r[0].account_id, "a");
         assert!(r[0].reason.contains("Use it before it resets"), "{}", r[0].reason);
+    }
+
+    /// Same vector as "gives the reset bonus only to windows of 3 days or more" in src/lib/quota.test.ts,
+    /// and the same length rule as the use-it-or-lose-it alert (notify.rs).
+    #[test]
+    fn reset_bonus_needs_a_window_of_three_days() {
+        let now = Utc::now();
+        let unknown = UsageWindow { window_minutes: None, ..window("premium", 40.0, Some(10), 43200, now) };
+        let cases = [(window("daily", 40.0, Some(10), 1440, now), false), (unknown, false), (window("three_day", 40.0, Some(10), 4320, now), true)];
+        for (w, bonus) in cases {
+            let id = w.id.clone();
+            let r = score_account(&account("a", "Pro"), TaskType::Any, Some(&snap("a", vec![w])), now);
+            assert_eq!(r.reason.contains("Use it before it resets"), bonus, "{id}: {}", r.reason);
+        }
     }
 
     /// Same vectors as `bindingWindow` in src/lib/quota.test.ts: a model-only window (Weekly Sonnet)

@@ -76,7 +76,7 @@ export interface Alert {
   resetsAt?: string | null
 }
 
-/** "Use it or lose it" only watches windows at least this long; same as notify.rs. Unknown length doesn't count. */
+/** "Use it or lose it" (alerts and the recommender's bonus) only counts windows at least this long; same as recommend.rs. Unknown length doesn't count. */
 export const USE_IT_MIN_WINDOW_MINUTES = 3 * 24 * 60
 
 const ALERT_RANK: Record<AlertKind, number> = {

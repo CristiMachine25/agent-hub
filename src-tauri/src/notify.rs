@@ -16,9 +16,6 @@ pub const LIMIT_PERCENT: f64 = 99.5;
 const LIMIT_REARM_PERCENT: f64 = 95.0;
 /// Re-arm "nearly exhausted" once usage drops this far below the threshold.
 const NEARLY_REARM_GAP: f64 = 5.0;
-/// "Use it or lose it" only watches windows at least this long (weekly, monthly); same as
-/// `USE_IT_MIN_WINDOW_MINUTES` in src/lib/quota.ts. A window of unknown length doesn't count.
-const USE_IT_MIN_WINDOW_MINUTES: u32 = 3 * 24 * 60;
 
 /// Persisted dedupe state: rule key -> marker (window cycle or "1").
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -241,7 +238,7 @@ fn limit_rules(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotifi
 /// skipped, as in `computeAlerts` (src/lib/quota.ts).
 fn use_it_rule(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotification>) {
     let w = ctx.w;
-    if w.window_minutes.unwrap_or(0) < USE_IT_MIN_WINDOW_MINUTES || recommend::is_model_window(w) {
+    if w.window_minutes.unwrap_or(0) < recommend::USE_IT_MIN_WINDOW_MINUTES || recommend::is_model_window(w) {
         return;
     }
     let Some(t) = w.resets_at.as_deref().and_then(util::parse_iso) else { return };
