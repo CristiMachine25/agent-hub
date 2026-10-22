@@ -16,6 +16,9 @@ pub const LIMIT_PERCENT: f64 = 99.5;
 const LIMIT_REARM_PERCENT: f64 = 95.0;
 /// Re-arm "nearly exhausted" once usage drops this far below the threshold.
 const NEARLY_REARM_GAP: f64 = 5.0;
+/// "Use it or lose it" only watches windows at least this long (weekly, monthly); same as
+/// `USE_IT_MIN_WINDOW_MINUTES` in src/lib/quota.ts. A window of unknown length doesn't count.
+const USE_IT_MIN_WINDOW_MINUTES: u32 = 3 * 24 * 60;
 
 /// Persisted dedupe state: rule key -> marker (window cycle or "1").
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
@@ -231,7 +234,7 @@ fn limit_rules(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotifi
 /// skipped, as in `computeAlerts` (src/lib/quota.ts).
 fn use_it_rule(ctx: &WindowCtx, state: &mut NotifyState, out: &mut Vec<AppNotification>) {
     let w = ctx.w;
-    if recommend::is_short_window(w) || recommend::is_model_window(w) {
+    if w.window_minutes.unwrap_or(0) < USE_IT_MIN_WINDOW_MINUTES || recommend::is_model_window(w) {
         return;
     }
     let Some(t) = w.resets_at.as_deref().and_then(util::parse_iso) else { return };
@@ -385,6 +388,21 @@ mod tests {
         assert!(notes[0].body.starts_with("This account's subscription was canceled."), "{}", notes[0].body);
         assert!(!notes[1].body.contains("a is available"), "{}", notes[1].body);
         assert!(run(&new, &new, &accts, &mut st, now).is_empty(), "deduped");
+    }
+
+    /// Same vector as "watches only windows of 3 days or more" in src/lib/quota.test.ts: a daily
+    /// window or one of unknown length never fires, a 3-day one does.
+    #[test]
+    fn use_it_or_lose_it_needs_a_window_of_three_days() {
+        let now = Utc::now();
+        let accts = vec![account("a", "Pro")];
+        let unknown = UsageWindow { window_minutes: None, ..window("premium", 20.0, Some(10), 43200, now) };
+        let cases = [(window("daily", 20.0, Some(10), 1440, now), false), (unknown, false), (window("three_day", 20.0, Some(10), 4320, now), true)];
+        for (w, fires) in cases {
+            let id = w.id.clone();
+            let kinds = run(&HashMap::new(), &one("a", w), &accts, &mut NotifyState::default(), now);
+            assert_eq!(kinds == vec![NotificationKind::UseItOrLoseIt], fires, "{id}: {kinds:?}");
+        }
     }
 
     #[test]

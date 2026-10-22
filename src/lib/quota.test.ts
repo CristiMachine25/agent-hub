@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Account, AppSettings, UsageHistoryPoint, UsageSnapshot, UsageWindow } from '@shared/types'
 import { DEFAULT_SHARING } from '@shared/types'
-import { bindingWindow, computeAlerts, leftOf, levelFor, litCells, unusedAtResets, wastedValue } from './quota'
+import { USE_IT_MIN_WINDOW_MINUTES, bindingWindow, computeAlerts, leftOf, levelFor, litCells, unusedAtResets, wastedValue } from './quota'
 import { recommend, tier } from './recommend'
 
 const NOW = Date.parse('2026-10-20T12:00:00Z')
@@ -113,6 +113,20 @@ describe('computeAlerts', () => {
     }
     const kinds = computeAlerts([account('a'), account('b')], usage, settings, NOW).map((x) => `${x.kind}:${x.accountId}`)
     expect(kinds).toEqual(['limit-reached:b', 'stale:a', 'stale:b'])
+  })
+
+  // Same vector as notify::tests::use_it_or_lose_it_needs_a_window_of_three_days on the Rust side.
+  it('watches only windows of 3 days or more for use-it-or-lose-it', () => {
+    const cases: [UsageWindow, boolean][] = [
+      [{ id: 'daily', label: 'Weekly', usedPercent: 20, windowMinutes: 1440, resetsAt: iso(10) }, false],
+      [{ id: 'premium', label: 'Weekly', usedPercent: 20, resetsAt: iso(10) }, false],
+      [{ id: 'three_day', label: 'Weekly', usedPercent: 20, windowMinutes: 4320, resetsAt: iso(10) }, true]
+    ]
+    for (const [w, fires] of cases) {
+      const kinds = computeAlerts([account('a')], { a: snap('a', [w]) }, settings, NOW).map((x) => x.kind)
+      expect(kinds.includes('use-it-or-lose-it'), w.id).toBe(fires)
+    }
+    expect(USE_IT_MIN_WINDOW_MINUTES).toBe(3 * 24 * 60)
   })
 
   it('shows an expired login as stale numbers, not as signed out', () => {
