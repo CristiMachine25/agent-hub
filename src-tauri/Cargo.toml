@@ -1,6 +1,6 @@
 [package]
 name = "relay"
-version = "0.2.0"
+version = "0.2.1"
 description = "Manage all your AI subscriptions and launch any CLI with the right account"
 authors = ["Relay contributors"]
 license = "MIT"
