@@ -233,6 +233,12 @@
     display: none;
   }
 }
+/* Keep Maximize and Close inside a narrow pane; Restart and Resume come back when it is maximized. */
+@container (max-width: 280px) {
+  .pane-restart {
+    display: none;
+  }
+}
 @container (max-height: 470px) {
   .picker {
     gap: 0.5rem;
