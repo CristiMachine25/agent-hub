@@ -51,7 +51,9 @@
   }
   body {
     @apply bg-ground text-ink font-sans text-sm antialiased;
-    font-feature-settings: 'tnum' 1, 'ss01' 1;
+    /* Both bundled faces default to tabular figures, so countdowns and percentages never jitter. */
+    font-feature-settings: 'tnum' 1;
+    text-rendering: optimizeLegibility;
     overflow: hidden;
   }
   ::selection {
@@ -104,6 +106,10 @@
 }
 
 @layer components {
+  /* Serif headings sit a touch tighter; text-lg and text-hero set their own tracking. */
+  .font-serif {
+    letter-spacing: -0.008em;
+  }
   /* Small square icon buttons in side panels. */
   .side-icon-btn {
     @apply flex h-7 w-7 items-center justify-center rounded text-muted transition-colors hover:bg-raised hover:text-ink;
