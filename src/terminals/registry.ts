@@ -232,6 +232,7 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
   host.className = 'h-full w-full'
   const term = new Terminal({
     fontFamily: '"IBM Plex Mono", ui-monospace, Consolas, monospace',
+    fontWeightBold: 600,
     fontSize: terminalFontSize(),
     lineHeight: 1.15,
     cursorBlink: true,
