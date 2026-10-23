@@ -43,6 +43,11 @@
   --cell-off: 226 222 213;
 }
 
+/* Theme-independent: the Windows close button's hover red. */
+:root {
+  --win-close: 196 43 28; /* #C42B1C */
+}
+
 @layer base {
   html,
   body,
@@ -119,8 +124,8 @@
     @apply flex h-8 w-11 items-center justify-center text-muted transition-colors hover:bg-raised hover:text-ink;
   }
   .titlebar-close:hover {
-    background: #c42b1c;
-    color: #fff;
+    background: rgb(var(--win-close));
+    color: rgb(255 255 255);
   }
   .btn {
     @apply inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded text-sm font-medium whitespace-nowrap
