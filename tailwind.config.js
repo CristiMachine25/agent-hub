@@ -28,11 +28,11 @@ export default {
       },
       fontSize: {
         xs: ['12px', '16px'],
-        sm: ['13px', '18px'],
+        sm: ['13.5px', '19px'],
         base: ['14px', '20px'],
         md: ['15px', '22px'],
-        lg: ['20px', '26px'],
-        hero: ['44px', '44px']
+        lg: ['20px', { lineHeight: '26px', letterSpacing: '-0.01em' }],
+        hero: ['44px', { lineHeight: '44px', letterSpacing: '-0.025em' }]
       },
       borderRadius: { DEFAULT: '6px', md: '6px', lg: '8px' }
     }
