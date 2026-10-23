@@ -1,10 +1,20 @@
+<p align="center"><img src="src-tauri/icons/128x128@2x.png" width="96" alt="Relay icon"></p>
+
 # Relay
 
 **Your work, handed to the account that still has quota.** All your AI subscriptions in one place. See how much of every limit you have left, get told before you hit one (or before unused quota resets), and launch Claude Code, Codex, Gemini CLI or Copilot CLI with the account you pick, in one click.
 
-Runs on **Windows, macOS and Linux**. Everything stays on your computer.
+Runs on **Windows, macOS and Linux**. Free and open source (MIT). Everything stays on your computer.
 
-> Status: early development (v0.2). Website: https://cristimachine25.github.io/relay/. See [docs/PLAN.md](docs/PLAN.md) for what has shipped and what is next.
+[Download](https://github.com/CristiMachine25/relay/releases/latest) · [Website](https://cristimachine25.github.io/relay/) · [Report a bug](https://github.com/CristiMachine25/relay/issues)
+
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/screenshots/overview-light.webp">
+  <img src="docs/screenshots/overview-dark.webp" alt="Relay's Overview screen: the best account to use right now, alternatives, alerts and every account's limits">
+</picture>
+
+> [!WARNING]
+> **Early software, expect bugs.** Relay is a young open-source project (v0.2) built and tested by one person. It almost certainly has bugs, and the usage numbers come from provider endpoints that can change or break without notice. Treat what it shows as a guide, not a guarantee. The installers are **not code-signed**, so Windows and macOS will warn you the first time you open it (see [Install](#install)). It is provided as is, with no warranty: see [Disclaimer](#disclaimer).
 
 ## Why
 
@@ -27,6 +37,18 @@ If you pay for more than one AI plan (two Claude Max accounts, ChatGPT Pro, Gemi
 - **Move to a new computer.** Export your setup (accounts, skills, preferences) to a `.relay` file (older `.agenthub` files still import) and import it on Windows, macOS or Linux. Sign-ins are optional and encrypted with a passphrase you choose. Import only adds: nothing already on the computer is replaced.
 - **Tray menu** for quick launches without opening the window. Relay can start at login, hidden in the tray.
 
+See [docs/PLAN.md](docs/PLAN.md) for what has shipped and what is next.
+
+## Screenshots
+
+| Terminal grid: one account per pane | Hit a limit, continue on another account |
+|---|---|
+| ![Four AI CLIs running side by side, each on its own account with its own usage meter](docs/screenshots/terminals.webp) | ![A pane at its limit with a menu to continue the session on another Claude account](docs/screenshots/continue.webp) |
+| **Accounts: every limit and reset time** | **Skills from skills.sh** |
+| ![The Accounts screen listing each account's 5-hour, weekly and Opus limits](docs/screenshots/accounts.webp) | ![The Skills screen with a list of skills beside a formatted SKILL.md](docs/screenshots/skills.webp) |
+
+The screenshots use the built-in demo data, not real accounts.
+
 ## Supported tools
 
 | Tool | Accounts | Live limits | Launch |
@@ -46,9 +68,22 @@ More are planned: Cursor, Antigravity, Kiro, Amp, OpenRouter.
 
 ## Install
 
-Download the installer for your system from [Releases](https://github.com/CristiMachine25/relay/releases/latest) (Windows `.msi`/`.exe`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
+Download the file for your system from [Releases](https://github.com/CristiMachine25/relay/releases/latest):
 
-macOS builds are not notarized yet. The first time you open Relay, macOS says it can't verify the developer: open **System Settings > Privacy & Security** and click **Open Anyway**.
+| System | File |
+|---|---|
+| Windows 10/11 | `Relay_<version>_x64-setup.exe` (or the `.msi`) |
+| macOS, Apple Silicon (M1 and later) | `Relay_<version>_aarch64.dmg` |
+| macOS, Intel | `Relay_<version>_amd64.dmg` |
+| Linux | `.AppImage` (any distro), `.deb` (Debian, Ubuntu) or `.rpm` (Fedora) |
+
+### "Unknown developer" warnings
+
+Relay's installers are not code-signed or notarized yet (that costs money and paperwork this project doesn't have yet). Your system will warn you once; this is expected. Only download Relay from this repository's Releases page.
+
+- **Windows:** SmartScreen shows "Windows protected your PC". Click **More info**, then **Run anyway**.
+- **macOS:** the first time you open Relay, macOS says it can't verify the developer. Open **System Settings > Privacy & Security**, scroll down and click **Open Anyway**, then confirm. (Or run `xattr -dr com.apple.quarantine /Applications/Relay.app` in Terminal.)
+- **Linux:** make the AppImage executable first: `chmod +x Relay_*.AppImage`.
 
 Relay was called Agent Hub before. Data folders keep the old internal id (`dev.switchyard.app`) so upgrades keep your setup: accounts, settings and history carry over.
 
@@ -73,7 +108,11 @@ Issues and pull requests are welcome. Adding a provider takes an adapter plus a 
 
 ## Disclaimer
 
-Relay is an independent project, not affiliated with Anthropic, OpenAI, Google or GitHub. It uses each tool's own login and its documented or observed usage endpoints, which can change without notice. Follow each provider's terms of service for how you use multiple accounts.
+Relay is free, open-source software provided **as is, without warranty of any kind** (see the [MIT license](LICENSE)). It is early-stage and very likely has bugs. You use it at your own risk; the author is not liable for lost work, missed limits, account problems or any other damage.
+
+Relay is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, Google or GitHub. Product names are used only to say which tools it works with. It uses each tool's own login and its documented or observed usage endpoints, which can change without notice. Following each provider's terms of service, including how you use multiple accounts, is your responsibility.
+
+Found a bug? Please [open an issue](https://github.com/CristiMachine25/relay/issues). For a security problem, please don't post details publicly; use GitHub's private [security advisory](https://github.com/CristiMachine25/relay/security/advisories/new) form instead.
 
 ## License
 
