@@ -20,30 +20,48 @@ requests) is a gauge on that tank. The app is the board you glance at before pic
 
 ## Palette
 
-Dark is the default look, whatever the OS setting: a warm charcoal close to Claude's dark mode, not blue-black.
-Light (paper) and System stay available in Settings.
+Dark is the default look, whatever the OS setting: a slightly cool near-black taken from the app icon's charcoal
+tile, not grey and not blue-black. Surfaces step up in a fixed order, well < ground < panel < raised, each step
+far enough apart that a panel never merges into the ground. Light (paper) and System stay available in Settings.
 
-Interactive color (focus, selection, primary button) is a soft periwinkle, deliberately outside the quota scale,
-so "periwinkle" always means "you can act here" and green-to-red always means "quota left". It is also far from
-Anthropic's terracotta, so the app never looks like it borrows their branding.
+Interactive color (focus, selection, primary button) is periwinkle, from the icon's route (`#7397FB` family),
+deliberately outside the quota scale, so "periwinkle" always means "you can act here" and green-to-red always
+means "quota left". It is also far from Anthropic's terracotta, so the app never looks like it borrows their branding.
 
 | Name | Role | Dark (default) | Light |
 |---|---|---|---|
-| Charcoal / Paper | App ground, terminal background | `#1A1918` | `#F5F3EE` |
-| Panel | Sidebar, panels, pane headers | `#222120` | `#FBFAF7` |
-| Well | Side lists (accounts, terminal sessions), code previews | `#141312` | `#ECE9E2` |
-| Raised | Hover, selected rows | `#2A2826` | `#EEEBE4` |
-| Line | Borders, dividers | `#35322F` | `#DCD7CD` |
-| Text | Primary text | `#ECEAE4` | `#1F1D1A` |
-| Muted | Secondary text | `#A3A097` | `#605C54` |
-| Faint | Hints, tertiary text | `#928F86` | `#6D6960` |
-| Periwinkle | Actions, focus ring, selection | `#9AA5FF` | `#4556D6` |
-| Quota scale | Full / Half / Low / Empty (left) | `#5EC98C` `#E2BE5C` `#EC8D4A` `#F06868` | `#16804A` `#926800` `#B6500E` `#C42E34` |
+| Ground / Paper | App ground, terminal background | `#0E0F12` | `#F5F3EE` |
+| Panel | Sidebar, panels, pane headers, overlays | `#16181C` | `#FBFAF7` |
+| Well | Side lists (accounts, terminal sessions), code previews | `#0A0B0D` | `#ECE9E2` |
+| Raised | Hover, selected rows, tooltips | `#212329` | `#EEEBE4` |
+| Line | Borders, dividers | `#2B2E35` | `#DCD7CD` |
+| Cell off | Unlit meter cells (the meter well) | `#272A31` | `#E2DED5` |
+| Text | Primary text | `#E9EAEF` | `#1F1D1A` |
+| Muted | Secondary text | `#9DA1AC` | `#605C54` |
+| Faint | Hints, tertiary text | `#868A95` | `#6D6960` |
+| Periwinkle | Actions, focus ring, selection | `#86A0FB` | `#4556D6` |
+| On periwinkle | Text on the primary button | `#0A0F28` | `#FFFFFF` |
+| Quota scale | Full / Half / Low / Empty (left) | `#5ED6A2` `#E6C25F` `#EF904E` `#F36D6D` | `#16804A` `#926800` `#B6500E` `#C42E34` |
 
-Muted text passes 4.5:1 on its ground in both themes. The quota colors were re-tuned to sit on warm charcoal
-(slightly softer and warmer than the old blue-ink set).
+Full leans toward the icon's mint; the four quota colors were re-tuned for the near-black ground.
 Thresholds for the quota scale (percent left): Full ≥ 50, Half 20–49, Low 5–19, Empty < 5.
 Every color state also carries a word ("Limit reached", "Low") so color is never the only signal.
+
+Contrast (WCAG 2.x ratios, computed from the hex values above):
+
+| Pair | Dark | Light |
+|---|---|---|
+| Text on ground / panel / raised | 15.9 / 14.8 / 13.1 | 15.2 / 16.1 / 14.1 |
+| Muted on ground / panel / well / raised | 7.4 / 6.9 / 7.6 / 6.1 | 6.0 / 6.4 / 5.5 / 5.6 |
+| Faint on ground / panel / well / raised | 5.6 / 5.2 / 5.7 / 4.6 | 4.9 / 5.2 / 4.5 / 4.6 |
+| On periwinkle text on periwinkle | 7.6 | 5.9 |
+| Periwinkle focus ring on ground / panel | 7.7 / 7.1 | 5.3 / 5.7 |
+| Full / Half / Low / Empty on cell off | 8.0 / 8.4 / 6.0 / 4.9 | 3.7 / 3.7 / 3.8 / 4.1 |
+| Line on ground (non-text, kept subtle) | 1.4 | 1.3 |
+
+The xterm theme reads ground, text and periwinkle from the same tokens (cursor in periwinkle, selection at 30%
+periwinkle); its ANSI colors are tuned per theme in `src/terminals/registry.ts`. Charts read grid, axis and
+tooltip colors from the tokens through `src/charts/theme.ts`.
 
 Account identity colors come from a validated categorical set (dataviz reference palette, dark steps):
 `#3987E5 #D95926 #199E70 #C98500 #D55181 #9085E9 #E66767 #008300`.
@@ -52,14 +70,20 @@ Account identity colors come from a validated categorical set (dataviz reference
 
 Claude's interface pairs a book serif for headings and answers with a plain sans for controls. Agent Hub does the same:
 
-- **Source Serif 4** (variable, bundled with @fontsource): screen titles, section headings, the account name and
-  the big percentage in "Best account right now", the app name. Semibold, tabular figures for numbers that tick.
-- **Hanken Grotesk** (variable): everything you click or scan: buttons, rows, labels, small numbers. It stays
-  because its tabular figures keep countdowns from jittering, and it is neutral enough next to the serif.
-- **IBM Plex Mono**: terminals and anything you could paste into one: command lines, paths, env vars.
+- **Source Serif 4** (variable with the optical-size axis, bundled with @fontsource): screen titles, section
+  headings, the account name and the big percentage in "Best account right now", the app name. Semibold. The
+  optical-size build draws the 44px figure with the display cut and the 17–20px headings with the text cut.
+- **Hanken Grotesk** (variable): everything you click or scan: buttons, rows, labels, small numbers. Its figures
+  are tabular by default, so countdowns don't jitter, and it is neutral enough next to the serif.
+- **IBM Plex Mono** (400 and 600): terminals and anything you could paste into one: command lines, paths, env
+  vars. Terminal bold uses the real 600 weight instead of a synthesized one.
 
-Sizes: 13px base (desktop density), 12px secondary, 17px serif section titles, 20px serif screen titles,
-44px serif hero figure. Sentence case everywhere. No all-caps eyebrows.
+Neither bundled sans nor serif subset carries stylistic sets or character variants, so there are none to enable;
+`tnum` stays on globally as a guard. Text is antialiased (grayscale) on every theme.
+
+Sizes: 13.5px/19px base (desktop density), 12px secondary, 17px serif section and dialog titles, 20px serif screen
+titles and the app name (-0.01em), 44px serif hero figure (-0.025em). Serif text elsewhere tracks -0.008em.
+Sentence case everywhere. No all-caps eyebrows.
 
 ## Icon
 
@@ -120,8 +144,9 @@ Adding an account is a two-step dialog (find on this computer, or create a new i
 
 ## Review against the brief (revisions made)
 
-- First draft used a near-black ground with a single green accent: that is a known template look. The ground
-  is now warm charcoal and the accent periwinkle, keeping green exclusively for "plenty left".
+- First draft used a near-black ground with a single green accent: that is a known template look. The accent
+  is periwinkle, keeping green exclusively for "plenty left". The ground went from warm charcoal to the icon's
+  cool near-black for launch; it stays a tinted black with stepped surfaces, never a single flat black.
 - First draft had a card per account in a grid. Replaced with dense rows so ten accounts fit without scrolling
   and the windows line up in columns for comparison.
 - Dropped a planned uppercase "PROVIDER" eyebrow over groups; groups use the provider name in normal case
