@@ -20,6 +20,21 @@ interface Item {
   run(): void
 }
 
+/**
+ * Rows matching every term. Rows whose title holds every term come first, so typing "settings"
+ * puts "Go to Settings" above the account rows that only list it as a keyword.
+ */
+export function filterItems<T extends Pick<Item, 'title' | 'keywords' | 'group'>>(items: T[], q: string): T[] {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
+  if (!terms.length) return items.filter((i) => i.group !== 'More actions')
+  const hits = items.filter((i) => {
+    const hay = `${i.title} ${i.keywords}`.toLowerCase()
+    return terms.every((t) => hay.includes(t))
+  })
+  const inTitle = (i: T) => terms.every((t) => i.title.toLowerCase().includes(t))
+  return [...hits.filter(inTitle), ...hits.filter((i) => !inTitle(i))]
+}
+
 export function CommandPalette() {
   const open = useStore((s) => s.paletteOpen)
   const setPalette = useStore((s) => s.setPalette)
@@ -180,14 +195,7 @@ export function CommandPalette() {
     return out
   }, [accounts, usage, recs, providers, launch, go, refresh, setAddOpen, setPalette])
 
-  const filtered = useMemo(() => {
-    const terms = q.toLowerCase().split(/\s+/).filter(Boolean)
-    if (!terms.length) return items.filter((i) => i.group !== 'More actions')
-    return items.filter((i) => {
-      const hay = `${i.title} ${i.keywords}`.toLowerCase()
-      return terms.every((t) => hay.includes(t))
-    })
-  }, [items, q])
+  const filtered = useMemo(() => filterItems(items, q), [items, q])
 
   useEffect(() => {
     setActive(0)
