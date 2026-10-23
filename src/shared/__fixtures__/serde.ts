@@ -248,7 +248,7 @@ export const ProviderKnowledge = {
 export const ReseedResult = {
   "added": 1,
   "kept": 2
-} satisfies Full<Awaited<ReturnType<T.AgentHubApi['knowledge']['reseed']>>>
+} satisfies Full<Awaited<ReturnType<T.RelayApi['knowledge']['reseed']>>>
 
 export const DirectorySkill = {
   "id": "owner/repo/pdf",

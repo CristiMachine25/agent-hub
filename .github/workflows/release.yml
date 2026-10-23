@@ -18,7 +18,7 @@ jobs:
           - platform: macos-latest
             args: --target x86_64-apple-darwin
             # Intel Macs: name the files amd64 instead of Tauri's x64 so they're easy to tell apart.
-            assetNamePattern: 'AgentHub_[version]_amd64[ext]'
+            assetNamePattern: 'Relay_[version]_amd64[ext]'
           - platform: ubuntu-22.04
             args: ''
           - platform: windows-latest
@@ -51,10 +51,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'Agent Hub ${{ github.ref_name }}'
+          releaseName: 'Relay ${{ github.ref_name }}'
           releaseBody: 'Download the installer for your system below.'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
           # [name] is the product name, whose space GitHub turns into a dot, so spell the name out.
-          assetNamePattern: ${{ matrix.assetNamePattern || 'AgentHub_[version]_[arch][setup][ext]' }}
+          assetNamePattern: ${{ matrix.assetNamePattern || 'Relay_[version]_[arch][setup][ext]' }}

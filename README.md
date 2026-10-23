@@ -1,14 +1,14 @@
-# Agent Hub
+# Relay
 
-**Switch your work to the account that still has quota.** All your AI subscriptions in one place. See how much of every limit you have left, get told before you hit one (or before unused quota resets), and launch Claude Code, Codex, Gemini CLI or Copilot CLI with the account you pick, in one click.
+**Your work, handed to the account that still has quota.** All your AI subscriptions in one place. See how much of every limit you have left, get told before you hit one (or before unused quota resets), and launch Claude Code, Codex, Gemini CLI or Copilot CLI with the account you pick, in one click.
 
 Runs on **Windows, macOS and Linux**. Everything stays on your computer.
 
-> Status: early development (v0.2). Website: https://cristimachine25.github.io/agent-hub/. See [docs/PLAN.md](docs/PLAN.md) for what has shipped and what is next.
+> Status: early development (v0.2). Website: https://cristimachine25.github.io/relay/. See [docs/PLAN.md](docs/PLAN.md) for what has shipped and what is next.
 
 ## Why
 
-If you pay for more than one AI plan (two Claude Max accounts, ChatGPT Pro, Gemini, Copilot...), you know the routine: hit a limit, log out, log in to another account, forget which one still has quota, and watch a weekly limit reset while half of it was never used. Agent Hub keeps every account signed in side by side and tells you which one to use next.
+If you pay for more than one AI plan (two Claude Max accounts, ChatGPT Pro, Gemini, Copilot...), you know the routine: hit a limit, log out, log in to another account, forget which one still has quota, and watch a weekly limit reset while half of it was never used. Relay keeps every account signed in side by side and tells you which one to use next.
 
 ## Features
 
@@ -24,8 +24,8 @@ If you pay for more than one AI plan (two Claude Max accounts, ChatGPT Pro, Gemi
 - **Shared knowledge.** Each tool gets one shared profile for skills, agents, instructions, plugins and settings, and every account links to it, so all your accounts work the same way. The Knowledge screen shows what is in it.
 - **Skills from skills.sh.** Browse featured skills or search the public skills.sh directory, read a skill's SKILL.md, and install it for Claude Code, Codex, Gemini CLI or Copilot in one step. It goes into each tool's shared folder, downloaded from the skill's GitHub repository at a single commit, and nothing already there is overwritten.
 - **Terminal grid.** Run up to nine AI CLIs side by side in one window, each pane on its own account with its own meter. When one hits its limit, continue the same chat on another account in one click. Keep several sessions, each with its own layout, in a collapsible list beside the grid; hidden sessions keep running.
-- **Move to a new computer.** Export your setup (accounts, skills, preferences) to an `.agenthub` file and import it on Windows, macOS or Linux. Sign-ins are optional and encrypted with a passphrase you choose. Import only adds: nothing already on the computer is replaced.
-- **Tray menu** for quick launches without opening the window. Agent Hub can start at login, hidden in the tray.
+- **Move to a new computer.** Export your setup (accounts, skills, preferences) to a `.relay` file (older `.agenthub` files still import) and import it on Windows, macOS or Linux. Sign-ins are optional and encrypted with a passphrase you choose. Import only adds: nothing already on the computer is replaced.
+- **Tray menu** for quick launches without opening the window. Relay can start at login, hidden in the tray.
 
 ## Supported tools
 
@@ -41,14 +41,16 @@ More are planned: Cursor, Antigravity, Kiro, Amp, OpenRouter.
 ## Privacy
 
 - No servers, no telemetry, no account with us.
-- With **live usage** on, Agent Hub reads each account's own login token from your disk and sends it only to that provider's own servers: its usage endpoint, its account profile when usage is refused, and its sign-in renewal. Turn it off in Settings to use local session logs only.
-- Agent Hub never copies or links credential files between accounts.
+- With **live usage** on, Relay reads each account's own login token from your disk and sends it only to that provider's own servers: its usage endpoint, its account profile when usage is refused, and its sign-in renewal. Turn it off in Settings to use local session logs only.
+- Relay never copies or links credential files between accounts.
 
 ## Install
 
-Download the installer for your system from [Releases](https://github.com/CristiMachine25/agent-hub/releases/latest) (Windows `.msi`/`.exe`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
+Download the installer for your system from [Releases](https://github.com/CristiMachine25/relay/releases/latest) (Windows `.msi`/`.exe`, macOS `.dmg`, Linux `.AppImage`/`.deb`).
 
-macOS builds are not notarized yet. The first time you open Agent Hub, macOS says it can't verify the developer: open **System Settings > Privacy & Security** and click **Open Anyway**.
+macOS builds are not notarized yet. The first time you open Relay, macOS says it can't verify the developer: open **System Settings > Privacy & Security** and click **Open Anyway**.
+
+Relay was called Agent Hub before. Data folders keep the old internal id (`dev.switchyard.app`) so upgrades keep your setup: accounts, settings and history carry over.
 
 ## Build from source
 
@@ -71,7 +73,7 @@ Issues and pull requests are welcome. Adding a provider takes an adapter plus a 
 
 ## Disclaimer
 
-Agent Hub is an independent project, not affiliated with Anthropic, OpenAI, Google or GitHub. It uses each tool's own login and its documented or observed usage endpoints, which can change without notice. Follow each provider's terms of service for how you use multiple accounts.
+Relay is an independent project, not affiliated with Anthropic, OpenAI, Google or GitHub. It uses each tool's own login and its documented or observed usage endpoints, which can change without notice. Follow each provider's terms of service for how you use multiple accounts.
 
 ## License
 

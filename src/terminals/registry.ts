@@ -54,30 +54,32 @@ export function terminalFontSize(): number {
   }
 }
 
-const rgb = (name: string) => {
+const rgb = (name: string, alpha?: number) => {
   const v = getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim()
-  return v ? `rgb(${v.split(/\s+/).join(', ')})` : undefined
+  if (!v) return undefined
+  const c = v.split(/\s+/).join(', ')
+  return alpha === undefined ? `rgb(${c})` : `rgba(${c}, ${alpha})`
 }
 
-/** ANSI palettes tuned for the app's warm charcoal (dark) and paper (light) grounds. */
+/** ANSI palettes tuned for the app's near-black (dark) and paper (light) grounds. */
 const ANSI: Record<'dark' | 'light', ITheme> = {
   dark: {
-    black: '#2A2826',
-    red: '#F07A7A',
-    green: '#7CC99A',
-    yellow: '#E3C26E',
-    blue: '#8FA8F5',
-    magenta: '#C29CF0',
-    cyan: '#79C4C9',
-    white: '#D8D5CD',
-    brightBlack: '#75726B',
-    brightRed: '#FF9A9A',
-    brightGreen: '#9EDDB6',
-    brightYellow: '#F2D88F',
-    brightBlue: '#AFC1FF',
-    brightMagenta: '#D7B9FA',
-    brightCyan: '#9AD9DD',
-    brightWhite: '#F5F3EE'
+    black: '#2A2D35',
+    red: '#F27878',
+    green: '#6CD3A0',
+    yellow: '#E8C46A',
+    blue: '#86A0FB',
+    magenta: '#C5A0F5',
+    cyan: '#6CCDD5',
+    white: '#D3D6DE',
+    brightBlack: '#7D818D',
+    brightRed: '#FF9C9C',
+    brightGreen: '#94E6BF',
+    brightYellow: '#F4D993',
+    brightBlue: '#AEC0FF',
+    brightMagenta: '#DBC0FB',
+    brightCyan: '#97E0E6',
+    brightWhite: '#F4F5F8'
   },
   light: {
     black: '#2A2826',
@@ -106,7 +108,7 @@ function terminalTheme(mode: 'dark' | 'light'): ITheme {
     foreground: rgb('ink'),
     cursor: rgb('hop'),
     cursorAccent: rgb('ground'),
-    selectionBackground: mode === 'dark' ? 'rgba(154, 165, 255, 0.32)' : 'rgba(69, 86, 214, 0.22)'
+    selectionBackground: rgb('hop', mode === 'dark' ? 0.3 : 0.22)
   }
 }
 
@@ -230,6 +232,7 @@ export function getTerm(id: string, mode: 'dark' | 'light', scrollback?: string)
   host.className = 'h-full w-full'
   const term = new Terminal({
     fontFamily: '"IBM Plex Mono", ui-monospace, Consolas, monospace',
+    fontWeightBold: 600,
     fontSize: terminalFontSize(),
     lineHeight: 1.15,
     cursorBlink: true,

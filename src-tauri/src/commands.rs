@@ -1,4 +1,4 @@
-//! Tauri commands: the AgentHubApi from src/shared/types.ts. Names and argument names must match
+//! Tauri commands: the RelayApi from src/shared/types.ts. Names and argument names must match
 //! COMMANDS there (Tauri maps camelCase JS keys to these snake_case parameters).
 use crate::accounts::{self, apply_sharing, emit_accounts};
 use crate::events::{self, TerminalExit, TerminalOutput};
@@ -575,7 +575,7 @@ pub async fn knowledge_reseed(app: AppHandle, state: St<'_>, provider_id: Provid
 // ---------- skills directory ----------
 
 fn skill_ref(id: &str) -> Res<skills::SkillRef> {
-    skills::SkillRef::parse(id).ok_or_else(|| format!("{id} isn't a skill Agent Hub can install"))
+    skills::SkillRef::parse(id).ok_or_else(|| format!("{id} isn't a skill Relay can install"))
 }
 
 /// Search skills.sh. Shorter than two characters finds nothing, as the directory requires.
@@ -642,7 +642,7 @@ pub async fn skills_install(app: AppHandle, state: St<'_>, id: String, provider_
     Ok(out)
 }
 
-/// Remove a skill Agent Hub installed from one tool's shared folder.
+/// Remove a skill Relay installed from one tool's shared folder.
 #[tauri::command]
 pub async fn skills_remove(state: St<'_>, id: String, provider_id: ProviderId) -> Res<()> {
     let r = skill_ref(&id)?;
@@ -661,12 +661,12 @@ fn openable(url: &str) -> bool {
 pub async fn system_open_url(app: AppHandle, url: String) -> Res<()> {
     use tauri_plugin_opener::OpenerExt;
     if !openable(&url) {
-        return Err(format!("Agent Hub only opens skills.sh and GitHub links, not {url}"));
+        return Err(format!("Relay only opens skills.sh and GitHub links, not {url}"));
     }
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
 }
 
-/// A folder Agent Hub keeps (shared folders, profiles in its data folder) or an account's folder.
+/// A folder Relay keeps (shared folders, profiles in its data folder) or an account's folder.
 /// Never a file or an app bundle, which the system would open or run, and never a path with `..`,
 /// which would make the prefix check below meaningless.
 fn openable_folder(path: &Path, data_dir: &Path, homes: &[String]) -> bool {
@@ -689,7 +689,7 @@ pub async fn system_open_path(app: AppHandle, state: St<'_>, path: String) -> Re
     use tauri_plugin_opener::OpenerExt;
     let homes: Vec<String> = state.accounts.read().await.iter().map(|a| a.home_dir.clone()).collect();
     if !openable_folder(Path::new(&path), state.data_dir(), &homes) {
-        return Err(format!("{path} isn't a folder Agent Hub manages"));
+        return Err(format!("{path} isn't a folder Relay manages"));
     }
     app.opener().open_path(path, None::<&str>).map_err(|e| e.to_string())
 }

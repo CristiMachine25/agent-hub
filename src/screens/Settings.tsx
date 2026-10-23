@@ -72,7 +72,7 @@ export function Settings() {
           </Row>
           {s.liveUsage && (
             <p className="flex items-start gap-2 text-xs text-muted">
-              <ShieldCheck size={14} className="mt-px shrink-0" /> No telemetry and no Agent Hub server. Everything is stored in this computer's app data folder.
+              <ShieldCheck size={14} className="mt-px shrink-0" /> No telemetry and no Relay server. Everything is stored in this computer's app data folder.
             </p>
           )}
         </Group>
@@ -166,10 +166,10 @@ export function Settings() {
               />
             )}
           </Row>
-          <Row label="Keep running in the tray" help="Closing the window keeps Agent Hub in the tray so it can warn you about limits.">
+          <Row label="Keep running in the tray" help="Closing the window keeps Relay in the tray so it can warn you about limits.">
             {(ids) => <Switch {...ids} checked={s.minimizeToTray} onChange={(v) => save({ minimizeToTray: v })} />}
           </Row>
-          <Row label="Start when you sign in to your computer" help="Agent Hub starts hidden in the tray, ready to warn you about limits.">
+          <Row label="Start when you sign in to your computer" help="Relay starts hidden in the tray, ready to warn you about limits.">
             {(ids) => <Switch {...ids} checked={s.launchAtLogin} onChange={(v) => save({ launchAtLogin: v })} />}
           </Row>
           <Row label="Terminal font size" help="Text size in the terminal grid. Stored on this computer only.">
@@ -192,7 +192,7 @@ function Transfer() {
     <>
       <Row
         label="Export your setup"
-        help="Accounts, plans and colors, and optionally skills, preferences and encrypted sign-ins, in one file for Agent Hub on Windows, macOS or Linux."
+        help="Accounts, plans and colors, and optionally skills, preferences and encrypted sign-ins, in one file for Relay on Windows, macOS or Linux."
       >
         {(ids) => (
           <button className="btn btn-sm" onClick={() => setDialog('export')} aria-describedby={ids['aria-describedby']}>

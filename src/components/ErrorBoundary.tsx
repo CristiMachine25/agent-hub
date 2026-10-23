@@ -16,7 +16,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
       <div className="flex h-full flex-col" role="alert">
         <TitleBar />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-md font-semibold">Something went wrong in Agent Hub</p>
+          <p className="text-md font-semibold">Something went wrong in Relay</p>
           <p className="max-w-md text-muted">Your accounts and settings are safe. Reload to carry on; running terminals keep running.</p>
           <code className="code max-w-md truncate text-xs text-faint">{error.message}</code>
           <button className="btn btn-primary" onClick={() => location.reload()}>

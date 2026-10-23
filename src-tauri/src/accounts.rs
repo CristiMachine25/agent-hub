@@ -37,7 +37,7 @@ pub(crate) async fn emit_accounts(app: &AppHandle, state: &AppState) {
 }
 
 /// Apply sharing off the async runtime; surface backups/copies as an in-app notice.
-/// Knowledge links from the Agent Hub shared folder, history from `shared_from`.
+/// Knowledge links from the Relay shared folder, history from `shared_from`.
 pub(crate) async fn apply_sharing(app: &AppHandle, state: &AppState, account: &Account, adapter: Adapter) {
     let acct = account.clone();
     let shared = state.shared_dir(account.provider_id);

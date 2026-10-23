@@ -1,4 +1,4 @@
-//! The shared profile Agent Hub owns for each tool: `<app data>/shared/<provider>/`.
+//! The shared profile Relay owns for each tool: `<app data>/shared/<provider>/`.
 //! Accounts link skills, plugins, agents, instructions and settings from here instead of from
 //! the tool's main folder; history keeps linking from where the old chats are.
 //! It starts as a copy of the main folder's items: copy only, never move, overwrite or delete.

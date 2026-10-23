@@ -211,9 +211,9 @@ pub fn linux_terminal_argv(terminal: &str, script: &Path) -> Vec<String> {
 /// another user could get there first, so scripts go in the user's runtime (or cache) folder.
 fn scripts_dir() -> anyhow::Result<PathBuf> {
     #[cfg(all(unix, not(target_os = "macos")))]
-    let dir = dirs::runtime_dir().or_else(dirs::cache_dir).context("no folder of your own for launch scripts")?.join("agent-hub");
+    let dir = dirs::runtime_dir().or_else(dirs::cache_dir).context("no folder of your own for launch scripts")?.join("relay");
     #[cfg(not(all(unix, not(target_os = "macos"))))]
-    let dir = std::env::temp_dir().join("switchyard");
+    let dir = std::env::temp_dir().join("relay");
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -371,7 +371,7 @@ mod tests {
             program: r"C:\Program Files\Claude\claude.exe".into(),
             args: vec!["--continue".into(), "fix 100% & ship".into()],
             env: HashMap::from([
-                ("CLAUDE_CONFIG_DIR".to_string(), Some(r"C:\Users\me\Switchyard\profiles\claude\work".to_string())),
+                ("CLAUDE_CONFIG_DIR".to_string(), Some(r"C:\Users\me\Relay\profiles\claude\work".to_string())),
                 ("ANTHROPIC_API_KEY".to_string(), None),
             ]),
             cwd: Some(r"C:\src\my app".into()),
@@ -383,7 +383,7 @@ mod tests {
     fn windows_script_sets_and_unsets_env_and_quotes() {
         let s = windows_script(&spec(), "Work Max (Claude)");
         assert!(s.contains("set \"ANTHROPIC_API_KEY=\"\r\n"));
-        assert!(s.contains(r#"set "CLAUDE_CONFIG_DIR=C:\Users\me\Switchyard\profiles\claude\work""#));
+        assert!(s.contains(r#"set "CLAUDE_CONFIG_DIR=C:\Users\me\Relay\profiles\claude\work""#));
         assert!(s.contains(r#"cd /d "C:\src\my app""#));
         assert!(s.contains(r#"call "C:\Program Files\Claude\claude.exe" --continue "fix 100%%%% & ship""#));
         assert!(s.contains("title Work Max (Claude)"));
@@ -406,13 +406,13 @@ mod tests {
 
     #[test]
     fn windows_terminal_argv_variants() {
-        let script = Path::new(r"C:\Temp\switchyard\launch-1.cmd");
+        let script = Path::new(r"C:\Temp\relay\launch-1.cmd");
         let (p, raw) = windows_terminal_argv(true, script, "Work; Max", Some(r"C:\src\my app\"));
         assert_eq!(p, "wt.exe");
-        assert_eq!(raw, r#"-w new --title "Work Max" -d "C:\src\my app" cmd.exe /k "C:\Temp\switchyard\launch-1.cmd""#);
+        assert_eq!(raw, r#"-w new --title "Work Max" -d "C:\src\my app" cmd.exe /k "C:\Temp\relay\launch-1.cmd""#);
         let (p, raw) = windows_terminal_argv(false, script, "x", None);
         assert_eq!(p, "cmd.exe");
-        assert_eq!(raw, r#"/d /s /c "start "x" cmd.exe /k "C:\Temp\switchyard\launch-1.cmd"""#);
+        assert_eq!(raw, r#"/d /s /c "start "x" cmd.exe /k "C:\Temp\relay\launch-1.cmd"""#);
     }
 
     #[test]
@@ -420,13 +420,13 @@ mod tests {
         let spec = CommandSpec {
             program: "/usr/local/bin/codex".into(),
             args: vec!["resume".into(), "it's".into()],
-            env: HashMap::from([("CODEX_HOME".to_string(), Some("/home/me/My Switchyard/codex".to_string())), ("OPENAI_API_KEY".to_string(), None)]),
+            env: HashMap::from([("CODEX_HOME".to_string(), Some("/home/me/My Relay/codex".to_string())), ("OPENAI_API_KEY".to_string(), None)]),
             cwd: Some("/home/me/src".into()),
             note: None,
         };
         let s = unix_script(&spec, "#!/bin/zsh -l");
         assert!(s.starts_with("#!/bin/zsh -l\n"));
-        assert!(s.contains("export CODEX_HOME='/home/me/My Switchyard/codex'\n"));
+        assert!(s.contains("export CODEX_HOME='/home/me/My Relay/codex'\n"));
         assert!(s.contains("unset OPENAI_API_KEY\n"));
         assert!(s.contains("cd /home/me/src || exit 1\n"));
         assert!(s.contains(r"/usr/local/bin/codex resume 'it'\''s'"));

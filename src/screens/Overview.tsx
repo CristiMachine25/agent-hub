@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { AlertTriangle, AppWindow, Ban, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
+import { AlertTriangle, AppWindow, Ban, ChevronDown, Clock, Hourglass, LogIn, Play, Plus, RefreshCw, RotateCcw, Search, WifiOff } from 'lucide-react'
 import type { Account, DailyActivity, ProviderId, Recommendation, UsageHistoryPoint, UsageSnapshot } from '@shared/types'
 import { api } from '@/api'
 import { modKey } from '@/lib/platform'
@@ -11,11 +11,12 @@ import { liveSnoozes, useSnoozes } from '@/lib/snooze'
 import { bindingWindow, computeAlerts, leftOf, levelFor, longWindow, unusedAtResets, wastedValue, type Alert } from '@/lib/quota'
 import { creditsText, formatAgo, formatCountdown, formatMoney, formatPct, plural, resetText, windowName } from '@/lib/format'
 import { Meter, WindowGauge, LEVEL_TEXT } from '@/components/Meter'
-import { AccountDot, EmptyState, ProviderMark, Segmented, SectionTitle } from '@/components/ui'
+import { AccountDot, ProviderMark, Segmented, SectionTitle } from '@/components/ui'
 import { PrimaryLaunch } from '@/components/PrimaryLaunch'
 import { UsageOverTime } from '@/charts/UsageOverTime'
 import { MostUsed, type ActivityMetric } from '@/charts/MostUsed'
 import { Page } from '@/components/Page'
+import { FirstRun } from './overview/FirstRun'
 
 export function Overview() {
   const accounts = useStore((s) => s.accounts)
@@ -57,15 +58,7 @@ export function Overview() {
   if (accounts.length === 0) {
     return (
       <Page title="Overview">
-        <EmptyState
-          title="No accounts yet"
-          body="Agent Hub can find the Claude, Codex, Gemini and Copilot profiles already on this computer, or create a fresh profile for another login."
-          action={
-            <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
-              <Search size={15} /> Find accounts on this computer
-            </button>
-          }
-        />
+        <FirstRun onAdd={() => setAddOpen(true)} />
       </Page>
     )
   }
@@ -86,29 +79,33 @@ export function Overview() {
       <UseNow />
       {alerts.length > 0 && <Alerts alerts={alerts} />}
       <Board />
-      <section className="grid grid-cols-1 gap-x-8 gap-y-6 border-t border-rivet pt-6 min-[1180px]:grid-cols-[1.5fr_1fr]">
-        <div className="min-w-0">
-          <SectionTitle
-            aside={
-              <Segmented
-                size="sm"
-                label="Time range"
-                value={days}
-                onChange={setDays}
-                options={[
-                  { id: '7', label: '7 days' },
-                  { id: '30', label: '30 days' }
-                ]}
-              />
-            }
-          >
-            Weekly and monthly limits used
-          </SectionTitle>
-          <UsageOverTime accounts={accounts} usage={usage} history={history} days={Number(days)} />
-        </div>
-        <div className="min-w-0">
-          <SectionTitle
-            aside={
+      <section aria-labelledby="history-title">
+        <SectionTitle
+          aside={
+            <Segmented
+              size="sm"
+              label="Time range"
+              value={days}
+              onChange={setDays}
+              options={[
+                { id: '7', label: '7 days' },
+                { id: '30', label: '30 days' }
+              ]}
+            />
+          }
+        >
+          <span id="history-title">Usage history</span>
+        </SectionTitle>
+        <div className="grid grid-cols-1 gap-x-8 gap-y-8 rounded-lg border border-rivet p-6 min-[1180px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
+            <div className="mb-4 flex min-h-7 items-center">
+              <h3 className="font-semibold">Weekly and monthly limits used</h3>
+            </div>
+            <UsageOverTime accounts={accounts} usage={usage} history={history} days={Number(days)} />
+          </div>
+          <div className="min-w-0 border-t border-rivet pt-6 min-[1180px]:border-l min-[1180px]:border-t-0 min-[1180px]:pl-8 min-[1180px]:pt-0">
+            <div className="mb-4 flex min-h-7 items-center justify-between gap-3">
+              <h3 className="font-semibold">Most used, last {days} days</h3>
               <Segmented
                 size="sm"
                 label="Measure"
@@ -119,12 +116,10 @@ export function Overview() {
                   { id: 'messages', label: 'Messages' }
                 ]}
               />
-            }
-          >
-            Most used, last {days} days
-          </SectionTitle>
-          <MostUsed accounts={accounts} activity={act} metric={metric} />
-          <Unused accounts={accounts} usage={usage} history={history} />
+            </div>
+            <MostUsed accounts={accounts} activity={act} metric={metric} />
+            <Unused accounts={accounts} usage={usage} history={history} />
+          </div>
         </div>
       </section>
     </Page>
@@ -156,7 +151,7 @@ function UseNow() {
 
   return (
     <section aria-labelledby="usenow-title" className="rounded-lg border border-rivet bg-deck">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rivet px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-rivet px-6 py-3">
         <h2 id="usenow-title" className="font-serif text-[17px] font-semibold">
           Best account right now
         </h2>
@@ -171,13 +166,15 @@ function UseNow() {
       {!acc ? (
         <NothingUsable accounts={accounts} usage={usage} now={now} />
       ) : (
-        <div className="grid grid-cols-1 min-[1100px]:grid-cols-[1fr_320px]">
-          <div className="min-w-0 px-5 pb-5 pt-4">
-            <div className="flex items-center gap-2.5">
-              <AccountDot account={acc} size={12} />
-              <button className="truncate font-serif text-[26px] font-semibold leading-8 hover:underline" onClick={() => go('accounts', acc.id)}>
-                {acc.label}
-              </button>
+        <div className="grid grid-cols-1 min-[1100px]:grid-cols-[minmax(0,1fr)_336px]">
+          <div className="min-w-0 px-6 pb-6 pt-5">
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="flex min-w-0 items-center gap-2.5">
+                <AccountDot account={acc} size={12} />
+                <button className="truncate font-serif text-[26px] font-semibold leading-8 hover:underline" onClick={() => go('accounts', acc.id)}>
+                  {acc.label}
+                </button>
+              </span>
               <span className="flex items-center gap-1.5 text-muted">
                 <ProviderMark id={acc.providerId} size={16} />
                 {PROVIDER_META[acc.providerId].product}
@@ -186,21 +183,21 @@ function UseNow() {
             </div>
 
             {bind && left !== undefined && (
-              <div className="mt-4 flex items-end gap-5">
+              <div className="mt-5 flex items-end gap-6">
                 <div className="shrink-0">
                   <div className={clsx('font-serif text-hero font-semibold tabular-nums', LEVEL_TEXT[levelFor(left)])}>
                     {formatPct(left)}
                   </div>
-                  <div className="mt-1 text-xs text-muted">left of {windowName(bind.label)}</div>
+                  <div className="mt-2 text-xs text-muted">left of {windowName(bind.label)}</div>
                 </div>
-                <div className="min-w-0 flex-1 pb-1">
+                <div className="min-w-0 flex-1">
                   <Meter left={left} cells={20} size="lg" label={`${acc.label}, ${bind.label}`} />
-                  <div className="mt-1.5 text-xs text-muted">{resetText(bind.resetsAt, now) ?? 'No reset scheduled'}</div>
+                  <div className="mt-2 text-xs tabular-nums text-ink">{resetText(bind.resetsAt, now) ?? 'No reset scheduled'}</div>
                 </div>
               </div>
             )}
             {snap && snap.windows.length > 1 && (
-              <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 min-[1240px]:grid-cols-3">
+              <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-rivet pt-4 min-[1240px]:grid-cols-3">
                 {snap.windows
                   .filter((w) => w.id !== bind?.id)
                   .map((w) => (
@@ -208,7 +205,7 @@ function UseNow() {
                   ))}
               </div>
             )}
-            <p className="mt-4 text-muted">{top.reason}</p>
+            <p className="mt-5 max-w-[72ch] text-muted">{top.reason}</p>
             <div className="mt-4 flex flex-wrap gap-2">
               <button
                 className="btn btn-primary btn-lg"
@@ -224,10 +221,10 @@ function UseNow() {
               )}
             </div>
           </div>
-          <div className="border-t border-rivet px-5 py-4 min-[1100px]:border-l min-[1100px]:border-t-0">
-            <h3 className="mb-2 text-xs font-medium text-muted">If not that one</h3>
-            {others.length === 0 && <p className="text-muted">No other account has room right now.</p>}
-            <ul className="space-y-1">
+          <div className="border-t border-rivet px-6 pb-3 pt-5 min-[1100px]:border-l min-[1100px]:border-t-0">
+            <h3 className="text-xs font-medium text-muted">If not that one</h3>
+            {others.length === 0 && <p className="mt-3 text-muted">No other account has room right now.</p>}
+            <ul className="mt-1 divide-y divide-rivet">
               {others.map((r) => (
                 <AltRow key={r.accountId} rec={r} account={accounts.find((a) => a.id === r.accountId)!} snap={usage[r.accountId]} />
               ))}
@@ -244,19 +241,19 @@ function AltRow({ rec, account, snap }: { rec: Recommendation; account: Account;
   const bind = bindingWindow(snap)
   const left = bind ? leftOf(bind) : 0
   return (
-    <li className="group flex items-center gap-3 rounded px-2 py-2 -mx-2 hover:bg-raised">
-      <AccountDot account={account} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="truncate font-medium">{account.label}</span>
-          <span className="shrink-0 text-xs tabular-nums text-muted">{formatPct(left)} left</span>
+    <li className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <AccountDot account={account} />
+          <span className="min-w-0 flex-1 truncate font-medium">{account.label}</span>
+          <span className="shrink-0 text-xs font-semibold tabular-nums">{formatPct(left)} left</span>
         </div>
-        <Meter left={left} cells={20} size="xs" label={`${account.label} quota left`} className="mt-1" />
-        <p className="mt-1 line-clamp-2 text-xs text-muted" data-tip={rec.reason}>
-          {rec.reason}
-        </p>
+        <Meter left={left} cells={20} size="xs" label={`${account.label} quota left`} className="mt-2" />
       </div>
       <PrimaryLaunch account={account} prov={prov} className="btn btn-sm" short />
+      <p className="col-span-2 mt-1.5 line-clamp-2 text-xs text-muted" data-tip={rec.reason}>
+        {rec.reason}
+      </p>
     </li>
   )
 }
@@ -330,8 +327,8 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
     })
   }
   return (
-    <section aria-label="Alerts" className="-mt-1">
-      <ul ref={list} className="divide-y divide-rivet rounded-lg border border-rivet">
+    <section aria-label="Alerts" className="overflow-hidden rounded-lg border border-rivet">
+      <ul ref={list} className="divide-y divide-rivet">
         {shown.map((al, i) => {
           const a = accounts.find((x) => x.id === al.accountId)
           if (!a) return null
@@ -345,43 +342,50 @@ function Alerts({ alerts }: { alerts: Alert[] }) {
                   ? 'text-low'
                   : 'text-muted'
           return (
-            <li key={i} className="flex items-center gap-3 px-4 py-2">
-              <Icon size={15} className={clsx('shrink-0', tone)} aria-hidden />
-              <p className="min-w-0 flex-1">{alertCopy(al, a, usage[a.id], now)}</p>
-              {al.kind === 'use-it-or-lose-it' && (
-                <PrimaryLaunch account={a} prov={providers.find((p) => p.id === a.providerId)} className="btn btn-sm" />
-              )}
-              {al.kind === 'needs-login' && (
-                <>
-                  <button className="btn btn-sm" onClick={() => launch(a.id, 'login')}>
-                    Sign in
+            <li key={i} className="flex min-h-12 flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2">
+              <Icon size={16} className={clsx('shrink-0', tone)} aria-hidden />
+              <p className="min-w-0 flex-1 basis-64">{alertCopy(al, a, usage[a.id], now)}</p>
+              <div className="ml-auto flex shrink-0 items-center gap-2 empty:hidden">
+                {al.kind === 'use-it-or-lose-it' && (
+                  <PrimaryLaunch account={a} prov={providers.find((p) => p.id === a.providerId)} className="btn btn-sm" />
+                )}
+                {al.kind === 'needs-login' && (
+                  <>
+                    <button className="btn btn-sm" onClick={() => launch(a.id, 'login')}>
+                      Sign in
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => snooze(a, i)}
+                      aria-label={`Not now for ${a.label}`}
+                      data-tip="Hide this until the account signs in or its status changes"
+                    >
+                      Not now
+                    </button>
+                  </>
+                )}
+                {al.kind === 'blocked' && (
+                  <button className="btn btn-sm" onClick={() => go('accounts', a.id)} aria-label={`Details for ${a.label}`}>
+                    Details
                   </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => snooze(a, i)}
-                    aria-label={`Not now for ${a.label}`}
-                    data-tip="Hide this until the account signs in or its status changes"
-                  >
-                    Not now
+                )}
+                {al.kind === 'stale' && (
+                  <button className="btn btn-sm" onClick={() => refresh(a.id)}>
+                    <RefreshCw size={12} /> Check again
                   </button>
-                </>
-              )}
-              {al.kind === 'blocked' && (
-                <button className="btn btn-sm" onClick={() => go('accounts', a.id)} aria-label={`Details for ${a.label}`}>
-                  Details
-                </button>
-              )}
-              {al.kind === 'stale' && (
-                <button className="btn btn-sm" onClick={() => refresh(a.id)}>
-                  <RefreshCw size={12} /> Check again
-                </button>
-              )}
+                )}
+              </div>
             </li>
           )
         })}
       </ul>
       {alerts.length > 3 && (
-        <button className="mt-1.5 text-xs text-muted hover:text-ink" onClick={() => setAll(!all)}>
+        <button
+          className="flex h-8 w-full items-center gap-3 border-t border-rivet px-4 text-xs text-muted hover:bg-raised hover:text-ink"
+          onClick={() => setAll(!all)}
+          aria-expanded={all}
+        >
+          <ChevronDown size={16} className={clsx('shrink-0 transition-transform', all && 'rotate-180')} aria-hidden />
           {all ? 'Show fewer' : `Show ${plural(alerts.length - 3, 'more alert')}`}
         </button>
       )}
@@ -411,13 +415,13 @@ function Board() {
         </span>
       </SectionTitle>
       <div className="overflow-hidden rounded-lg border border-rivet">
-        {groups.map(({ p, list }) => (
-          <div key={p}>
-            <div className="flex items-center gap-2 border-b border-rivet bg-deck/60 px-4 py-1.5 text-xs text-muted">
+        {groups.map(({ p, list }, gi) => (
+          <div key={p} role="group" aria-label={PROVIDER_META[p].product}>
+            <div className={clsx('flex h-8 items-center gap-2 border-b border-rivet bg-deck px-4 text-xs text-muted', gi > 0 && 'border-t')}>
               <ProviderMark id={p} size={14} />
-              {PROVIDER_META[p].product}
+              <span className="font-medium text-ink">{PROVIDER_META[p].product}</span>
             </div>
-            <ul className="divide-y divide-rivet border-b border-rivet last:border-b-0">
+            <ul className="divide-y divide-rivet">
               {list.map((a) => (
                 <BoardRow key={a.id} a={a} snap={usage[a.id]} now={now} provider={p} />
               ))}
@@ -437,11 +441,13 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
   const bind = bindingWindow(snap)
   const atLimit = bind ? leftOf(bind) <= 0.5 : false
   return (
-    <li className="grid grid-cols-[minmax(150px,1fr)_minmax(0,2.4fr)_auto] items-center gap-5 px-4 py-3 hover:bg-deck">
+    <li className="grid grid-cols-[9rem_minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 min-[1180px]:grid-cols-[15rem_minmax(0,1fr)_auto] min-[1180px]:gap-6 hover:bg-deck focus-within:bg-deck">
       <button className="flex min-w-0 items-center gap-2.5 text-left" onClick={() => go('accounts', a.id)} data-tip="Show details">
-        <AccountDot account={a} />
+        <span className={clsx('flex', (signedOut || blocked) && 'opacity-40')}>
+          <AccountDot account={a} />
+        </span>
         <span className="min-w-0">
-          <span className="block truncate font-semibold">{a.label}</span>
+          <span className={clsx('block truncate font-semibold', (signedOut || blocked) && 'text-muted')}>{a.label}</span>
           <span className="flex items-center gap-1 truncate text-xs text-muted">
             <ProviderMark id={provider} size={11} />
             {statusLabel(a) ?? (snap?.stale ? `Checked ${formatAgo(snap.fetchedAt, now)}` : a.plan && !a.label.includes(a.plan) ? a.plan : PROVIDER_META[provider].short)}
@@ -450,11 +456,14 @@ function BoardRow({ a, snap, now, provider }: { a: Account; snap?: UsageSnapshot
       </button>
       <div className="min-w-0">
         {signedOut ? (
-          <p className="text-muted">{a.statusMessage ?? 'Sign in to see this account’s limits.'}</p>
+          <p className="flex items-center gap-2 text-muted">
+            <LogIn size={14} className="shrink-0" aria-hidden />
+            <span className="min-w-0">{a.statusMessage ?? 'Sign in to see this account’s limits.'}</span>
+          </p>
         ) : blocked ? (
           <p className="text-muted">{a.statusMessage ?? `This account can't use ${PROVIDER_META[provider].product}.`}</p>
         ) : snap && snap.windows.length ? (
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-3 gap-4 min-[1180px]:gap-6">
             {snap.windows.slice(0, 3).map((w) => (
               <WindowGauge key={w.id} w={w} now={now} compact stale={snap.stale} />
             ))}
@@ -501,11 +510,11 @@ function Unused({ accounts, usage, history }: { accounts: Account[]; usage: Reco
   const total = rows.reduce((s, r) => s + r.value, 0)
   return (
     <div className="mt-6 border-t border-rivet pt-4">
-      <p>
-        <span className="text-md font-semibold tabular-nums">About {formatMoney(Math.round(total))}</span>{' '}
+      <p className="flex flex-wrap items-baseline gap-x-2">
+        <span className="font-serif text-lg font-semibold tabular-nums">About {formatMoney(Math.round(total))}</span>
         <span className="text-muted">of paid quota reset unused in the last 30 days.</span>
       </p>
-      <p className="mt-1 text-xs text-muted">
+      <p className="mt-2 max-w-[72ch] text-xs text-muted">
         Most from {rows
           .slice(0, 2)
           .map((r) => `${r.a.label} (${formatMoney(Math.round(r.value))})`)

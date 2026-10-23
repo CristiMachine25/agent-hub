@@ -310,7 +310,7 @@ export interface KnowledgeAccount {
   kinds: string[]
 }
 
-/** The shared profile Agent Hub owns for one tool: what is in it and who uses it. */
+/** The shared profile Relay owns for one tool: what is in it and who uses it. */
 export interface ProviderKnowledge {
   providerId: ProviderId
   /** The shared folder every account links to. */
@@ -347,7 +347,7 @@ export interface InstalledSkill {
   providerId: ProviderId
   /** The folder name. */
   name: string
-  /** The directory id when Agent Hub installed it; null for skills copied from the main folder or added by hand. */
+  /** The directory id when Relay installed it; null for skills copied from the main folder or added by hand. */
   id: string | null
 }
 
@@ -393,7 +393,7 @@ export interface AppEvents {
 }
 
 /** API the UI uses (src/api.ts implements it over Tauri invoke; mock mode in a plain browser). */
-export interface AgentHubApi {
+export interface RelayApi {
   platform: 'win32' | 'darwin' | 'linux'
   providers: {
     list(): Promise<ProviderInfo[]>
@@ -449,7 +449,7 @@ export interface AgentHubApi {
     installed(): Promise<InstalledSkill[]>
     /** Download once, then add to each tool's shared folder. Never overwrites. */
     install(id: string, providerIds: ProviderId[]): Promise<SkillInstallOutcome[]>
-    /** Only removes a copy Agent Hub installed. */
+    /** Only removes a copy Relay installed. */
     remove(id: string, providerId: ProviderId): Promise<void>
   }
   system: {
@@ -474,7 +474,7 @@ export interface AgentHubApi {
 
 /**
  * Tauri command names (Rust #[tauri::command] fns, snake_case). Arguments are passed as an object
- * with camelCase keys matching the AgentHubApi parameter names, e.g. invoke('accounts_update', { id, patch }).
+ * with camelCase keys matching the RelayApi parameter names, e.g. invoke('accounts_update', { id, patch }).
  * Events are emitted from Rust with events::emit (src-tauri/src/events.rs), one type per AppEvents key.
  */
 export const COMMANDS = {

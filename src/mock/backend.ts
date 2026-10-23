@@ -1,11 +1,11 @@
-// In-memory AgentHubApi used when the UI runs in a plain browser. Mutations persist for the page's lifetime.
+// In-memory RelayApi used when the UI runs in a plain browser. Mutations persist for the page's lifetime.
 import type {
   Account,
   AppEvents,
   AppSettings,
   DetectedAccount,
   DirectorySkill,
-  AgentHubApi,
+  RelayApi,
   InstalledSkill,
   KnowledgeItem,
   LaunchRequest,
@@ -42,7 +42,7 @@ function importLabel(f: DetectedAccount): string {
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const clone = <T,>(x: T): T => structuredClone(x)
 
-export function createMockApi(platform: Platform): AgentHubApi {
+export function createMockApi(platform: Platform): RelayApi {
   const db = buildMockDb(platform)
   const listeners = new Map<keyof AppEvents, Set<Listener>>()
   const { home, sep } = homeRoot(platform)
@@ -171,7 +171,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
   const directory = mockDirectory()
   const installedFrom = new Map<string, string>() // "<provider>/<folder>" -> directory id
 
-  const api: AgentHubApi = {
+  const api: RelayApi = {
     platform,
     providers: {
       async list() {
@@ -415,7 +415,18 @@ export function createMockApi(platform: Platform): AgentHubApi {
         await wait(350)
         const name = folderOf(id)
         const description = featuredFor(id)?.blurb ?? 'A skill from the skills.sh directory.'
-        const body = `# ${name}\n\n${description}\n\n## When to use it\n\nWhen the task matches the description above, the agent reads the rest of this file and follows it.\n\n## Steps\n\n1. Read the request.\n2. Follow the checklist.\n3. Report what changed.`
+        const body = [
+          `# ${name}`,
+          description,
+          '## When to use it',
+          'When the task matches the description above, the agent reads the rest of this file and follows it. It loads `references/` only when a step asks for it.',
+          '## Steps',
+          '1. Read the request and find the files it touches.\n2. Follow the checklist:\n   - keep changes **small** and reversible\n   - run the project\'s own checks\n3. Report what changed, with the command that verifies it.',
+          '```bash\nnpm test -- --run\ngit diff --stat\n```',
+          '## Files',
+          '| File | What it holds |\n|---|---|\n| `SKILL.md` | These instructions |\n| `references/checklist.md` | The full checklist |\n| `scripts/check.sh` | A helper the agent may run |',
+          '> Scripts run with your permissions. See the [skills.sh guide](https://skills.sh) for how skills are reviewed.'
+        ].join('\n\n')
         return { id, name, description, body, files: 3 }
       },
       async installed() {
@@ -443,7 +454,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
       async remove(id, providerId) {
         await wait(300)
         const folder = folderOf(id)
-        if (installedFrom.get(`${providerId}/${folder}`) !== id) throw new Error("Agent Hub didn't install this copy, so it was left alone")
+        if (installedFrom.get(`${providerId}/${folder}`) !== id) throw new Error("Relay didn't install this copy, so it was left alone")
         const k = knowledge[providerId]
         k.items = k.items.filter(([kind, name]) => !(kind === 'skills' && name === folder))
         installedFrom.delete(`${providerId}/${folder}`)
@@ -466,7 +477,7 @@ export function createMockApi(platform: Platform): AgentHubApi {
       },
       async pickSetupFile() {
         await wait(150)
-        return `${home}${sep}Downloads${sep}agent-hub-setup.agenthub`
+        return `${home}${sep}Downloads${sep}relay-setup.relay`
       },
       async appDataDir() {
         return appData
@@ -484,9 +495,9 @@ export function createMockApi(platform: Platform): AgentHubApi {
           fromOs: 'windows',
           exportedAt: new Date(Date.now() - 3600e3).toISOString(),
           accounts: [
-            { key: 'x1', providerId: 'claude', label: here[0] ?? 'Work Max 20x', email: 'sam@northwind.dev', plan: 'Max 20x', hasSignIn: true, alreadyHere: here[0], targetHome: `${home}${sep}.claude` },
-            { key: 'x2', providerId: 'claude', label: 'Laptop Pro', email: 'sam.side@northwind.dev', plan: 'Pro', hasSignIn: true, targetHome: `${home}${sep}.claude-laptop` },
-            { key: 'x3', providerId: 'codex', label: 'Codex Plus', email: 'sam@northwind.dev', plan: 'Plus', hasSignIn: true, targetHome: `${home}${sep}.codex-plus` },
+            { key: 'x1', providerId: 'claude', label: here[0] ?? 'Work Max 20x', email: 'sam@example.com', plan: 'Max 20x', hasSignIn: true, alreadyHere: here[0], targetHome: `${home}${sep}.claude` },
+            { key: 'x2', providerId: 'claude', label: 'Laptop Pro', email: 'sam.laptop@example.com', plan: 'Pro', hasSignIn: true, targetHome: `${home}${sep}.claude-laptop` },
+            { key: 'x3', providerId: 'codex', label: 'Codex Plus', email: 'sam@example.com', plan: 'Plus', hasSignIn: true, targetHome: `${home}${sep}.codex-plus` },
             { key: 'x4', providerId: 'gemini', label: 'Gemini spare', plan: 'Google AI Pro', hasSignIn: false, targetHome: `${home}${sep}gemini-spare` }
           ],
           kinds: [

@@ -105,7 +105,7 @@ export function App() {
       <div className="flex h-full flex-col">
         <TitleBar />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <p className="text-md font-semibold">Agent Hub couldn't load its data</p>
+          <p className="text-md font-semibold">Relay couldn't load its data</p>
           <p className="max-w-md text-muted">{loadError}</p>
           <button className="btn btn-primary" onClick={() => init()}>
             Try again

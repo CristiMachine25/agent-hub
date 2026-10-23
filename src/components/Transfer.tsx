@@ -50,7 +50,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
   const run = async () => {
     setError(null)
     const date = new Date().toISOString().slice(0, 10)
-    const path = await api.system.pickSavePath(`agent-hub-setup-${date}.agenthub`)
+    const path = await api.system.pickSavePath(`relay-setup-${date}.relay`)
     if (!path) return
     setBusy(true)
     try {
@@ -93,7 +93,7 @@ export function ExportDialog({ open, onClose }: { open: boolean; onClose: () => 
       }
     >
       <p className="mb-3 text-muted">
-        Saves one file you can open in Agent Hub on another computer (Windows, macOS or Linux). Importing it only adds what's missing there.
+        Saves one file you can open in Relay on another computer (Windows, macOS or Linux). Importing it only adds what's missing there.
       </p>
       <fieldset className="mb-3">
         <legend className="mb-1 font-medium">Accounts</legend>
@@ -258,7 +258,7 @@ export function ImportDialog({ open, onClose }: { open: boolean; onClose: () => 
       ) : !preview ? (
         <div className="flex items-center gap-2 py-6 text-muted" role="status">
           {busy ? <Loader2 size={16} className="animate-spin" /> : null}
-          {error ?? (busy ? 'Reading the file…' : 'Choose an .agenthub file…')}
+          {error ?? (busy ? 'Reading the file…' : 'Choose a .relay file…')}
         </div>
       ) : (
         <div className="space-y-3">

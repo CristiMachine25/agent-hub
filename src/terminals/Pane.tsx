@@ -185,10 +185,10 @@ function Header({ index, pane, account }: { index: number; pane: PaneConfig; acc
       )}
       <span className={clsx('pane-status ml-auto shrink-0 truncate pl-2 text-xs', info?.exited ? 'text-muted' : 'text-faint')}>{status}</span>
       <div className="ml-auto flex shrink-0 items-center">
-        <button className="btn btn-ghost btn-sm px-1.5" data-tip="Restart this CLI in a new session" aria-label="Restart" onClick={() => void restart(index, false)}>
+        <button className="pane-restart btn btn-ghost btn-sm px-1.5" data-tip="Restart this CLI in a new session" aria-label="Restart" onClick={() => void restart(index, false)}>
           <RotateCw size={14} />
         </button>
-        <button className="btn btn-ghost btn-sm px-1.5" data-tip="Restart and resume the last session" aria-label="Resume last session" onClick={() => void restart(index, true)}>
+        <button className="pane-restart btn btn-ghost btn-sm px-1.5" data-tip="Restart and resume the last session" aria-label="Resume last session" onClick={() => void restart(index, true)}>
           <RotateCcw size={14} />
         </button>
         <button

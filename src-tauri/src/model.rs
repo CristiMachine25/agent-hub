@@ -394,7 +394,7 @@ pub struct AppSettings {
     pub permission_modes: PermissionModes,
 }
 
-/// Permission mode Agent Hub starts each CLI in, per tool. Values are the tool's own mode names;
+/// Permission mode Relay starts each CLI in, per tool. Values are the tool's own mode names;
 /// "default" leaves the CLI's own setting alone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -533,7 +533,7 @@ pub struct KnowledgeAccount {
 #[serde(rename_all = "camelCase")]
 pub struct ProviderKnowledge {
     pub provider_id: ProviderId,
-    /// The Agent Hub shared folder for this tool.
+    /// The Relay shared folder for this tool.
     pub folder: String,
     /// The tool's main folder (default home) the shared folder is seeded from.
     pub main_folder: String,
@@ -582,7 +582,7 @@ pub struct InstalledSkill {
     pub provider_id: ProviderId,
     /// The folder name.
     pub name: String,
-    /// The directory id when Agent Hub installed it, else None (copied from the main folder or added by hand).
+    /// The directory id when Relay installed it, else None (copied from the main folder or added by hand).
     pub id: Option<String>,
 }
 
@@ -883,7 +883,7 @@ mod contract_tests {
             accounts: vec![KnowledgeAccount { account_id: s("acc-1"), label: s("Work"), is_default_home: false, kinds: vec![s("skills")] }],
         };
         f.value("ProviderKnowledge", "T.ProviderKnowledge", &knowledge);
-        f.value("ReseedResult", "Awaited<ReturnType<T.AgentHubApi['knowledge']['reseed']>>", &ReseedResult { added: 1, kept: 2 });
+        f.value("ReseedResult", "Awaited<ReturnType<T.RelayApi['knowledge']['reseed']>>", &ReseedResult { added: 1, kept: 2 });
 
         let skill = DirectorySkill { id: s("owner/repo/pdf"), name: s("pdf"), source: s("owner/repo"), installs: 10 };
         f.value("DirectorySkill", "T.DirectorySkill", &skill);

@@ -32,7 +32,7 @@ export function Accounts() {
       <Page title="Accounts">
         <EmptyState
           title="No accounts yet"
-          body="Start by letting Agent Hub look for the CLI profiles already on this computer. Nothing is changed until you import."
+          body="Start by letting Relay look for the CLI profiles already on this computer. Nothing is changed until you import."
           action={
             <button className="btn btn-primary" onClick={() => setAddOpen(true)}>
               <Search size={15} /> Find accounts on this computer
@@ -275,7 +275,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                     ? `${creditsText(snap.credits)}.`
                     : snap?.error
                       ? 'No limits to show for this account.'
-                      : 'No usage data yet. Agent Hub checks every few minutes.'}
+                      : 'No usage data yet. Relay checks every few minutes.'}
               </p>
             )}
             {canLaunch && (!snap || snap.source === 'none' || snap.source === 'manual' || !snap.windows.length) && <ManualLimits account={a} />}
@@ -331,7 +331,7 @@ function AccountDetail({ account: a }: { account: Account }) {
                   Launched with <code className="code">{prov.homeEnvVar}</code> pointing here.{' '}
                 </>
               ) : null}
-              {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from Agent Hub yet.'}
+              {a.launchCount ? `Launched ${plural(a.launchCount, 'time')}, last ${formatAgo(a.lastLaunchedAt, now)}.` : 'Not launched from Relay yet.'}
             </p>
           </section>
 
@@ -603,7 +603,7 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
       }
     >
       <p className="text-muted">
-        Agent Hub stops tracking and launching this account. Its sign-in and chats stay in its folder{locked ? '' : ' unless you delete it'}.
+        Relay stops tracking and launching this account. Its sign-in and chats stay in its folder{locked ? '' : ' unless you delete it'}.
       </p>
       <label className={clsx('mt-4 flex items-start gap-2.5', locked && 'opacity-60')}>
         <input type="checkbox" className="mt-0.5" checked={wipe} disabled={locked} aria-describedby={noteId} onChange={(e) => setDeleteHome(e.target.checked)} />
@@ -611,8 +611,8 @@ function RemoveDialog({ open, onClose, account: a }: { open: boolean; onClose: (
       </label>
       <div id={noteId} className={clsx('pl-6', locked && 'opacity-60')}>
         <span className="code block break-all text-muted">{a.homeDir}</span>
-        {main && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Agent Hub never deletes it.</span>}
-        {outside && <span className="block text-xs text-muted">Agent Hub didn't create this folder, so it never deletes it.</span>}
+        {main && <span className="block text-xs text-muted">This is {PROVIDER_META[a.providerId].short}'s main folder, so Relay never deletes it.</span>}
+        {outside && <span className="block text-xs text-muted">Relay didn't create this folder, so it never deletes it.</span>}
         {wipe && <span className="block text-xs text-empty">This can't be undone. Sessions not shared with another account are lost.</span>}
       </div>
     </Dialog>
@@ -694,7 +694,7 @@ function ManualLimits({ account }: { account: Account }) {
         }
       >
         <p className="mb-3 text-muted">
-          Copy what the provider's usage page shows. Agent Hub uses these for recommendations and warnings until live limits are available.
+          Copy what the provider's usage page shows. Relay uses these for recommendations and warnings until live limits are available.
         </p>
         <div className="grid grid-cols-[1fr_88px_104px_28px] items-center gap-2 text-xs text-muted">
           <span>Window</span>

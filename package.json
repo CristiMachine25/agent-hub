@@ -1,10 +1,10 @@
 {
-  "name": "switchyard",
-  "productName": "Agent Hub",
+  "name": "relay",
+  "productName": "Relay",
   "version": "0.2.0",
   "description": "Manage all your AI subscriptions (Claude, ChatGPT/Codex, Gemini, Copilot) in one place: see usage limits, get reset alerts, and launch any CLI or desktop app with the right account.",
   "license": "MIT",
-  "author": "Agent Hub contributors",
+  "author": "Relay contributors",
   "type": "module",
   "engines": {
     "node": ">=22.12"
@@ -15,6 +15,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
+    "icons:build": "node scripts/generate-icons.mjs",
     "test": "vitest run",
     "app:dev": "tauri dev",
     "app:build": "tauri build"

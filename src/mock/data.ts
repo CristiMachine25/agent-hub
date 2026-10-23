@@ -128,7 +128,7 @@ function seeds(now: number): Seed[] {
         id: 'acc-work',
         providerId: 'claude',
         label: 'Work Max 20x',
-        email: 'sam@northwind.dev',
+        email: 'sam@example.com',
         plan: 'Max 20x',
         dir: '.claude',
         isDefaultHome: true,
@@ -154,7 +154,7 @@ function seeds(now: number): Seed[] {
         id: 'acc-personal',
         providerId: 'claude',
         label: 'Personal Pro',
-        email: 'sam.k@fastmail.com',
+        email: 'sam.personal@example.com',
         plan: 'Pro',
         dir: '.claude-personal',
         color: '#D95926',
@@ -177,7 +177,7 @@ function seeds(now: number): Seed[] {
         id: 'acc-h2',
         providerId: 'claude',
         label: 'H2 Max',
-        email: 'h2@northwind.dev',
+        email: 'h2@example.com',
         plan: 'Max 5x',
         dir: '.claude-h2',
         color: '#199E70',
@@ -201,7 +201,7 @@ function seeds(now: number): Seed[] {
         id: 'acc-gpt-pro',
         providerId: 'codex',
         label: 'ChatGPT Pro',
-        email: 'sam@northwind.dev',
+        email: 'sam@example.com',
         plan: 'Pro',
         dir: '.codex',
         isDefaultHome: true,
@@ -224,8 +224,8 @@ function seeds(now: number): Seed[] {
       account: {
         id: 'acc-plus',
         providerId: 'codex',
-        label: 'Plus side account',
-        email: 'sam.side@gmail.com',
+        label: 'Personal Plus',
+        email: 'sam.side@example.com',
         plan: 'Plus',
         dir: '.codex-plus',
         color: '#D55181',
@@ -248,7 +248,7 @@ function seeds(now: number): Seed[] {
         id: 'acc-gemini',
         providerId: 'gemini',
         label: 'Gemini AI Pro',
-        email: 'sam.k@gmail.com',
+        email: 'sam.k@example.com',
         plan: 'AI Pro',
         dir: '.gemini',
         isDefaultHome: true,
@@ -299,10 +299,10 @@ function seeds(now: number): Seed[] {
       account: {
         id: 'acc-client',
         providerId: 'claude',
-        label: 'Client team seat',
-        email: 'sam@acme-client.com',
+        label: 'Team seat',
+        email: 'sam.team@example.com',
         plan: 'Team',
-        dir: '.claude-acme',
+        dir: '.claude-team',
         color: '#008300',
         tags: [],
         status: 'needs-login',
@@ -388,7 +388,7 @@ export function buildMockDb(p: Platform, now: number = Date.now()): MockDb {
       id: 'n2',
       kind: 'limit-reached',
       accountId: 'acc-plus',
-      title: 'Plus side account hit its 5-hour limit',
+      title: 'Personal Plus hit its 5-hour limit',
       body: 'It comes back in about 1h 20m. ChatGPT Pro has 78% of its session left.',
       createdAt: ago(70 * MIN),
       read: false
@@ -406,7 +406,7 @@ export function buildMockDb(p: Platform, now: number = Date.now()): MockDb {
       id: 'n4',
       kind: 'login-required',
       accountId: 'acc-client',
-      title: 'Client team seat needs you to sign in again',
+      title: 'Team seat needs you to sign in again',
       body: 'Claude rejected the saved sign-in. Open the account and choose Sign in.',
       createdAt: ago(20 * HOUR),
       read: true
@@ -450,11 +450,11 @@ export function buildMockDb(p: Platform, now: number = Date.now()): MockDb {
   }
 
   const detected: DetectedAccount[] = [
-    { providerId: 'claude', homeDir: `${home}${sep}.claude`, isDefaultHome: true, email: 'sam@northwind.dev', plan: 'Max 20x', loggedIn: true, alreadyManaged: true },
-    { providerId: 'claude', homeDir: `${home}${sep}.claude-h3`, isDefaultHome: false, email: 'h3@northwind.dev', plan: 'Max 5x', loggedIn: true, alreadyManaged: false, hint: `found via ${p === 'win32' ? '~\\.local\\bin\\claude-h3.cmd' : '~/.local/bin/claude-h3'}` },
-    { providerId: 'codex', homeDir: `${home}${sep}.codex`, isDefaultHome: true, email: 'sam@northwind.dev', plan: 'Pro', loggedIn: true, alreadyManaged: true },
+    { providerId: 'claude', homeDir: `${home}${sep}.claude`, isDefaultHome: true, email: 'sam@example.com', plan: 'Max 20x', loggedIn: true, alreadyManaged: true },
+    { providerId: 'claude', homeDir: `${home}${sep}.claude-h3`, isDefaultHome: false, email: 'h3@example.com', plan: 'Max 5x', loggedIn: true, alreadyManaged: false, hint: `found via ${p === 'win32' ? '~\\.local\\bin\\claude-h3.cmd' : '~/.local/bin/claude-h3'}` },
+    { providerId: 'codex', homeDir: `${home}${sep}.codex`, isDefaultHome: true, email: 'sam@example.com', plan: 'Pro', loggedIn: true, alreadyManaged: true },
     { providerId: 'codex', homeDir: `${home}${sep}.codex-research`, isDefaultHome: false, loggedIn: false, alreadyManaged: false, hint: 'found via CODEX_HOME in your shell profile' },
-    { providerId: 'gemini', homeDir: `${home}${sep}.gemini`, isDefaultHome: true, email: 'sam.k@gmail.com', loggedIn: true, alreadyManaged: true }
+    { providerId: 'gemini', homeDir: `${home}${sep}.gemini`, isDefaultHome: true, email: 'sam.k@example.com', loggedIn: true, alreadyManaged: true }
   ]
 
   return { providers: mockProviders(p), accounts, usage, history, activity, notifications, settings, detected }

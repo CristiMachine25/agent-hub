@@ -1,4 +1,4 @@
-// Agent Hub landing page: segmented meters, the hero handoff demo, and the screen tour tabs.
+// Relay landing page: segmented meters, the hero handoff demo, and the screen tour tabs.
 (function () {
   "use strict";
 

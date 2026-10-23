@@ -3372,6 +3372,47 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
+name = "relay"
+version = "0.2.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
+ "getrandom 0.2.17",
+ "glob",
+ "hex",
+ "junction",
+ "libc",
+ "log",
+ "once_cell",
+ "pbkdf2",
+ "portable-pty",
+ "regex",
+ "reqwest 0.12.28",
+ "same-file",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tempfile",
+ "tokio",
+ "toml 0.8.2",
+ "uuid",
+ "walkdir",
+ "which",
+]
+
+[[package]]
 name = "reqwest"
 version = "0.12.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4040,47 +4081,6 @@ dependencies = [
  "base64 0.21.7",
  "serde",
  "serde_json",
-]
-
-[[package]]
-name = "switchyard"
-version = "0.2.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "async-trait",
- "base64 0.22.1",
- "chrono",
- "dirs 5.0.1",
- "getrandom 0.2.17",
- "glob",
- "hex",
- "junction",
- "libc",
- "log",
- "once_cell",
- "pbkdf2",
- "portable-pty",
- "regex",
- "reqwest 0.12.28",
- "same-file",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tempfile",
- "tokio",
- "toml 0.8.2",
- "uuid",
- "walkdir",
- "which",
 ]
 
 [[package]]

@@ -79,7 +79,7 @@ export function folderOf(id: string): string {
 }
 
 /**
- * Where a skill stands in one tool's shared folder: installed by Agent Hub from this id, a
+ * Where a skill stands in one tool's shared folder: installed by Relay from this id, a
  * different skill already using its folder name (copied from the main folder, added by hand or
  * from another repo), or not there.
  */
@@ -92,3 +92,18 @@ export function installState(id: string, providerId: ProviderId, installed: Inst
 
 export const skillPageUrl = (id: string) => `https://skills.sh/${id}`
 export const repoUrl = (source: string) => `https://github.com/${source}`
+
+/**
+ * The installed list, one entry per skill: copies Relay installed group by their directory id,
+ * the rest (copied from the main folder or added by hand) by folder name. Sorted by name.
+ */
+export function installedSkills(installed: InstalledSkill[]): { key: string; id: string | null; name: string; providers: ProviderId[] }[] {
+  const byKey = new Map<string, { key: string; id: string | null; name: string; providers: ProviderId[] }>()
+  for (const s of installed) {
+    const key = s.id ?? `folder:${s.name}`
+    const entry = byKey.get(key) ?? { key, id: s.id, name: s.name, providers: [] }
+    if (!entry.providers.includes(s.providerId)) entry.providers.push(s.providerId)
+    byKey.set(key, entry)
+  }
+  return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name) || (a.id ? 0 : 1) - (b.id ? 0 : 1))
+}

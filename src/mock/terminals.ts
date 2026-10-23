@@ -1,6 +1,6 @@
 // Fake embedded terminals for the browser preview: prints a banner, echoes what you type, and understands
 // a few demo commands (/limit simulates this account hitting its limit, /exit ends the session).
-import type { Account, AppEvents, AgentHubApi, ProviderInfo, TerminalInfo, UsageSnapshot } from '@shared/types'
+import type { Account, AppEvents, RelayApi, ProviderInfo, TerminalInfo, UsageSnapshot } from '@shared/types'
 
 interface Deps {
   account(id: string): Account | undefined
@@ -27,7 +27,7 @@ const color = (hex: string, s: string) => {
 }
 const BRAND: Record<Account['providerId'], string> = { claude: '#D97757', codex: '#10A37F', gemini: '#4E86F7', copilot: '#8B6CEF' }
 
-export function createMockTerminals(deps: Deps): AgentHubApi['terminals'] {
+export function createMockTerminals(deps: Deps): RelayApi['terminals'] {
   const terms = new Map<string, Fake>()
   let seq = 0
 
