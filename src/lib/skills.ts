@@ -94,7 +94,7 @@ export const skillPageUrl = (id: string) => `https://skills.sh/${id}`
 export const repoUrl = (source: string) => `https://github.com/${source}`
 
 /**
- * The installed list, one entry per skill: copies Agent Hub installed group by their directory id,
+ * The installed list, one entry per skill: copies Relay installed group by their directory id,
  * the rest (copied from the main folder or added by hand) by folder name. Sorted by name.
  */
 export function installedSkills(installed: InstalledSkill[]): { key: string; id: string | null; name: string; providers: ProviderId[] }[] {
