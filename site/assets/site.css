@@ -1,4 +1,4 @@
-/* Agent Hub landing page. Same tokens as the app (docs/DESIGN.md): warm charcoal, periwinkle actions,
+/* Agent Hub landing page. Same tokens as the app (docs/DESIGN.md): cool near-black, periwinkle actions,
    quota colors that only ever mean "how much is left". */
 
 @font-face {
@@ -36,20 +36,20 @@
 
 :root {
   color-scheme: dark;
-  --ground: #1a1918;
-  --panel: #222120;
-  --raised: #2a2826;
-  --line: #35322f;
-  --text: #eceae4;
-  --muted: #a3a097;
-  --faint: #7d7a72;
-  --act: #9aa5ff;
-  --act-ink: #16172e;
-  --full: #5ec98c;
-  --half: #e2be5c;
-  --low: #ec8d4a;
-  --empty: #f06868;
-  --off: #34312e;
+  --ground: #0e0f12;
+  --panel: #16181c;
+  --raised: #212329;
+  --line: #2b2e35;
+  --text: #e9eaef;
+  --muted: #9da1ac;
+  --faint: #868a95;
+  --act: #86a0fb;
+  --act-ink: #0a0f28;
+  --full: #5ed6a2;
+  --half: #e6c25f;
+  --low: #ef904e;
+  --empty: #f36d6d;
+  --off: #272a31;
   --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
   --sans: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, Consolas, monospace;
